@@ -83,3 +83,9 @@ logs/
 coverage.out
 coverage.html
 server
+
+# Claude Code worktrees
+.claude/
+
+# Next.js build output (root level)
+.next/
