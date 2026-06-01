@@ -1,0 +1,22 @@
+# Ollama AI Service
+# Shared AI service for all projects on buyorsell24_masaar_shared network
+# Usage: docker compose -f docker-compose.ollama.yml up -d
+
+services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    networks:
+      - buyorsell24_masaar_shared
+
+networks:
+  buyorsell24_masaar_shared:
+    external: true
+
+volumes:
+  ollama_data:

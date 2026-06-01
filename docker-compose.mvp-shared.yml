@@ -1,0 +1,175 @@
+# Ultra-Lightweight MVP Docker Compose (Shared Services)
+# Usage: docker compose -f docker-compose.mvp-shared.yml up -d
+#
+# This config REUSES existing BuyOrSell24 services:
+# - Redis (port 6379) - shared cache
+# - Meilisearch (port 7700) - shared search
+#
+# Resource usage:
+# - Only PostgreSQL + API + Frontend
+# - 1.75 CPU, 2.5GB RAM total
+# - Perfect for shared server
+#
+# Prerequisites:
+# - BuyOrSell24 containers running (redis, meilisearch)
+# - Docker network: buyorsell24_default
+#
+# Verify network exists:
+#   docker network ls | grep buyorsell24
+#
+# If not found, create it:
+#   docker network create buyorsell24_default
+
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: masaar-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: masaar
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-masaar}
+      POSTGRES_DB: masaar
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8"
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U masaar"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 2G
+        reservations:
+          cpus: '0.25'
+          memory: 1G
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "3"
+
+  # ⭐ Redis: SHARED from BuyOrSell24 (port 6379)
+  # No need to run separate Redis - reuse existing
+  # This saves: 0.25 CPU, 512MB RAM
+  #
+  # Connection: redis://redis:6379
+  # Or with password: redis://:PASSWORD@redis:6379
+
+  # ⭐ Meilisearch: SHARED from BuyOrSell24 (port 7700)
+  # No need to run separate Meilisearch - reuse existing
+  # Provides full-text search for Masaar
+  #
+  # Connection: http://meilisearch:7700
+
+  api:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    container_name: masaar-api
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    env_file:
+      - .env
+    environment:
+      PORT: 8080
+      APP_ENV: production
+      DATABASE_URL: postgres://masaar:${POSTGRES_PASSWORD:-masaar}@postgres:5432/masaar?sslmode=disable
+      # ⭐ Connect to SHARED Redis (port 6379, same as BuyOrSell24)
+      REDIS_URL: redis://redis:6379
+      # If BuyOrSell24 Redis has password, use:
+      # REDIS_URL: redis://:BUYORSELL24_REDIS_PASSWORD@redis:6379
+
+      # ⭐ Connect to SHARED Meilisearch (port 7700)
+      MEILISEARCH_URL: http://meilisearch:7700
+
+      # Google Gemini API (replaces Ollama)
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-1.5-flash}
+
+      # Standard config
+      JWT_SECRET: ${JWT_SECRET}
+      WA_VERIFY_TOKEN: ${WA_VERIFY_TOKEN}
+      WA_ACCESS_TOKEN: ${WA_ACCESS_TOKEN}
+      WA_PHONE_NUMBER_ID: ${WA_PHONE_NUMBER_ID}
+      WA_BASE_URL: ${WA_BASE_URL:-https://graph.instagram.com}
+      SMTP_HOST: ${SMTP_HOST}
+      SMTP_PORT: ${SMTP_PORT}
+      SMTP_USER: ${SMTP_USER}
+      SMTP_PASSWORD: ${SMTP_PASSWORD}
+    networks:
+      - default           # Local network for postgres
+      - buyorsell24_default  # Shared network for redis + meilisearch
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/api/v1/stats"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  web:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.web
+    container_name: masaar-web
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8080}
+      NODE_ENV: production
+    networks:
+      - buyorsell24_default  # For any frontend API calls
+    depends_on:
+      - api
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 2
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "2"
+
+volumes:
+  postgres_data:
+
+networks:
+  default:
+    # Local network (for postgres)
+  buyorsell24_default:
+    external: true  # ⭐ Important: Join existing BuyOrSell24 network
+    # This allows redis, meilisearch, and other services to be shared

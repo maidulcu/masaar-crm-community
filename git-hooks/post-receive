@@ -1,0 +1,108 @@
+#!/bin/bash
+
+# Git Post-Receive Hook for Masaar CRM Auto-Deployment
+# Install this on the server at: /opt/masaar-crm/.git/hooks/post-receive
+# Makes chmod +x post-receive
+#
+# How it works:
+# 1. Developer pushes to server: git push -u origin main
+# 2. Server's post-receive hook triggers automatically
+# 3. Code is pulled, Docker images rebuilt, services restarted
+# 4. Deployment log saved for debugging
+
+set -e
+
+REPO_DIR="/opt/masaar-crm"
+DEPLOY_LOG="/var/log/masaar-deploy.log"
+BRANCH="main"
+
+# Color output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m'
+
+log() {
+    echo "[$(date +'%Y-%m-%d %H:%M:%S')] $1" | tee -a "$DEPLOY_LOG"
+}
+
+error() {
+    echo -e "${RED}[ERROR]${NC} $1" | tee -a "$DEPLOY_LOG"
+    exit 1
+}
+
+success() {
+    echo -e "${GREEN}[SUCCESS]${NC} $1" | tee -a "$DEPLOY_LOG"
+}
+
+warn() {
+    echo -e "${YELLOW}[WARN]${NC} $1" | tee -a "$DEPLOY_LOG"
+}
+
+log "=========================================="
+log "Masaar CRM Auto-Deploy Hook Triggered"
+log "=========================================="
+
+cd "$REPO_DIR" || error "Cannot cd to $REPO_DIR"
+
+# Read which branch was pushed
+while read oldrev newrev ref; do
+    PUSHED_BRANCH=${ref#refs/heads/}
+
+    if [ "$PUSHED_BRANCH" != "$BRANCH" ]; then
+        warn "Skipping $PUSHED_BRANCH (only deploying $BRANCH)"
+        continue
+    fi
+
+    log "Branch pushed: $PUSHED_BRANCH (revision: ${newrev:0:7})"
+
+    # 1. Pull latest code
+    log "Pulling latest code..."
+    git fetch origin "$BRANCH" || error "Failed to fetch"
+    git reset --hard "origin/$BRANCH" || error "Failed to reset"
+    success "Code updated"
+
+    # 2. Check .env exists
+    if [ ! -f ".env" ]; then
+        error ".env file missing! Cannot deploy without configuration."
+    fi
+    log ".env file found"
+
+    # 3. Rebuild Docker images
+    log "Rebuilding Docker images..."
+    docker compose build --no-cache api web 2>&1 | tee -a "$DEPLOY_LOG" || \
+        error "Docker build failed"
+    success "Docker images rebuilt"
+
+    # 4. Stop old containers
+    log "Stopping old containers..."
+    docker compose down || warn "No containers to stop"
+
+    # 5. Start new containers
+    log "Starting new containers..."
+    docker compose up -d || error "Failed to start containers"
+    success "Containers started"
+
+    # 6. Wait for health checks
+    log "Waiting for services to be healthy..."
+    sleep 10
+
+    # 7. Health check
+    log "Running health checks..."
+    if curl -s http://localhost:8080/api/v1/stats > /dev/null 2>&1; then
+        success "API is responding"
+    else
+        warn "API not yet responding (may still be starting)"
+    fi
+
+    # 8. Show final status
+    log "Final container status:"
+    docker compose ps | tee -a "$DEPLOY_LOG"
+
+    log "=========================================="
+    success "DEPLOYMENT COMPLETE"
+    log "=========================================="
+
+done
+
+exit 0

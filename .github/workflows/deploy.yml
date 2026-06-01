@@ -1,0 +1,35 @@
+name: Deploy to Production
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    name: Deploy to buyorsell24-prod
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          script: |
+            set -e
+            cd /root/masaar-crm
+            echo "==> Pulling latest code..."
+            git fetch origin main
+            git reset --hard origin/main
+            echo "==> Rebuilding Docker images..."
+            docker compose -f docker-compose.server.yml --env-file .env build
+            echo "==> Restarting containers..."
+            docker compose -f docker-compose.server.yml --env-file .env up -d
+            echo "==> Pruning old images..."
+            docker image prune -f
+            echo "==> Deploy complete!"
+# Deploy
+# Deploy test

@@ -1,0 +1,1153 @@
+definitions:
+  github_com_maidulcu_masaar-crm_internal_domain.Contact:
+    properties:
+      assigned_to:
+        type: string
+      created_at:
+        type: string
+      email:
+        type: string
+      full_name:
+        type: string
+      id:
+        type: string
+      language:
+        description: '"ar" | "en"'
+        type: string
+      lead_score:
+        type: integer
+      phone_wa:
+        type: string
+      updated_at:
+        type: string
+    type: object
+  github_com_maidulcu_masaar-crm_internal_domain.Deal:
+    properties:
+      amount:
+        type: number
+      close_date:
+        type: string
+      created_at:
+        type: string
+      currency:
+        type: string
+      id:
+        type: string
+      lead_id:
+        type: string
+      owner_id:
+        type: string
+      probability:
+        type: integer
+      stage:
+        $ref: '#/definitions/github_com_maidulcu_masaar-crm_internal_domain.DealStage'
+      title:
+        type: string
+      updated_at:
+        type: string
+    type: object
+  github_com_maidulcu_masaar-crm_internal_domain.DealStage:
+    enum:
+    - open
+    - won
+    - lost
+    type: string
+    x-enum-varnames:
+    - DealStageOpen
+    - DealStageWon
+    - DealStageLost
+  github_com_maidulcu_masaar-crm_internal_domain.InvoiceStatus:
+    enum:
+    - draft
+    - sent
+    - paid
+    type: string
+    x-enum-varnames:
+    - InvoiceDraft
+    - InvoiceSent
+    - InvoicePaid
+  github_com_maidulcu_masaar-crm_internal_domain.Lead:
+    properties:
+      contact:
+        allOf:
+        - $ref: '#/definitions/github_com_maidulcu_masaar-crm_internal_domain.Contact'
+        description: Joined
+      contact_id:
+        type: string
+      created_at:
+        type: string
+      currency:
+        description: 'default: AED'
+        type: string
+      deal_value:
+        type: number
+      id:
+        type: string
+      notes:
+        type: string
+      source:
+        $ref: '#/definitions/github_com_maidulcu_masaar-crm_internal_domain.LeadSource'
+      stage:
+        $ref: '#/definitions/github_com_maidulcu_masaar-crm_internal_domain.LeadStage'
+      updated_at:
+        type: string
+    type: object
+  github_com_maidulcu_masaar-crm_internal_domain.LeadSource:
+    enum:
+    - whatsapp
+    - web
+    - referral
+    - event
+    type: string
+    x-enum-varnames:
+    - SourceWhatsApp
+    - SourceWeb
+    - SourceReferral
+    - SourceEvent
+  github_com_maidulcu_masaar-crm_internal_domain.LeadStage:
+    enum:
+    - new
+    - contacted
+    - qualified
+    - proposal
+    - won
+    - lost
+    type: string
+    x-enum-varnames:
+    - StageNew
+    - StageContacted
+    - StageQualified
+    - StageProposal
+    - StageWon
+    - StageLost
+  github_com_maidulcu_masaar-crm_internal_domain.MessageDirection:
+    enum:
+    - inbound
+    - outbound
+    type: string
+    x-enum-varnames:
+    - DirectionInbound
+    - DirectionOutbound
+  github_com_maidulcu_masaar-crm_internal_domain.PaginatedResult-github_com_maidulcu_masaar-crm_internal_domain_Contact:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/github_com_maidulcu_masaar-crm_internal_domain.Contact'
+        type: array
+      limit:
+        type: integer
+      page:
+        type: integer
+      total:
+        type: integer
+    type: object
+  github_com_maidulcu_masaar-crm_internal_domain.PaginatedResult-github_com_maidulcu_masaar-crm_internal_domain_Deal:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/github_com_maidulcu_masaar-crm_internal_domain.Deal'
+        type: array
+      limit:
+        type: integer
+      page:
+        type: integer
+      total:
+        type: integer
+    type: object
+  github_com_maidulcu_masaar-crm_internal_domain.ThreadStatus:
+    enum:
+    - open
+    - closed
+    - pending
+    type: string
+    x-enum-varnames:
+    - ThreadOpen
+    - ThreadClosed
+    - ThreadPending
+  github_com_maidulcu_masaar-crm_internal_domain.VATInvoice:
+    properties:
+      deal_id:
+        type: string
+      id:
+        type: string
+      invoice_no:
+        type: string
+      issued_at:
+        type: string
+      qr_payload:
+        type: string
+      status:
+        $ref: '#/definitions/github_com_maidulcu_masaar-crm_internal_domain.InvoiceStatus'
+      subtotal:
+        type: number
+      total:
+        type: number
+      vat_amount:
+        type: number
+      vat_rate:
+        type: number
+    type: object
+  github_com_maidulcu_masaar-crm_internal_domain.WhatsAppMessage:
+    properties:
+      body:
+        type: string
+      direction:
+        $ref: '#/definitions/github_com_maidulcu_masaar-crm_internal_domain.MessageDirection'
+      id:
+        type: string
+      media_url:
+        type: string
+      sent_at:
+        type: string
+      thread_id:
+        type: string
+      wa_message_id:
+        type: string
+    type: object
+  github_com_maidulcu_masaar-crm_internal_domain.WhatsAppThread:
+    properties:
+      ai_summary:
+        type: string
+      contact:
+        allOf:
+        - $ref: '#/definitions/github_com_maidulcu_masaar-crm_internal_domain.Contact'
+        description: Joined
+      contact_id:
+        type: string
+      created_at:
+        type: string
+      id:
+        type: string
+      last_message_at:
+        type: string
+      message_count:
+        type: integer
+      messages:
+        items:
+          $ref: '#/definitions/github_com_maidulcu_masaar-crm_internal_domain.WhatsAppMessage'
+        type: array
+      thread_status:
+        $ref: '#/definitions/github_com_maidulcu_masaar-crm_internal_domain.ThreadStatus'
+      wa_account_id:
+        type: string
+    type: object
+info:
+  contact: {}
+paths:
+  /ai/summarize/{thread_id}:
+    post:
+      description: Uses Ollama (local LLM) to generate a summary of the last 50 messages
+        in a WhatsApp thread.
+      parameters:
+      - description: Thread UUID
+        in: path
+        name: thread_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            properties:
+              summary:
+                type: string
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
+        "503":
+          description: Ollama unavailable
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: AI Summarize thread
+      tags:
+      - AI
+  /auth/login:
+    post:
+      consumes:
+      - application/json
+      description: Authenticate with email and password. Returns JWT access + refresh
+        tokens.
+      parameters:
+      - description: Credentials
+        in: body
+        name: body
+        required: true
+        schema:
+          properties:
+            email:
+              type: string
+            password:
+              type: string
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            properties:
+              access_token:
+                type: string
+              expires_in:
+                type: integer
+              refresh_token:
+                type: string
+              user:
+                type: object
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
+        "429":
+          description: Too many login attempts
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
+      summary: Login
+      tags:
+      - Auth
+  /auth/logout:
+    delete:
+      consumes:
+      - application/json
+      description: Invalidate the current session. Blacklists the access token and
+        deletes the refresh token from Redis.
+      parameters:
+      - description: Refresh token to invalidate
+        in: body
+        name: body
+        schema:
+          properties:
+            refresh_token:
+              type: string
+          type: object
+      responses:
+        "204":
+          description: No Content
+      security:
+      - BearerAuth: []
+      summary: Logout
+      tags:
+      - Auth
+  /auth/refresh:
+    post:
+      consumes:
+      - application/json
+      description: Exchange a valid refresh token for a new access token.
+      parameters:
+      - description: Refresh token
+        in: body
+        name: body
+        required: true
+        schema:
+          properties:
+            refresh_token:
+              type: string
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            properties:
+              access_token:
+                type: string
+              expires_in:
+                type: integer
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
+      summary: Refresh access token
+      tags:
+      - Auth
+  /contacts:
+    get:
+      description: Returns a paginated list of contacts. Supports keyword search on
+        name, phone, and email.
+      parameters:
+      - description: Keyword search
+        in: query
+        name: search
+        type: string
+      - description: Page number (default 1)
+        in: query
+        name: page
+        type: integer
+      - description: Page size 1-100 (default 20)
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_maidulcu_masaar-crm_internal_domain.PaginatedResult-github_com_maidulcu_masaar-crm_internal_domain_Contact'
+      security:
+      - BearerAuth: []
+      summary: List contacts
+      tags:
+      - Contacts
+    post:
+      consumes:
+      - application/json
+      description: Creates a new contact. phone_wa and full_name are required.
+      parameters:
+      - description: Contact payload
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_maidulcu_masaar-crm_internal_domain.Contact'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/github_com_maidulcu_masaar-crm_internal_domain.Contact'
+        "400":
+          description: Bad Request
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Create contact
+      tags:
+      - Contacts
+  /contacts/{id}:
+    delete:
+      description: Permanently deletes a contact. Requires admin role.
+      parameters:
+      - description: Contact UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Delete contact
+      tags:
+      - Contacts
+    get:
+      description: Returns a single contact by UUID.
+      parameters:
+      - description: Contact UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_maidulcu_masaar-crm_internal_domain.Contact'
+        "400":
+          description: Bad Request
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get contact
+      tags:
+      - Contacts
+    patch:
+      consumes:
+      - application/json
+      description: Partial update — only provided fields are changed.
+      parameters:
+      - description: Contact UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Fields to update
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_maidulcu_masaar-crm_internal_domain.Contact'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_maidulcu_masaar-crm_internal_domain.Contact'
+        "400":
+          description: Bad Request
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Update contact
+      tags:
+      - Contacts
+  /deals:
+    get:
+      description: Returns a paginated list of deals.
+      parameters:
+      - description: Page (default 1)
+        in: query
+        name: page
+        type: integer
+      - description: Page size (default 20)
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_maidulcu_masaar-crm_internal_domain.PaginatedResult-github_com_maidulcu_masaar-crm_internal_domain_Deal'
+      security:
+      - BearerAuth: []
+      summary: List deals
+      tags:
+      - Deals
+    post:
+      consumes:
+      - application/json
+      description: Creates a deal linked to a lead. Owner is set automatically from
+        the JWT subject.
+      parameters:
+      - description: Deal payload (lead_id and title required)
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_maidulcu_masaar-crm_internal_domain.Deal'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/github_com_maidulcu_masaar-crm_internal_domain.Deal'
+        "400":
+          description: Bad Request
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Create deal
+      tags:
+      - Deals
+  /deals/{id}:
+    get:
+      description: Returns a single deal by UUID.
+      parameters:
+      - description: Deal UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_maidulcu_masaar-crm_internal_domain.Deal'
+        "400":
+          description: Bad Request
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get deal
+      tags:
+      - Deals
+  /deals/{id}/invoices:
+    get:
+      description: Returns all VAT invoices attached to a deal.
+      parameters:
+      - description: Deal UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/github_com_maidulcu_masaar-crm_internal_domain.VATInvoice'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List deal invoices
+      tags:
+      - Deals
+  /deals/{id}/stage:
+    patch:
+      consumes:
+      - application/json
+      description: 'Moves a deal to a new stage: open|won|lost.'
+      parameters:
+      - description: Deal UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: New stage
+        in: body
+        name: body
+        required: true
+        schema:
+          properties:
+            stage:
+              type: string
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            properties:
+              id:
+                type: string
+              stage:
+                type: string
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Update deal stage
+      tags:
+      - Deals
+  /invoices:
+    post:
+      consumes:
+      - application/json
+      description: Generates a VAT invoice (5% UAE VAT) for a deal. Invoice number
+        is auto-assigned as INV-YYYY-NNNN.
+      parameters:
+      - description: Invoice payload
+        in: body
+        name: body
+        required: true
+        schema:
+          properties:
+            deal_id:
+              type: string
+            subtotal:
+              type: number
+          type: object
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/github_com_maidulcu_masaar-crm_internal_domain.VATInvoice'
+        "400":
+          description: Bad Request
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Create VAT invoice
+      tags:
+      - Invoices
+  /invoices/{id}:
+    get:
+      parameters:
+      - description: Invoice UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_maidulcu_masaar-crm_internal_domain.VATInvoice'
+        "400":
+          description: Bad Request
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get invoice
+      tags:
+      - Invoices
+  /invoices/{id}/send:
+    post:
+      description: Transitions the invoice status from draft → sent.
+      parameters:
+      - description: Invoice UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            properties:
+              id:
+                type: string
+              status:
+                type: string
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Mark invoice as sent
+      tags:
+      - Invoices
+  /invoices/{id}/status:
+    patch:
+      consumes:
+      - application/json
+      description: Manually set invoice status to draft|sent|paid.
+      parameters:
+      - description: Invoice UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: New status
+        in: body
+        name: body
+        required: true
+        schema:
+          properties:
+            status:
+              type: string
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            properties:
+              id:
+                type: string
+              status:
+                type: string
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Update invoice status
+      tags:
+      - Invoices
+  /leads:
+    get:
+      description: Returns all leads grouped by stage for the Kanban pipeline view.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Map of stage → []Lead
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get Kanban board
+      tags:
+      - Leads
+    post:
+      consumes:
+      - application/json
+      description: Creates a new lead and broadcasts a lead.created WebSocket event.
+      parameters:
+      - description: Lead payload (contact_id required)
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_maidulcu_masaar-crm_internal_domain.Lead'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/github_com_maidulcu_masaar-crm_internal_domain.Lead'
+        "400":
+          description: Bad Request
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Create lead
+      tags:
+      - Leads
+  /leads/{id}:
+    get:
+      description: Returns a single lead with its contact joined.
+      parameters:
+      - description: Lead UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_maidulcu_masaar-crm_internal_domain.Lead'
+        "400":
+          description: Bad Request
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get lead
+      tags:
+      - Leads
+  /leads/{id}/stage:
+    patch:
+      consumes:
+      - application/json
+      description: Updates the pipeline stage of a lead (drag-drop). Broadcasts lead.stage_changed
+        event.
+      parameters:
+      - description: Lead UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: 'New stage: new|contacted|qualified|proposal|won|lost'
+        in: body
+        name: body
+        required: true
+        schema:
+          properties:
+            stage:
+              type: string
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            properties:
+              lead_id:
+                type: string
+              stage:
+                type: string
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Move lead to stage
+      tags:
+      - Leads
+  /notifications:
+    get:
+      description: Returns the authenticated user's notifications, newest first.
+      parameters:
+      - description: Page (default 1)
+        in: query
+        name: page
+        type: integer
+      - description: Page size (default 20)
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              properties:
+                body:
+                  type: string
+                created_at:
+                  type: string
+                data:
+                  type: string
+                id:
+                  type: string
+                read:
+                  type: boolean
+                title:
+                  type: string
+                type:
+                  type: string
+                user_id:
+                  type: string
+              type: object
+            type: array
+      security:
+      - BearerAuth: []
+      summary: List notifications
+      tags:
+      - Notifications
+  /notifications/{id}/read:
+    patch:
+      description: Marks a notification as read. Validates ownership against the JWT
+        subject.
+      parameters:
+      - description: Notification UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Mark notification read
+      tags:
+      - Notifications
+  /threads:
+    get:
+      description: Returns paginated WhatsApp conversation threads with contact details.
+      parameters:
+      - description: 'Filter by status: open|pending|closed'
+        in: query
+        name: status
+        type: string
+      - description: Page number (default 1)
+        in: query
+        name: page
+        type: integer
+      - description: Page size (default 20)
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/github_com_maidulcu_masaar-crm_internal_domain.WhatsAppThread'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: List WhatsApp threads
+      tags:
+      - WhatsApp
+  /threads/{id}/close:
+    post:
+      description: Sets thread_status to closed.
+      parameters:
+      - description: Thread UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Close thread
+      tags:
+      - WhatsApp
+  /threads/{id}/messages:
+    get:
+      description: Returns messages for a WhatsApp thread, ordered by sent_at ascending.
+      parameters:
+      - description: Thread UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Max messages to return (default 100)
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/github_com_maidulcu_masaar-crm_internal_domain.WhatsAppMessage'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get thread messages
+      tags:
+      - WhatsApp
+swagger: "2.0"

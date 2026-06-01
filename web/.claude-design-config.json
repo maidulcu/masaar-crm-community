@@ -1,0 +1,32 @@
+{
+  "designSystem": {
+    "name": "Masaar Design System",
+    "version": "1.0.0",
+    "brand": {
+      "primaryColor": "#2563eb",
+      "accentColor": "#d97706",
+      "fonts": {
+        "english": "Inter, sans-serif",
+        "arabic": "Cairo, sans-serif"
+      }
+    },
+    "components": [
+      "Button",
+      "Card",
+      "Modal",
+      "DataTable",
+      "KanbanColumn",
+      "MessageBubble",
+      "StatCard",
+      "LanguageToggle"
+    ],
+    "rtlSupport": true,
+    "darkMode": "class"
+  },
+  "techStack": {
+    "frontend": "Next.js 14 + Tailwind CSS + TypeScript",
+    "state": "Zustand",
+    "i18n": "next-intl",
+    "icons": "lucide-react"
+  }
+}

@@ -1,0 +1,201 @@
+# Nginx Configuration for Masaar CRM
+# Copy relevant sections to your nginx config (usually /etc/nginx/sites-available/default)
+# Then test: sudo nginx -t
+# Reload: sudo systemctl reload nginx
+
+# ============================================================
+# UPSTREAM DEFINITIONS (add to main nginx.conf or sites-enabled)
+# ============================================================
+
+upstream masaar_api {
+    server localhost:8080;
+}
+
+upstream masaar_web {
+    server localhost:3000;
+}
+
+# ============================================================
+# REDIRECT HTTP TO HTTPS (add these server blocks)
+# ============================================================
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name api.yourdomain.com crm.yourdomain.com;
+
+    # Let's Encrypt verification
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+
+    # Redirect all HTTP to HTTPS
+    location / {
+        return 301 https://$server_name$request_uri;
+    }
+}
+
+# ============================================================
+# MASAAR API (HTTPS)
+# ============================================================
+
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name api.yourdomain.com;
+
+    # SSL Configuration (Let's Encrypt)
+    ssl_certificate /etc/letsencrypt/live/api.yourdomain.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/api.yourdomain.com/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers HIGH:!aNULL:!MD5;
+    ssl_prefer_server_ciphers on;
+
+    # Security headers
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options "DENY" always;
+    add_header X-XSS-Protection "1; mode=block" always;
+
+    # Gzip compression
+    gzip on;
+    gzip_types application/json application/javascript text/css text/plain;
+    gzip_min_length 1024;
+
+    # Proxy to Masaar API
+    location / {
+        proxy_pass http://masaar_api;
+        proxy_http_version 1.1;
+
+        # Headers for reverse proxy
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Upgrade $http_upgrade;
+
+        # Timeouts
+        proxy_connect_timeout 60s;
+        proxy_send_timeout 60s;
+        proxy_read_timeout 60s;
+
+        # Buffering
+        proxy_buffering on;
+        proxy_buffer_size 4k;
+        proxy_buffers 8 4k;
+    }
+
+    # WebSocket support
+    location /ws {
+        proxy_pass http://masaar_api;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 86400s;
+        proxy_send_timeout 86400s;
+    }
+
+    # Logs
+    access_log /var/log/nginx/masaar-api-access.log;
+    error_log /var/log/nginx/masaar-api-error.log;
+}
+
+# ============================================================
+# MASAAR CRM FRONTEND (HTTPS)
+# ============================================================
+
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name crm.yourdomain.com;
+
+    # SSL Configuration (Let's Encrypt)
+    ssl_certificate /etc/letsencrypt/live/crm.yourdomain.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/crm.yourdomain.com/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers HIGH:!aNULL:!MD5;
+    ssl_prefer_server_ciphers on;
+
+    # Security headers
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-XSS-Protection "1; mode=block" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+
+    # Gzip compression
+    gzip on;
+    gzip_types text/plain text/css text/javascript application/javascript application/json;
+    gzip_min_length 1024;
+
+    # Cache static assets
+    location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {
+        proxy_pass http://masaar_web;
+        proxy_cache_valid 200 60d;
+        expires 60d;
+        add_header Cache-Control "public, immutable";
+    }
+
+    # Next.js app
+    location / {
+        proxy_pass http://masaar_web;
+        proxy_http_version 1.1;
+
+        # Headers for reverse proxy
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # Timeouts
+        proxy_connect_timeout 60s;
+        proxy_send_timeout 60s;
+        proxy_read_timeout 60s;
+
+        # Buffering
+        proxy_buffering on;
+        proxy_buffer_size 4k;
+        proxy_buffers 8 4k;
+    }
+
+    # Logs
+    access_log /var/log/nginx/masaar-web-access.log;
+    error_log /var/log/nginx/masaar-web-error.log;
+}
+
+# ============================================================
+# USAGE INSTRUCTIONS
+# ============================================================
+
+# 1. Install nginx (if not already installed):
+#    sudo apt-get update && sudo apt-get install -y nginx
+#
+# 2. Backup existing config:
+#    sudo cp /etc/nginx/sites-available/default /etc/nginx/sites-available/default.bak
+#
+# 3. Edit nginx config:
+#    sudo nano /etc/nginx/sites-available/default
+#
+# 4. Add the upstream blocks and server blocks from this file
+#
+# 5. Test configuration:
+#    sudo nginx -t
+#
+# 6. Reload nginx:
+#    sudo systemctl reload nginx
+#
+# 7. Get SSL certificates:
+#    sudo certbot certonly --nginx -d api.yourdomain.com -d crm.yourdomain.com
+#
+# 8. Update this config to use the Let's Encrypt paths, then:
+#    sudo nginx -t
+#    sudo systemctl reload nginx
+#
+# 9. Verify:
+#    curl https://api.yourdomain.com/api/v1/stats
+#    curl https://crm.yourdomain.com

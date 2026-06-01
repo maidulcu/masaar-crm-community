@@ -1,0 +1,49 @@
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Docker
+Dockerfile
+docker/
+docker-compose*.yml
+.dockerignore
+
+# Node/Frontend
+node_modules/
+npm-debug.log
+yarn-error.log
+.next/
+dist/
+build/
+
+# Go
+*.out
+*.test
+vendor/
+.env.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*.swn
+*~
+.DS_Store
+
+# OS
+.env
+.env.*.local
+*.log
+temp/
+tmp/
+
+# Development
+dev.log
+debug.log
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+.circleci/

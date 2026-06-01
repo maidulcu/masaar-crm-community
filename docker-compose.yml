@@ -1,0 +1,154 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:16-alpine
+    container_name: masaar-postgres
+    environment:
+      POSTGRES_USER: ${DB_USER:-masaar}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-masaar}
+      POSTGRES_DB: ${DB_NAME:-masaar}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-masaar} -d ${DB_NAME:-masaar}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - masaar-network
+
+  # Redis Cache & Session Store
+  redis:
+    image: redis:7-alpine
+    container_name: masaar-redis
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - masaar-network
+
+  # Ollama LLM (Optional - Large ~5GB download)
+  ollama:
+    image: ollama/ollama:latest
+    container_name: masaar-ollama
+    environment:
+      OLLAMA_HOST: 0.0.0.0:11434
+    volumes:
+      - ollama_data:/root/.ollama
+    ports:
+      - "11434:11434"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    networks:
+      - masaar-network
+    # Note: First run will pull llama3 model (~5GB). Be patient.
+
+  # Masaar CRM Backend
+  masaar:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: masaar-backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      ollama:
+        condition: service_healthy
+    environment:
+      # Server
+      PORT: ${PORT:-8080}
+      APP_ENV: ${APP_ENV:-production}
+
+      # Database
+      DATABASE_URL: postgres://${DB_USER:-masaar}:${DB_PASSWORD:-masaar}@postgres:5432/${DB_NAME:-masaar}?sslmode=disable
+
+      # Redis
+      REDIS_URL: redis://redis:6379
+
+      # JWT
+      JWT_SECRET: ${JWT_SECRET:-change-me-to-random-string-at-least-32-chars}
+      JWT_ACCESS_EXPIRY_MIN: ${JWT_ACCESS_EXPIRY_MIN:-15}
+      JWT_REFRESH_EXPIRY_DAYS: ${JWT_REFRESH_EXPIRY_DAYS:-7}
+
+      # WhatsApp (Optional)
+      WA_VERIFY_TOKEN: ${WA_VERIFY_TOKEN:-masaar-webhook-token}
+      WA_API_VERSION: ${WA_API_VERSION:-v19.0}
+      WA_PHONE_NUMBER_ID: ${WA_PHONE_NUMBER_ID:-}
+      WA_ACCESS_TOKEN: ${WA_ACCESS_TOKEN:-}
+      WA_BASE_URL: ${WA_BASE_URL:-https://graph.instagram.com}
+
+      # SMTP Email (Optional)
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM_EMAIL: ${SMTP_FROM_EMAIL:-noreply@masaar.local}
+      SMTP_FROM_NAME: ${SMTP_FROM_NAME:-Masaar CRM}
+
+      # Ollama LLM
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3}
+
+      # BuyOrSell24 Integration (Optional)
+      BOS24_TOKEN: ${BOS24_TOKEN:-}
+
+    ports:
+      - "${PORT:-8080}:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - masaar-network
+    restart: unless-stopped
+
+  # Next.js Frontend (Optional)
+  frontend:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    container_name: masaar-frontend
+    depends_on:
+      - masaar
+    environment:
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8080}
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - masaar-network
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  ollama_data:
+    driver: local
+
+networks:
+  masaar-network:
+    driver: bridge

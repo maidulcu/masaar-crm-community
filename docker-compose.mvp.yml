@@ -1,0 +1,198 @@
+# Lightweight MVP Docker Compose (Resource Optimized)
+# Usage: docker compose -f docker-compose.mvp.yml up -d
+#
+# Optimized for:
+# - Shared server with other projects
+# - Expected max 100 users in 6 months
+# - Minimal resource usage
+# - Google Gemini API instead of local Ollama
+#
+# Resource comparison:
+# Standard: 10 CPU, 21GB RAM
+# MVP:      2.25 CPU, 4.5GB RAM (70% savings!)
+# Saved:    7.75 CPU, 16.5GB RAM for other projects
+
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: masaar-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: masaar
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-masaar}
+      POSTGRES_DB: masaar
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8"
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U masaar"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 2G
+        reservations:
+          cpus: '0.25'
+          memory: 1G
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "3"
+        labels: "service=postgres"
+
+  redis:
+    image: redis:7-alpine
+    container_name: masaar-redis
+    restart: unless-stopped
+    ports:
+      - "6380:6380"
+    command: redis-server --requirepass ${REDIS_PASSWORD:-masaar} --port 6380 --maxmemory 512mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-p", "6380", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 256M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "2"
+        labels: "service=redis"
+
+  # ⭐ Ollama REMOVED for MVP
+  # Frees up: 4 CPU, 8GB RAM, 5GB disk
+  # Reason: Using Google Gemini API instead (cheaper, easier, no maintenance)
+  # Cost: ~$0.40/month (vs $150/month in compute)
+  #
+  # To add back in future:
+  # 1. Uncomment ollama service below
+  # 2. Update api environment: OLLAMA_BASE_URL=http://ollama:11434
+  # 3. Change go.mod to use local AI client
+  # 4. docker compose -f docker-compose.mvp.yml up -d
+
+  # ollama:
+  #   image: ollama/ollama:latest
+  #   container_name: masaar-ollama
+  #   restart: unless-stopped
+  #   ports:
+  #     - "11434:11434"
+  #   volumes:
+  #     - ollama_data:/root/.ollama
+  #   deploy:
+  #     resources:
+  #       limits:
+  #         cpus: '4'
+  #         memory: 8G
+  #       reservations:
+  #         cpus: '2'
+  #         memory: 4G
+
+  api:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    container_name: masaar-api
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    env_file:
+      - .env
+    environment:
+      PORT: 8080
+      APP_ENV: production
+      DATABASE_URL: postgres://masaar:${POSTGRES_PASSWORD:-masaar}@postgres:5432/masaar?sslmode=disable
+      REDIS_URL: redis://:${REDIS_PASSWORD:-masaar}@redis:6380
+      # Google Gemini API (replaces Ollama for MVP)
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-1.5-flash}
+      # No Ollama variables needed
+      JWT_SECRET: ${JWT_SECRET}
+      WA_VERIFY_TOKEN: ${WA_VERIFY_TOKEN}
+      WA_ACCESS_TOKEN: ${WA_ACCESS_TOKEN}
+      WA_PHONE_NUMBER_ID: ${WA_PHONE_NUMBER_ID}
+      WA_BASE_URL: ${WA_BASE_URL:-https://graph.instagram.com}
+      SMTP_HOST: ${SMTP_HOST}
+      SMTP_PORT: ${SMTP_PORT}
+      SMTP_USER: ${SMTP_USER}
+      SMTP_PASSWORD: ${SMTP_PASSWORD}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/api/v1/stats"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+        labels: "service=api"
+
+  web:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.web
+    container_name: masaar-web
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8080}
+      NODE_ENV: production
+    depends_on:
+      - api
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 2
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "2"
+        labels: "service=web"
+
+volumes:
+  postgres_data:
+  redis_data:
+  # ollama_data:  # Uncomment if adding Ollama back

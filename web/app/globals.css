@@ -1,0 +1,113 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ---------- Font variables (Inter for Latin, Cairo for Arabic) ---------- */
+:root {
+  --font-inter: 'Inter', sans-serif;
+  --font-cairo: 'Cairo', sans-serif;
+
+  /* Surface tokens — used by html/body and any custom CSS */
+  --surface-page: #fafafa;        /* warm neutral page background */
+  --surface-card: #ffffff;
+  --surface-muted: #f5f5f5;
+  --border-subtle: #eaeaea;
+  --text-strong: #171717;
+  --text-muted:  #737373;
+}
+
+/* Arabic font picks up automatically when html has dir="rtl" */
+[dir="rtl"] {
+  font-family: var(--font-cairo), sans-serif;
+}
+
+[dir="ltr"] {
+  font-family: var(--font-inter), sans-serif;
+}
+
+/* ---------- Base polish ---------- */
+html {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  background-color: var(--surface-page);
+  color: var(--text-strong);
+  font-feature-settings: 'cv11', 'ss01', 'ss03';
+  letter-spacing: -0.005em;
+}
+
+/* Better text-selection color (matches primary brand) */
+::selection {
+  background-color: rgb(199 210 254 / 0.7); /* primary-200 / 70 */
+  color: #1e1b4b;
+}
+
+/* Subtle scrollbars — webkit & firefox */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #d4d4d4 transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background-color: #d4d4d4;
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background-color: #a3a3a3;
+  background-clip: padding-box;
+}
+
+/* Focus rings — globally consistent, no shifting outlines */
+:focus-visible {
+  outline: none;
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+[role="button"]:focus-visible {
+  box-shadow: 0 0 0 2px #fafafa, 0 0 0 4px rgb(99 102 241 / 0.45);
+  border-radius: 0.5rem;
+}
+
+/* ---------- Animations ---------- */
+@keyframes slide-up {
+  from { transform: translateY(8px); opacity: 0; }
+  to   { transform: translateY(0);   opacity: 1; }
+}
+
+.animate-slide-up {
+  animation: slide-up 0.25s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.open\:animate-fade-in[open] {
+  animation: fade-in 0.2s ease-out;
+}
+
+/* Dialog backdrop — softer, blurred */
+dialog::backdrop {
+  background-color: rgb(15 23 42 / 0.45);
+  backdrop-filter: blur(2px);
+}

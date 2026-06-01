@@ -1,0 +1,151 @@
+# Production Docker Compose Override
+# Use with: docker compose -f docker-compose.yml -f docker-compose.prod.override.yml up -d
+#
+# Includes:
+# - Auto-restart policies
+# - Resource limits to prevent one service consuming all resources
+# - Health checks for container orchestration
+# - Production logging configuration
+# - Environment-specific settings
+
+version: "3.9"
+
+services:
+  postgres:
+    restart: always
+    ports:
+      - "5432:5432"  # Change to 127.0.0.1:5432 to bind locally only
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me-to-secure-password}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --lc-collate=C --lc-ctype=C"
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 8G
+        reservations:
+          cpus: '1'
+          memory: 4G
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "10"
+        labels: "service=postgres"
+    labels:
+      - "prometheus-job=postgres"
+
+  redis:
+    restart: always
+    ports:
+      - "6380:6380"  # Using 6380 to avoid conflict with existing redis on 6379
+    command: redis-server --requirepass ${REDIS_PASSWORD:-change-me} --port 6380 --save 60 1 --appendonly yes
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 1G
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "5"
+        labels: "service=redis"
+    labels:
+      - "prometheus-job=redis"
+
+  ollama:
+    restart: always
+    ports: []  # Don't expose externally
+    deploy:
+      resources:
+        limits:
+          cpus: '4'
+          memory: 8G
+        reservations:
+          cpus: '2'
+          memory: 4G
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "30m"
+        max-file: "5"
+        labels: "service=ollama"
+    labels:
+      - "prometheus-job=ollama"
+
+  api:
+    restart: always
+    environment:
+      APP_ENV: production
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+      JWT_SECRET: ${JWT_SECRET}
+      WA_VERIFY_TOKEN: ${WA_VERIFY_TOKEN}
+      WA_ACCESS_TOKEN: ${WA_ACCESS_TOKEN}
+      WA_PHONE_NUMBER_ID: ${WA_PHONE_NUMBER_ID}
+      WA_BASE_URL: ${WA_BASE_URL:-https://graph.instagram.com}
+      OLLAMA_BASE_URL: http://ollama:11434
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3}
+      SMTP_HOST: ${SMTP_HOST}
+      SMTP_PORT: ${SMTP_PORT}
+      SMTP_USER: ${SMTP_USER}
+      SMTP_PASSWORD: ${SMTP_PASSWORD}
+      SMTP_FROM_EMAIL: ${SMTP_FROM_EMAIL}
+      SMTP_FROM_NAME: ${SMTP_FROM_NAME}
+    ports:
+      - "8080:8080"
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '1'
+          memory: 1G
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/api/v1/stats"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "10"
+        labels: "service=api"
+    labels:
+      - "prometheus-job=api"
+
+  web:
+    restart: always
+    environment:
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://api.yourdomain.com}
+      NODE_ENV: production
+    ports:
+      - "3000:3000"
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+        labels: "service=web"
+    labels:
+      - "prometheus-job=web"
