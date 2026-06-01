@@ -20,7 +20,7 @@ The community edition includes: WhatsApp pipeline, lead and contact management, 
 ### Local setup
 
 ```bash
-git clone https://github.com/maidulcu/masaar-crm.git
+git clone https://github.com/maidulcu/masaar-crm-community.git
 cd masaar-crm
 cp .env.example .env        # fill in your values
 docker compose up -d postgres redis

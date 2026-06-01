@@ -7,7 +7,7 @@
 Close deals over WhatsApp · AI thread summaries · Full RTL Arabic UI · PDPL-compliant
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/github/v/release/dynamicweblab/masaar-crm)](https://github.com/dynamicweblab/masaar-crm/releases)
+[![Version](https://img.shields.io/github/v/release/maidulcu/masaar-crm-community)](https://github.com/maidulcu/masaar-crm-community/releases)
 [![Go](https://img.shields.io/badge/Go-1.22+-00ADD8?logo=go)](https://go.dev)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16+-336791?logo=postgresql)](https://postgresql.org)
 
@@ -113,7 +113,7 @@ Try it at **[masaar.dynamicweblab.com](https://masaar.dynamicweblab.com)**
 **Requirements:** Docker and Docker Compose.
 
 ```bash
-git clone https://github.com/dynamicweblab/masaar-crm.git
+git clone https://github.com/maidulcu/masaar-crm-community.git
 cd masaar-crm
 cp .env.example .env
 docker compose up
@@ -247,7 +247,7 @@ Contributions are welcome. Please open an issue first to discuss significant cha
 
 ```bash
 # Fork the repo, then:
-git clone https://github.com/YOUR_USERNAME/masaar-crm.git
+git clone https://github.com/maidulcu/masaar-crm-community.git
 cd masaar-crm
 cp .env.example .env
 docker compose up -d postgres redis ollama
