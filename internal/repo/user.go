@@ -143,32 +143,25 @@ func (r *UserRepo) CreatePasswordResetToken(ctx context.Context, userID uuid.UUI
 
 // ConsumePasswordResetToken validates the plaintext token, marks it used, and
 // returns the associated user_id. Returns an error if expired or already used.
+// Uses atomic UPDATE ... RETURNING to prevent TOCTOU race conditions.
 func (r *UserRepo) ConsumePasswordResetToken(ctx context.Context, plaintext string) (uuid.UUID, error) {
 	sum := sha256.Sum256([]byte(plaintext))
 	hash := hex.EncodeToString(sum[:])
 
-	var userID uuid.UUID
-	var expiresAt time.Time
-	var usedAt *time.Time
-
+	// Atomically mark token as used and return user_id in one query
 	const q = `
-		SELECT user_id, expires_at, used_at
-		FROM password_reset_tokens
+		UPDATE password_reset_tokens
+		SET used_at = NOW()
 		WHERE token_hash = $1
+		  AND used_at IS NULL
+		  AND expires_at > NOW()
+		RETURNING user_id
 	`
-	err := r.db.QueryRow(ctx, q, hash).Scan(&userID, &expiresAt, &usedAt)
+	var userID uuid.UUID
+	err := r.db.QueryRow(ctx, q, hash).Scan(&userID)
 	if err != nil {
-		return uuid.Nil, fmt.Errorf("token not found")
+		return uuid.Nil, fmt.Errorf("token not found, expired, or already used")
 	}
-	if usedAt != nil {
-		return uuid.Nil, fmt.Errorf("token already used")
-	}
-	if time.Now().After(expiresAt) {
-		return uuid.Nil, fmt.Errorf("token expired")
-	}
-
-	// Mark as used
-	_, _ = r.db.Exec(ctx, `UPDATE password_reset_tokens SET used_at = NOW() WHERE token_hash = $1`, hash)
 	return userID, nil
 }
 

@@ -55,6 +55,7 @@ func ValidateAPIKey(apiKeyRepo *repo.ApiKeyRepo) fiber.Handler {
 
 // APIKeyRateLimit enforces per-key rate limiting using a Redis sliding window.
 // maxReq requests are allowed per window duration; excess calls get HTTP 429.
+// Uses atomic Lua script to prevent race condition between INCR and EXPIRE.
 func APIKeyRateLimit(rdb *redis.Client, maxReq int, window time.Duration) fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		keyID := c.Locals("api_key_id")
@@ -64,13 +65,21 @@ func APIKeyRateLimit(rdb *redis.Client, maxReq int, window time.Duration) fiber.
 		redisKey := fmt.Sprintf("ratelimit:apikey:%v", keyID)
 		ctx := context.Background()
 
-		count, err := rdb.Incr(ctx, redisKey).Result()
+		// Lua script: atomically increment counter and set expiry on first request
+		script := `
+if redis.call('exists', KEYS[1]) == 0 then
+  redis.call('setex', KEYS[1], ARGV[1], 1)
+  return 1
+else
+  return redis.call('incr', KEYS[1])
+end
+`
+		result, err := rdb.Eval(ctx, script, []string{redisKey}, int(window.Seconds())).Result()
 		if err != nil {
 			return c.Next() // fail open — don't block on Redis errors
 		}
-		if count == 1 {
-			rdb.Expire(ctx, redisKey, window)
-		}
+
+		count := result.(int64)
 		if count > int64(maxReq) {
 			c.Set("Retry-After", fmt.Sprintf("%.0f", window.Seconds()))
 			return c.Status(fiber.StatusTooManyRequests).JSON(fiber.Map{
