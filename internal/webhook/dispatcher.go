@@ -135,7 +135,9 @@ func (d *Dispatcher) Dispatch(companyID uuid.UUID, event string, data interface{
 }
 
 func (d *Dispatcher) dispatch(companyID uuid.UUID, event string, data interface{}) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	// 60s timeout allows for 3 retry attempts with exponential backoff (1s, 4s)
+	// plus request overhead without hitting timeout prematurely
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
 	subs, err := d.repo.ListActiveForEvent(ctx, companyID, event)

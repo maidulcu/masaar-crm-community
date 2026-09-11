@@ -8,6 +8,7 @@ import (
 	"log"
 	"math/big"
 	"net/http"
+	"net/mail"
 	"net/url"
 	"strings"
 	"time"
@@ -303,6 +304,12 @@ func (h *AuthHandler) ForgotPassword(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "email is required"})
 	}
 
+	// Validate email format
+	body.Email = strings.ToLower(strings.TrimSpace(body.Email))
+	if _, err := mail.ParseAddress(body.Email); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid email format"})
+	}
+
 	// Always return success — never reveal whether email exists
 	const successMsg = "If that email is registered, a reset link has been sent"
 
@@ -530,6 +537,7 @@ func (h *AuthHandler) generateTokenPair(user *domain.User) (access, refresh stri
 
 	accessClaims := jwt.MapClaims{
 		"sub":        user.ID.String(),
+		"aud":        "masaar-crm",
 		"name":       user.Name,
 		"role":       string(user.Role),
 		"company_id": user.CompanyID.String(),
