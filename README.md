@@ -85,7 +85,7 @@ BOS24_API_TOKEN=your-api-token-received-from-setup
 - Investors analyze rental yields in seconds
 - All data stays in your self-hosted Masaar instance
 
-**Full API Documentation:** [https://data.buyorsell24.com/redoc](https://data.buyorsell24.com/redoc)
+**Full API Documentation:** [https://dldapi.waqov.com/#api](https://dldapi.waqov.com/#api)
 
 ### Pricing & Plans
 - **Masaar Pro users** — BuyOrSell24 API credits included in your subscription
