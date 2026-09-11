@@ -257,7 +257,7 @@ export function ReportModal({ leadId, defaultClientName = '', onClose }: ReportM
         {/* Footer */}
         <div className="px-6 py-4 border-t border-gray-100 flex items-center justify-between bg-gray-50">
           <p className="text-xs text-gray-400">
-            Data sourced from DLD via BuyOrSell24
+            Data sourced from DLD via Waqov
           </p>
           <div className="flex gap-3">
             <button

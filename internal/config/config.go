@@ -38,7 +38,7 @@ type Config struct {
 	GeminiAPIKey  string
 	GeminiModel   string
 
-	// BuyOrSell24 (Real Estate API)
+	// Waqov (Real Estate API)
 	BOS24Token   string
 	BOS24BaseURL string
 

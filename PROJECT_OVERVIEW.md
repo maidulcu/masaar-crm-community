@@ -21,7 +21,7 @@ Built for Arabic-first, WhatsApp-first sales workflows with full property manage
 └────┬─────────┬──────────┬──────────┬─────────────────┘
      │         │          │          │
 ┌────▼──┐ ┌───▼───┐ ┌───▼────┐ ┌───▼──────────────┐
-│Postgre│ │ Redis │ │ Ollama │ │ BuyOrSell24 API   │
+│Postgre│ │ Redis │ │ Ollama │ │ Waqov API   │
 │SQL 16 │ │   7   │ │ LLM    │ │ (external)        │
 │+vector│ │       │ │llama3  │ └───────────────────┘
 └───────┘ └───────┘ └────────┘
@@ -41,7 +41,7 @@ Built for Arabic-first, WhatsApp-first sales workflows with full property manage
 | **Migrations**     | goose (SQL-based)                     |
 | **Auth**           | JWT (HS256) + bcrypt + API keys       |
 | **Payments**       | Stripe                                |
-| **Real Estate**    | BuyOrSell24 API                       |
+| **Real Estate**    | Waqov API                       |
 | **SMS**            | SMSCountry                            |
 | **Email**          | SMTP / Azure Communication Services   |
 | **API Docs**       | Swagger/OpenAPI via swaggo            |
@@ -62,7 +62,7 @@ masaar-crm/
 │   │   ├── middleware/   # JWT auth, RBAC, API keys, rate limiting, quotas, logging
 │   │   └── router.go    # 180+ route registrations
 │   ├── billing/         # Plan definitions (Community/Starter/Pro/Business) + Stripe
-│   ├── bos24/           # BuyOrSell24 real estate API client
+│   ├── bos24/           # Waqov real estate API client
 │   ├── config/          # Env-based configuration loader
 │   ├── domain/          # 95+ domain models (models.go)
 │   ├── email/           # SMTP + Azure email service
@@ -196,7 +196,7 @@ masaar-crm/
 | GET | `/api/v1/invoices/:id/pdf` | Download PDF |
 
 ### Real Estate — BOS24 (50+ routes)
-Property search, transactions by area, building lookup, area details, rental history, valuation estimates, developer info, project/unit details, map layers, market insights, broker lookup, land records, heatmap, comparables — all via BuyOrSell24 API.
+Property search, transactions by area, building lookup, area details, rental history, valuation estimates, developer info, project/unit details, map layers, market insights, broker lookup, land records, heatmap, comparables — all via Waqov API.
 
 ### AI (2 routes)
 | Method | Path | Description |
@@ -353,7 +353,7 @@ Each protected request passes through:
 - Inspections with checklist templates
 - Maintenance tasks with contractor assignment and photo tracking
 
-### Real Estate Integration (BuyOrSell24)
+### Real Estate Integration (Waqov)
 - Property search across UAE listings
 - Transaction history, valuation estimates
 - Area/building/developer/project details
@@ -467,7 +467,7 @@ Notable repos: `LeadRepo` (Kanban, scoring, soft delete), `WhatsAppRepo` (thread
 ### Optional Integrations
 | Variable | Description |
 |----------|-------------|
-| `BOS24_API_TOKEN` | BuyOrSell24 real estate data |
+| `BOS24_API_TOKEN` | Waqov real estate data |
 | `SMSCOUNTRY_AUTH_KEY` / `AUTH_TOKEN` | SMS OTP login |
 | `STRIPE_SECRET_KEY` | Payment processing |
 | `SMTP_HOST` / `USER` / `PASSWORD` | Email delivery |

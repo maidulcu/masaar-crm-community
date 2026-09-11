@@ -160,7 +160,7 @@ Generate a branded PDF to send clients after a research session.
 ## Planned — Later 💡
 
 ### 5. Push Listings to BOS24 (Agent OS Feature)
-Allow agents to publish a property listing from Masaar directly to BuyOrSell24 with one click.
+Allow agents to publish a property listing from Masaar directly to Waqov with one click.
 
 **Flow:**
 1. Agent fills in listing form (unit, area, price, photos, description)

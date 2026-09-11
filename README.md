@@ -56,7 +56,7 @@ Masaar is a **free, open-source CRM designed specifically for UAE businesses**. 
 
 ## 🏢 Real Estate Market Data Integration
 
-**Masaar CRM integrates with [BuyOrSell24 by Dynamic Web Lab](https://dynamicweblab.com/products/real-estate-data-api/)** — the UAE's real estate data API — to add market intelligence directly into your CRM workflow.
+**Masaar CRM integrates with [Waqov](https://dldapi.waqov.com/#api)** — the UAE's real estate data API — to add market intelligence directly into your CRM workflow.
 
 ### What You Get
 - **Property Search** — Natural language queries: "2BR apartments in Marina" returns recent transactions, comparable prices, and market trends
@@ -88,7 +88,7 @@ BOS24_API_TOKEN=your-api-token-received-from-setup
 **Full API Documentation:** [https://dldapi.waqov.com/#api](https://dldapi.waqov.com/#api)
 
 ### Pricing & Plans
-- **Masaar Pro users** — BuyOrSell24 API credits included in your subscription
+- **Masaar Pro users** — Waqov API credits included in your subscription
 - **Open-source users** — Optional integration; contact Dynamic Web Lab for pricing:
   - **Starter** — Limited monthly queries, great for testing
   - **Growth** — 5,000+ monthly credits (perfect for 10-50 agents)

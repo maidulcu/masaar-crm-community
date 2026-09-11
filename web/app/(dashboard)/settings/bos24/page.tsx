@@ -132,7 +132,7 @@ export default function BOS24IntegrationPage() {
           <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 text-sm text-blue-800">
             <p className="font-semibold mb-1">What this does</p>
             <p className="text-xs leading-relaxed">
-              Connect your BuyOrSell24 account to automatically import listings into Masaar and
+              Connect your Waqov account to automatically import listings into Masaar and
               turn buyer inquiries into leads. BOS24 sends real-time webhook events; a nightly
               sync acts as a safety net.
             </p>
