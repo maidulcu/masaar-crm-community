@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [v0.2.1] - 2026-09-11
+
+### Security Fixes
+- **API Key Rate Limiter** — Fixed non-atomic INCR + EXPIRE race condition with Lua script
+- **Password Reset** — Fixed TOCTOU vulnerability with atomic UPDATE ... RETURNING
+- **Email Validation** — Added format validation to forgot-password endpoint
+- **JWT Claims** — Added `aud` (audience) claim for token type validation
+- **Webhook Retry** — Increased context timeout from 30s to 60s for 3-retry attempts
+
+### Performance
+- **Added 4 production indexes** for common query patterns:
+  - Lease date-range queries (renewal, overdue)
+  - Payment overdue detection
+  - Audit log time-range queries
+  - Lead soft-delete filtering
+
+### Bug Fixes
+- Fixed potential race conditions in distributed rate limiting
+- Improved token validation security posture
+- Enhanced webhook reliability under network delays
+
+---
+
 ## [v0.1.0] - 2026-03-13
 
 ### Added
