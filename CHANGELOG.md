@@ -21,6 +21,7 @@ First release prepared for public use. Contains security hardening, build fixes 
 - **WhatsApp webhook** — in production, inbound webhooks are rejected unless `WA_APP_SECRET` is configured so signatures can be verified.
 - **Startup validation** — `config.Validate()` refuses placeholder/short `JWT_SECRET`, wildcard `ALLOWED_ORIGINS` and an unsigned/default-token WhatsApp setup when `APP_ENV=production`.
 - **Containers** — the root `Dockerfile` and `web/Dockerfile` now run as a non-root user; base images pinned (`alpine:3.22`).
+- **Go dependencies** — `govulncheck` (now run in CI) flagged 42 reachable vulnerabilities. Go toolchain raised to 1.25.13 (standard library fixes) and Fiber 2.52.4 → 2.52.12, golang-jwt 5.2.1 → 5.2.2, go-redis 9.5.1 → 9.6.3, pgx 5.8.0 → 5.9.2, plus `x/net`, `x/text` and `x/crypto`.
 - **Dependencies** — Next.js 15.5.15 → 15.5.27 (clears the critical advisories) and transitive `nanoid`/`sharp` fixes. Removed the unused `react-leaflet` dependency (it required React 19 and broke `npm install`).
 - Added `SECURITY.md`, Dependabot and CI (vet, build, test, `govulncheck`, `npm audit`, secret scan).
 
