@@ -23,14 +23,14 @@ func NewPublicLeadHandler(contacts *repo.ContactRepo, leads *repo.LeadRepo, disp
 }
 
 type PublicLeadRequest struct {
-	Name        string  `json:"name"`
-	Phone       string  `json:"phone"`
-	Email       string  `json:"email"`
-	Language    string  `json:"language"`    // ar | en (default: ar)
-	Source      string  `json:"source"`      // web|referral|event (default: web)
-	Notes       string  `json:"notes"`
-	DealValue   float64 `json:"deal_value"`
-	Currency    string  `json:"currency"`    // default: AED
+	Name      string  `json:"name"`
+	Phone     string  `json:"phone"`
+	Email     string  `json:"email"`
+	Language  string  `json:"language"` // ar | en (default: ar)
+	Source    string  `json:"source"`   // web|referral|event (default: web)
+	Notes     string  `json:"notes"`
+	DealValue float64 `json:"deal_value"`
+	Currency  string  `json:"currency"` // default: AED
 	// Optional metadata stored in notes
 	PropertyType string `json:"property_type"` // e.g. "2BR", "villa"
 	Area         string `json:"area"`          // e.g. "Marina", "Downtown"

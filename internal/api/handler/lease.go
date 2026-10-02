@@ -45,7 +45,7 @@ func (h *LeaseHandler) List(c *fiber.Ctx) error {
 
 	result, err := h.leases.List(c.Context(), companyID, page, limit)
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 	return c.JSON(result)
 }
@@ -87,7 +87,7 @@ func (h *LeaseHandler) Get(c *fiber.Ctx) error {
 func (h *LeaseHandler) Create(c *fiber.Ctx) error {
 	var l domain.Lease
 	if err := c.BodyParser(&l); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+		return badRequest(c, err)
 	}
 
 	if l.PropertyID == uuid.Nil || l.TenantID == uuid.Nil || l.MonthlyRent <= 0 || l.PaymentFrequency == "" {
@@ -105,7 +105,7 @@ func (h *LeaseHandler) Create(c *fiber.Ctx) error {
 	l.CompanyID = companyID
 
 	if err := h.leases.Create(c.Context(), &l); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 	return c.Status(fiber.StatusCreated).JSON(l)
 }
@@ -135,14 +135,14 @@ func (h *LeaseHandler) Update(c *fiber.Ctx) error {
 	}
 
 	if err := c.BodyParser(l); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+		return badRequest(c, err)
 	}
 
 	userID := c.Locals("user_id").(uuid.UUID)
 	l.UpdatedBy = &userID
 
 	if err := h.leases.Update(c.Context(), l); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 	return c.JSON(l)
 }
@@ -164,7 +164,7 @@ func (h *LeaseHandler) Delete(c *fiber.Ctx) error {
 	}
 
 	if err := h.leases.Delete(c.Context(), id); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 	return c.SendStatus(fiber.StatusNoContent)
 }

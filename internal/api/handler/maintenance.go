@@ -101,40 +101,40 @@ func (h *MaintenanceTaskHandler) Create(c *fiber.Ctx) error {
 	userID := c.Locals("user_id").(uuid.UUID)
 
 	var req struct {
-		PropertyID       uuid.UUID  `json:"property_id"`
-		InspectionID     *uuid.UUID `json:"inspection_id"`
-		MaintenanceType  string     `json:"maintenance_type"`
-		Description      string     `json:"description"`
-		Priority         string     `json:"priority"`
-		ScheduledDate    *time.Time `json:"scheduled_date"`
-		DueDate          *time.Time `json:"due_date"`
-		ContractorName   string     `json:"contractor_name"`
-		ContractorContact string    `json:"contractor_contact"`
-		EstimatedCost    *float64   `json:"estimated_cost"`
-		AssignedTo       *uuid.UUID `json:"assigned_to"`
-		Notes            string     `json:"notes"`
+		PropertyID        uuid.UUID  `json:"property_id"`
+		InspectionID      *uuid.UUID `json:"inspection_id"`
+		MaintenanceType   string     `json:"maintenance_type"`
+		Description       string     `json:"description"`
+		Priority          string     `json:"priority"`
+		ScheduledDate     *time.Time `json:"scheduled_date"`
+		DueDate           *time.Time `json:"due_date"`
+		ContractorName    string     `json:"contractor_name"`
+		ContractorContact string     `json:"contractor_contact"`
+		EstimatedCost     *float64   `json:"estimated_cost"`
+		AssignedTo        *uuid.UUID `json:"assigned_to"`
+		Notes             string     `json:"notes"`
 	}
 	if err := c.BodyParser(&req); err != nil {
 		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": "Invalid request"})
 	}
 
 	task := &domain.MaintenanceTask{
-		ID:               uuid.New(),
-		CompanyID:        companyID,
-		PropertyID:       req.PropertyID,
-		InspectionID:     req.InspectionID,
-		MaintenanceType:  domain.MaintenanceType(req.MaintenanceType),
-		Description:      req.Description,
-		Priority:         domain.TaskPriority(req.Priority),
-		ScheduledDate:    req.ScheduledDate,
-		DueDate:          req.DueDate,
-		ContractorName:   req.ContractorName,
+		ID:                uuid.New(),
+		CompanyID:         companyID,
+		PropertyID:        req.PropertyID,
+		InspectionID:      req.InspectionID,
+		MaintenanceType:   domain.MaintenanceType(req.MaintenanceType),
+		Description:       req.Description,
+		Priority:          domain.TaskPriority(req.Priority),
+		ScheduledDate:     req.ScheduledDate,
+		DueDate:           req.DueDate,
+		ContractorName:    req.ContractorName,
 		ContractorContact: req.ContractorContact,
-		EstimatedCost:    req.EstimatedCost,
-		Status:           domain.MaintenancePending,
-		AssignedTo:       req.AssignedTo,
-		Notes:            req.Notes,
-		CreatedBy:        userID,
+		EstimatedCost:     req.EstimatedCost,
+		Status:            domain.MaintenancePending,
+		AssignedTo:        req.AssignedTo,
+		Notes:             req.Notes,
+		CreatedBy:         userID,
 	}
 
 	if err := h.maintenanceRepo.Create(c.Context(), task); err != nil {
@@ -164,18 +164,18 @@ func (h *MaintenanceTaskHandler) Update(c *fiber.Ctx) error {
 	}
 
 	var req struct {
-		MaintenanceType  *string    `json:"maintenance_type"`
-		Description      *string    `json:"description"`
-		Priority         *string    `json:"priority"`
-		ScheduledDate    *time.Time `json:"scheduled_date"`
-		DueDate          *time.Time `json:"due_date"`
-		ContractorName   *string    `json:"contractor_name"`
-		ContractorContact *string   `json:"contractor_contact"`
-		EstimatedCost    *float64   `json:"estimated_cost"`
-		ActualCost       *float64   `json:"actual_cost"`
-		Status           *string    `json:"status"`
-		AssignedTo       *uuid.UUID `json:"assigned_to"`
-		Notes            *string    `json:"notes"`
+		MaintenanceType   *string    `json:"maintenance_type"`
+		Description       *string    `json:"description"`
+		Priority          *string    `json:"priority"`
+		ScheduledDate     *time.Time `json:"scheduled_date"`
+		DueDate           *time.Time `json:"due_date"`
+		ContractorName    *string    `json:"contractor_name"`
+		ContractorContact *string    `json:"contractor_contact"`
+		EstimatedCost     *float64   `json:"estimated_cost"`
+		ActualCost        *float64   `json:"actual_cost"`
+		Status            *string    `json:"status"`
+		AssignedTo        *uuid.UUID `json:"assigned_to"`
+		Notes             *string    `json:"notes"`
 	}
 	if err := c.BodyParser(&req); err != nil {
 		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": "Invalid request"})
@@ -280,7 +280,7 @@ func (h *MaintenanceTaskHandler) AddPhoto(c *fiber.Ctx) error {
 	}
 
 	var req struct {
-		PhotoURL  string `json:"photo_url"`
+		PhotoURL   string `json:"photo_url"`
 		PhotoStage string `json:"photo_stage"` // before/during/after
 	}
 	if err := c.BodyParser(&req); err != nil {

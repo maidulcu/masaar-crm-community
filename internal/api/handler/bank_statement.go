@@ -48,7 +48,7 @@ func (h *BankStatementHandler) List(c *fiber.Ctx) error {
 
 	result, err := h.statements.ListByCompany(c.Context(), companyID, page, limit)
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 	return c.JSON(result)
 }
@@ -140,7 +140,7 @@ func (h *BankStatementHandler) Upload(c *fiber.Ctx) error {
 	}
 
 	if err := h.statements.Create(c.Context(), statement); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 
 	return c.Status(fiber.StatusCreated).JSON(statement)
@@ -163,7 +163,7 @@ func (h *BankStatementHandler) Delete(c *fiber.Ctx) error {
 	}
 
 	if err := h.statements.Delete(c.Context(), id); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 	return c.SendStatus(fiber.StatusNoContent)
 }

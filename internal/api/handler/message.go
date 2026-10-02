@@ -12,26 +12,26 @@ import (
 )
 
 type MessageHandler struct {
-	aiClient      *ai.Client
-	waRepo        *repo.WhatsAppRepo
-	contactRepo   *repo.ContactRepo
-	leadRepo      *repo.LeadRepo
-	commHistRepo  *repo.CommunicationHistoryRepo
-	tagRepo       *repo.LeadTagRepo
+	aiClient       *ai.Client
+	waRepo         *repo.WhatsAppRepo
+	contactRepo    *repo.ContactRepo
+	leadRepo       *repo.LeadRepo
+	commHistRepo   *repo.CommunicationHistoryRepo
+	tagRepo        *repo.LeadTagRepo
 	scoringService *ai.ScoringService
-	hub           *ws.Hub
+	hub            *ws.Hub
 }
 
 func NewMessageHandler(aiClient *ai.Client, waRepo *repo.WhatsAppRepo, contactRepo *repo.ContactRepo, leadRepo *repo.LeadRepo, commHistRepo *repo.CommunicationHistoryRepo, tagRepo *repo.LeadTagRepo, scoringService *ai.ScoringService, hub *ws.Hub) *MessageHandler {
 	return &MessageHandler{
-		aiClient:      aiClient,
-		waRepo:        waRepo,
-		contactRepo:   contactRepo,
-		leadRepo:      leadRepo,
-		commHistRepo:  commHistRepo,
-		tagRepo:       tagRepo,
+		aiClient:       aiClient,
+		waRepo:         waRepo,
+		contactRepo:    contactRepo,
+		leadRepo:       leadRepo,
+		commHistRepo:   commHistRepo,
+		tagRepo:        tagRepo,
 		scoringService: scoringService,
-		hub:           hub,
+		hub:            hub,
 	}
 }
 
@@ -67,7 +67,7 @@ func (h *MessageHandler) AnalyzeMessage(c *fiber.Ctx) error {
 	intentJSON, err := h.aiClient.ParseIntent(c.Context(), req.Message)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"error": "failed to parse intent: " + err.Error(),
+			"error": safeMsg("failed to parse intent", err),
 		})
 	}
 
@@ -125,7 +125,7 @@ func (h *MessageHandler) SuggestNextAction(c *fiber.Ctx) error {
 	actionJSON, err := h.aiClient.SuggestAction(c.Context(), req.Message, req.ThreadSummary)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"error": "failed to suggest action: " + err.Error(),
+			"error": safeMsg("failed to suggest action", err),
 		})
 	}
 
@@ -228,7 +228,7 @@ func (h *MessageHandler) AutoCreateLead(c *fiber.Ctx) error {
 	// Build notes from enrichment
 	notesMap := map[string]interface{}{
 		"enriched_from": "whatsapp_message",
-		"enrichment": enrichment,
+		"enrichment":    enrichment,
 	}
 	notesJSON, _ := json.Marshal(notesMap)
 	lead.Notes = string(notesJSON)

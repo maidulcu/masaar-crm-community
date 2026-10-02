@@ -59,7 +59,7 @@ func (h *InvoiceHandler) List(c *fiber.Ctx) error {
 
 	invoices, total, err := h.invoices.ListAll(c.Context(), page, limit)
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 	if invoices == nil {
 		invoices = []domain.VATInvoice{}
@@ -98,7 +98,7 @@ func (h *InvoiceHandler) Create(c *fiber.Ctx) error {
 
 	invoiceNo, err := h.invoices.NextInvoiceNo(c.Context())
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 
 	inv := domain.VATInvoice{
@@ -110,7 +110,7 @@ func (h *InvoiceHandler) Create(c *fiber.Ctx) error {
 	}
 
 	if err := h.invoices.Create(c.Context(), &inv); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 	return c.Status(fiber.StatusCreated).JSON(inv)
 }
@@ -153,7 +153,7 @@ func (h *InvoiceHandler) Send(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid id"})
 	}
 	if err := h.invoices.UpdateStatus(c.Context(), id, domain.InvoiceSent); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 	return c.JSON(fiber.Map{"id": id, "status": domain.InvoiceSent})
 }
@@ -192,7 +192,7 @@ func (h *InvoiceHandler) UpdateStatus(c *fiber.Ctx) error {
 	}
 
 	if err := h.invoices.UpdateStatus(c.Context(), id, body.Status); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 	return c.JSON(fiber.Map{"id": id, "status": body.Status})
 }

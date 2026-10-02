@@ -1,8 +1,8 @@
 package handler
 
 import (
-	"github.com/google/uuid"
 	"github.com/gofiber/fiber/v2"
+	"github.com/google/uuid"
 	"github.com/maidulcu/masaar-crm/internal/domain"
 	"github.com/maidulcu/masaar-crm/internal/repo"
 )
@@ -21,13 +21,13 @@ type ApiKeyCreateRequest struct {
 }
 
 type ApiKeyResponse struct {
-	ID        uuid.UUID `json:"id"`
-	Name      string    `json:"name"`
-	KeyPrefix string    `json:"key_prefix"` // Safe to display
-	Scopes    string    `json:"scopes"`
-	CreatedAt string    `json:"created_at"`
-	LastUsedAt *string  `json:"last_used_at"`
-	Plaintext string    `json:"plaintext,omitempty"` // Only on creation, never again
+	ID         uuid.UUID `json:"id"`
+	Name       string    `json:"name"`
+	KeyPrefix  string    `json:"key_prefix"` // Safe to display
+	Scopes     string    `json:"scopes"`
+	CreatedAt  string    `json:"created_at"`
+	LastUsedAt *string   `json:"last_used_at"`
+	Plaintext  string    `json:"plaintext,omitempty"` // Only on creation, never again
 }
 
 // ListApiKeys lists all API keys for the authenticated user's company
@@ -49,7 +49,7 @@ func (h *ApiKeyHandler) ListApiKeys(c *fiber.Ctx) error {
 
 	keys, err := h.apiKeyRepo.List(c.Context(), compID)
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 
 	var responses []ApiKeyResponse
@@ -108,13 +108,13 @@ func (h *ApiKeyHandler) CreateApiKey(c *fiber.Ctx) error {
 	// Generate the key
 	plaintext, keyHash, keyPrefix, err := h.apiKeyRepo.GenerateKey()
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 
 	// Store in database
 	id, err := h.apiKeyRepo.Create(c.Context(), compID, req.Name, keyHash, keyPrefix, req.Scopes)
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 
 	// Return with plaintext (only shown once)
@@ -151,7 +151,7 @@ func (h *ApiKeyHandler) RevokeApiKey(c *fiber.Ctx) error {
 	}
 
 	if err := h.apiKeyRepo.Revoke(c.Context(), id); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 
 	return c.SendStatus(fiber.StatusNoContent)

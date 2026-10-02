@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net/url"
 	"strings"
 )
 
@@ -39,6 +40,15 @@ func (c *Config) Validate() error {
 	origins := strings.TrimSpace(c.AllowedOrigins)
 	if origins == "" || origins == "*" {
 		problems = append(problems, "ALLOWED_ORIGINS must list your frontend origin(s), not \"*\"")
+	}
+
+	// The database password must not be the published default / placeholder.
+	if u, err := url.Parse(c.DatabaseURL); err == nil && u.User != nil {
+		pw, _ := u.User.Password()
+		lower := strings.ToLower(pw)
+		if pw == "" || lower == "masaar" || lower == "postgres" || lower == "password" || strings.HasPrefix(lower, "change-me") {
+			problems = append(problems, "database password (DB_PASSWORD / DATABASE_URL) is empty or a well-known default; set a strong one")
+		}
 	}
 
 	// Only enforce WhatsApp settings when the integration is actually configured.

@@ -5,6 +5,7 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
+	"github.com/maidulcu/masaar-crm/internal/domain"
 	"github.com/maidulcu/masaar-crm/internal/repo"
 )
 
@@ -37,7 +38,7 @@ func (h *CommissionHandler) ListStructures(c *fiber.Ctx) error {
 	}
 	structs, err := h.repo.ListStructures(c.Context(), companyID)
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 	return c.JSON(fiber.Map{"data": structs})
 }
@@ -56,7 +57,7 @@ func (h *CommissionHandler) CreateStructure(c *fiber.Ctx) error {
 	}
 	s.CompanyID = companyID
 	if err := h.repo.CreateStructure(c.Context(), &s); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 	return c.Status(fiber.StatusCreated).JSON(s)
 }
@@ -77,7 +78,7 @@ func (h *CommissionHandler) UpdateStructure(c *fiber.Ctx) error {
 	s.ID = id
 	s.CompanyID = companyID
 	if err := h.repo.UpdateStructure(c.Context(), &s); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 	return c.JSON(fiber.Map{"ok": true})
 }
@@ -92,7 +93,7 @@ func (h *CommissionHandler) DeleteStructure(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid company_id"})
 	}
 	if err := h.repo.DeleteStructure(c.Context(), id, companyID); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 	return c.SendStatus(fiber.StatusNoContent)
 }
@@ -113,13 +114,17 @@ func (h *CommissionHandler) List(c *fiber.Ctx) error {
 		}
 		agentID = &id
 	}
+	// Only admins may browse other agents' commissions; everyone else sees their own.
+	if role, _ := c.Locals("role").(domain.Role); role != domain.RoleAdmin {
+		self, _ := c.Locals("user_id").(uuid.UUID)
+		agentID = &self
+	}
 	status := c.Query("status")
-	page := c.QueryInt("page", 1)
-	limit := c.QueryInt("limit", 50)
+	page, limit := pageParams(c, 50, 100)
 
 	list, total, err := h.repo.ListAgentCommissions(c.Context(), companyID, agentID, status, page, limit)
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 	return c.JSON(fiber.Map{
 		"data": list,
@@ -144,7 +149,7 @@ func (h *CommissionHandler) Create(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusUnprocessableEntity).JSON(fiber.Map{"error": "commission_period_start and commission_period_end are required"})
 	}
 	if err := h.repo.CreateAgentCommission(c.Context(), &body); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 	return c.Status(fiber.StatusCreated).JSON(body)
 }
@@ -168,7 +173,7 @@ func (h *CommissionHandler) UpdateStatus(c *fiber.Ctx) error {
 		})
 	}
 	if err := h.repo.UpdateCommissionStatus(c.Context(), id, repo.CommissionStatus(body.Status), body.PaymentReference); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 	return c.JSON(fiber.Map{"ok": true, "status": body.Status})
 }
@@ -186,7 +191,7 @@ func (h *CommissionHandler) UpdateAmount(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid body"})
 	}
 	if err := h.repo.UpdateCommissionAmount(c.Context(), id, body.TotalCommission, body.Notes); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 	return c.JSON(fiber.Map{"ok": true})
 }
@@ -195,7 +200,7 @@ func (h *CommissionHandler) UpdateAmount(c *fiber.Ctx) error {
 // Returns commission metrics for an agent over a given date range without saving.
 func (h *CommissionHandler) Calculate(c *fiber.Ctx) error {
 	var body struct {
-		AgentID   string `json:"agent_id"`
+		AgentID    string `json:"agent_id"`
 		PeriodFrom string `json:"period_from"` // YYYY-MM-DD
 		PeriodTo   string `json:"period_to"`
 	}
@@ -217,7 +222,7 @@ func (h *CommissionHandler) Calculate(c *fiber.Ctx) error {
 
 	dc, dr, lc, lr, err := h.repo.CalculateForPeriod(c.Context(), agentID, from, to)
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 	return c.JSON(fiber.Map{
 		"agent_id":       agentID,

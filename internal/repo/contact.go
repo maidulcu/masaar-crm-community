@@ -118,7 +118,8 @@ func (r *ContactRepo) Create(ctx context.Context, c *domain.Contact) error {
 	}
 	const q = `
 		INSERT INTO contacts (id, company_id, phone_wa, full_name, email, language, lead_score, assigned_to)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+		SELECT $1,$2,$3,$4,$5,$6,$7,$8
+		WHERE $8::uuid IS NULL OR EXISTS (SELECT 1 FROM users WHERE id = $8 AND company_id = $2)
 		RETURNING created_at, updated_at
 	`
 	c.ID = uuid.New()
@@ -137,6 +138,7 @@ func (r *ContactRepo) Update(ctx context.Context, c *domain.Contact) error {
 		UPDATE contacts
 		SET full_name=$1, email=$2, language=$3, lead_score=$4, assigned_to=$5, updated_at=NOW()
 		WHERE id=$6 AND company_id=$7
+		  AND ($5::uuid IS NULL OR EXISTS (SELECT 1 FROM users WHERE id = $5 AND company_id = $7))
 		RETURNING updated_at
 	`
 	return r.db.QueryRow(ctx, q,

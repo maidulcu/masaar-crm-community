@@ -41,12 +41,11 @@ func (h *NotificationHandler) List(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "unauthorized"})
 	}
 
-	page := c.QueryInt("page", 1)
-	limit := c.QueryInt("limit", 20)
+	page, limit := pageParams(c, 20, 100)
 
 	notifications, err := h.notifications.ListByUser(c.Context(), userID, page, limit)
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 
 	return c.JSON(notifications)
@@ -73,7 +72,7 @@ func (h *NotificationHandler) MarkRead(c *fiber.Ctx) error {
 	}
 
 	if err := h.notifications.MarkRead(c.Context(), id, userID); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 
 	return c.SendStatus(fiber.StatusNoContent)
@@ -92,7 +91,7 @@ func (h *NotificationHandler) MarkAllRead(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "unauthorized"})
 	}
 	if err := h.notifications.MarkAllRead(c.Context(), userID); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 	return c.SendStatus(fiber.StatusNoContent)
 }

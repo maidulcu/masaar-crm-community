@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [v0.3.1] - Unreleased
+
+Second security audit pass over the merged v0.3.0 code. No schema changes.
+
+### Security
+- **Sessions** — deactivating or deleting a user, changing their role, or changing/resetting their password now ends all of their existing logins immediately (per-user revocation cutoff in Redis, enforced by the auth middleware and by refresh). Refresh previously did not check that the user was still active, so a deactivated account could renew its session indefinitely; it now also checks the company is active.
+- **Stored XSS** — URL fields (`*_url`, `url`) in API request bodies must be http(s) URLs or same-site paths; `javascript:`, `data:` and similar are rejected with 422. The web app additionally sanitises every stored URL it renders as a link, image or video (`safeUrl`) and sets `rel="noopener noreferrer"` on external links.
+- **Rate-limit bypass** — client IPs were taken from the first (client-controlled) entry of `X-Forwarded-For`, so every IP-based limiter (login, OTP, registration) could be evaded by spoofing it. The API now reads a single-valued header the proxy overwrites (`PROXY_HEADER`, default `X-Real-IP`) and the provided nginx configs overwrite `X-Forwarded-For`.
+- **SSRF** — the DocuSign document fetch used a plain `http.Get` on a user-supplied URL (and read the response without a limit). It now goes through a shared SSRF-safe client (`internal/safehttp`) that refuses internal addresses — including carrier-grade NAT, `0.0.0.0/8`, multicast, NAT64 and IPv4-mapped IPv6 — checks every redirect hop, allows only http(s) and caps the size. Webhook delivery uses the same client.
+- **Information disclosure** — about 200 handlers returned raw `err.Error()` text (SQL and driver messages) to clients. Errors are now logged server-side and answered with generic messages and accurate status codes (404 not found / foreign reference, 409 duplicate, 422 invalid data).
+- **Authorization** — contact/lead exports require an admin or agent role; only admins can browse other agents' commissions; a contact's `assigned_to` must belong to the caller's company; list endpoints bound `page`/`limit`.
+- **Login** — email is normalised so lockout counters cannot be bypassed by changing case; unknown emails cost the same bcrypt time as real ones (no timing enumeration); the magic-link endpoint only emails registered, active accounts (it could be used to send unsolicited mail to arbitrary addresses); password-reset tokens are never printed in production logs.
+- **Exports** — CSV exports neutralise spreadsheet formula injection.
+- **Deployment** — Docker Compose published Postgres, Redis and Ollama on all interfaces (Redis without authentication); they are now bound to `127.0.0.1`, as are the API and web ports in the production override. In production the server also refuses a placeholder or well-known database password. The Next.js app now sends `Content-Security-Policy` (`frame-ancestors`, `base-uri`, `object-src`, `form-action`), `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy` and `Cross-Origin-Opener-Policy`, and no longer sends `X-Powered-By`.
+
+### Upgrade notes
+- **Reverse proxy:** make sure your proxy *overwrites* the client-IP header. The updated `nginx.conf.template` and `docker/nginx.conf` do (`X-Real-IP` and `X-Forwarded-For` set to `$remote_addr`). Behind Cloudflare set `PROXY_HEADER=CF-Connecting-IP`. Without a proxy overwriting the header, the app falls back to the connecting address.
+- Users whose role or password changes, or who are deactivated, must sign in again (by design).
+- Compose users who connected to Postgres/Redis from another machine must now tunnel (e.g. SSH) or change the bindings deliberately.
+- Existing rows containing non-http(s) values in URL fields are not rewritten; the UI will render those links inert.
+
+### Known limitations
+- Access and refresh tokens still live in browser `localStorage`; moving them to `HttpOnly` cookies and adding a nonce-based `script-src` CSP is future work.
+
+---
+
 ## [v0.3.0] - Unreleased
 
 First release prepared for public use. Contains security hardening, build fixes and **behaviour changes** (see "Upgrade notes").

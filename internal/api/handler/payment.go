@@ -45,7 +45,7 @@ func (h *PaymentHandler) List(c *fiber.Ctx) error {
 
 	result, err := h.payments.List(c.Context(), companyID, page, limit)
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 	return c.JSON(result)
 }
@@ -87,7 +87,7 @@ func (h *PaymentHandler) Get(c *fiber.Ctx) error {
 func (h *PaymentHandler) Create(c *fiber.Ctx) error {
 	var p domain.Payment
 	if err := c.BodyParser(&p); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+		return badRequest(c, err)
 	}
 
 	if p.LeaseID == uuid.Nil || p.Amount <= 0 || p.PaymentMethod == "" {
@@ -109,7 +109,7 @@ func (h *PaymentHandler) Create(c *fiber.Ctx) error {
 	p.CompanyID = companyID
 
 	if err := h.payments.Create(c.Context(), &p); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 	return c.Status(fiber.StatusCreated).JSON(p)
 }
@@ -139,14 +139,14 @@ func (h *PaymentHandler) Update(c *fiber.Ctx) error {
 	}
 
 	if err := c.BodyParser(p); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+		return badRequest(c, err)
 	}
 
 	userID := c.Locals("user_id").(uuid.UUID)
 	p.UpdatedBy = &userID
 
 	if err := h.payments.Update(c.Context(), p); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 	return c.JSON(p)
 }
@@ -168,7 +168,7 @@ func (h *PaymentHandler) Delete(c *fiber.Ctx) error {
 	}
 
 	if err := h.payments.Delete(c.Context(), id); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 	return c.SendStatus(fiber.StatusNoContent)
 }

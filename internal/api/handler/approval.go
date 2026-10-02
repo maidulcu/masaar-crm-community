@@ -29,7 +29,7 @@ func (h *ApprovalHandler) GetConfig(c *fiber.Ctx) error {
 	}
 	cfg, err := h.repo.GetConfig(c.Context(), companyID)
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 	return c.JSON(cfg)
 }
@@ -55,7 +55,7 @@ func (h *ApprovalHandler) SaveConfig(c *fiber.Ctx) error {
 		OfferApprovalAbove *float64 `json:"offer_approval_above"`
 	}
 	if err := c.BodyParser(&body); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+		return badRequest(c, err)
 	}
 
 	cfg, err := h.repo.GetConfig(c.Context(), companyID)
@@ -73,7 +73,7 @@ func (h *ApprovalHandler) SaveConfig(c *fiber.Ctx) error {
 	}
 
 	if err := h.repo.SaveConfig(c.Context(), cfg); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 	cfg, _ = h.repo.GetConfig(c.Context(), companyID)
 	return c.JSON(cfg)
@@ -95,14 +95,13 @@ func (h *ApprovalHandler) ListRequests(c *fiber.Ctx) error {
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid company_id"})
 	}
-	page := c.QueryInt("page", 1)
-	limit := c.QueryInt("limit", 50)
+	page, limit := pageParams(c, 50, 100)
 	status := c.Query("status")
 	entityType := c.Query("entity_type")
 
 	list, total, err := h.repo.List(c.Context(), companyID, status, entityType, page, limit)
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 	return c.JSON(fiber.Map{"data": list, "total": total, "page": page, "limit": limit})
 }
@@ -133,14 +132,14 @@ func (h *ApprovalHandler) ReviewRequest(c *fiber.Ctx) error {
 		Note   string `json:"note"`
 	}
 	if err := c.BodyParser(&body); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+		return badRequest(c, err)
 	}
 	if body.Status != string(domain.ApprovalApproved) && body.Status != string(domain.ApprovalRejected) {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "status must be 'approved' or 'rejected'"})
 	}
 
 	if err := h.repo.Review(c.Context(), id, userID, domain.ApprovalStatus(body.Status), body.Note); err != nil {
-		return c.Status(fiber.StatusConflict).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 
 	req, _ := h.repo.GetByID(c.Context(), id)

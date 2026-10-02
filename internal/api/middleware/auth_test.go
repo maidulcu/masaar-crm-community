@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
+	"github.com/redis/go-redis/v9"
 )
 
 func TestCheckBlacklist_TokenNotBlacklisted(t *testing.T) {
@@ -18,7 +20,7 @@ func TestCheckBlacklist_TokenNotBlacklisted(t *testing.T) {
 	mockRedis, mock := redismock.NewClientMock()
 
 	token := "valid-test-token"
-	mock.ExpectExists("blacklist:"+token).SetVal(0)
+	mock.ExpectExists("blacklist:" + token).SetVal(0)
 
 	middleware := CheckBlacklist(mockRedis)
 	app.Get("/test", middleware, func(c *fiber.Ctx) error {
@@ -45,7 +47,7 @@ func TestCheckBlacklist_TokenIsBlacklisted(t *testing.T) {
 	mockRedis, mock := redismock.NewClientMock()
 
 	token := "revoked-test-token"
-	mock.ExpectExists("blacklist:"+token).SetVal(1)
+	mock.ExpectExists("blacklist:" + token).SetVal(1)
 
 	middleware := CheckBlacklist(mockRedis)
 	app.Get("/test", middleware, func(c *fiber.Ctx) error {
@@ -72,7 +74,7 @@ func TestCheckBlacklist_RedisError_FailsClosed(t *testing.T) {
 	mockRedis, mock := redismock.NewClientMock()
 
 	token := "test-token"
-	mock.ExpectExists("blacklist:"+token).SetErr(context.DeadlineExceeded)
+	mock.ExpectExists("blacklist:" + token).SetErr(context.DeadlineExceeded)
 
 	middleware := CheckBlacklist(mockRedis)
 	app.Get("/test", middleware, func(c *fiber.Ctx) error {
@@ -355,5 +357,60 @@ func TestCheckBlacklist_QueryTokenRevoked(t *testing.T) {
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("revoked query token: want 401, got %d", resp.StatusCode)
+	}
+}
+
+func blacklistChain(secret string, rdb *redis.Client) *fiber.App {
+	app := fiber.New()
+	app.Get("/h", JWT(secret), CheckBlacklist(rdb), ExtractClaims(), func(c *fiber.Ctx) error { return c.SendString("OK") })
+	return app
+}
+
+func TestCheckBlacklist_EnforcesSessionCutoff(t *testing.T) {
+	const secret = "test-secret-test-secret-test-secret"
+	uid := uuid.New()
+	issued := time.Now().Add(-time.Hour)
+	tok := signedToken(t, secret, jwt.MapClaims{
+		"sub": uid.String(), "aud": AccessTokenAudience, "company_id": uuid.NewString(),
+		"iat": issued.Unix(), "exp": time.Now().Add(time.Hour).Unix(),
+	})
+	call := func(rdb *redis.Client) int {
+		req := httptest.NewRequest(http.MethodGet, "/h", nil)
+		req.Header.Set("Authorization", "Bearer "+tok)
+		resp, _ := blacklistChain(secret, rdb).Test(req)
+		resp.Body.Close()
+		return resp.StatusCode
+	}
+
+	// no cutoff -> allowed
+	rdb, mock := redismock.NewClientMock()
+	mock.ExpectExists("blacklist:" + tok).SetVal(0)
+	mock.ExpectGet("session_cutoff:" + uid.String()).RedisNil()
+	if got := call(rdb); got != http.StatusOK {
+		t.Fatalf("no cutoff: want 200, got %d", got)
+	}
+
+	// cutoff after the token was issued (user deactivated / password changed) -> rejected
+	rdb, mock = redismock.NewClientMock()
+	mock.ExpectExists("blacklist:" + tok).SetVal(0)
+	mock.ExpectGet("session_cutoff:" + uid.String()).SetVal(strconv.FormatInt(time.Now().Unix(), 10))
+	if got := call(rdb); got != http.StatusUnauthorized {
+		t.Fatalf("token older than cutoff: want 401, got %d", got)
+	}
+
+	// cutoff older than the token (user re-logged in afterwards) -> allowed
+	rdb, mock = redismock.NewClientMock()
+	mock.ExpectExists("blacklist:" + tok).SetVal(0)
+	mock.ExpectGet("session_cutoff:" + uid.String()).SetVal(strconv.FormatInt(issued.Add(-time.Hour).Unix(), 10))
+	if got := call(rdb); got != http.StatusOK {
+		t.Fatalf("token newer than cutoff: want 200, got %d", got)
+	}
+
+	// Redis cannot answer -> fail closed
+	rdb, mock = redismock.NewClientMock()
+	mock.ExpectExists("blacklist:" + tok).SetVal(0)
+	mock.ExpectGet("session_cutoff:" + uid.String()).SetErr(context.DeadlineExceeded)
+	if got := call(rdb); got != http.StatusUnauthorized {
+		t.Fatalf("redis failure: want 401 (fail closed), got %d", got)
 	}
 }
