@@ -19,10 +19,22 @@ func NewCompanyRepo(db *pgxpool.Pool) *CompanyRepo {
 }
 
 func (r *CompanyRepo) Create(ctx context.Context, name, subdomain string, trialDurationDays int) (*domain.Company, error) {
+	return r.create(ctx, uuid.New(), name, subdomain, trialDurationDays, false)
+}
+
+// Bootstrap sets up the deployment's own company (APP_COMPANY_ID, seeded by migration
+// 0001) for the very first signup, so system-originated events such as inbound WhatsApp
+// webhooks and the first admin share one company. It updates the existing row in place
+// and falls back to creating it if it is missing.
+func (r *CompanyRepo) Bootstrap(ctx context.Context, id uuid.UUID, name, subdomain string, trialDurationDays int) (*domain.Company, error) {
+	return r.create(ctx, id, name, subdomain, trialDurationDays, true)
+}
+
+func (r *CompanyRepo) create(ctx context.Context, id uuid.UUID, name, subdomain string, trialDurationDays int, upsert bool) (*domain.Company, error) {
 	now := time.Now()
 	trialEnd := now.AddDate(0, 0, trialDurationDays)
 	c := &domain.Company{
-		ID:             uuid.New(),
+		ID:             id,
 		Name:           name,
 		Subdomain:      subdomain,
 		Plan:           "starter",
@@ -40,8 +52,13 @@ func (r *CompanyRepo) Create(ctx context.Context, name, subdomain string, trialD
 	}
 	defer tx.Rollback(ctx)
 
-	const q = `INSERT INTO companies (id, name, subdomain, plan, trial_started_at, trial_ends_at, on_trial, is_active, is_demo, created_at)
+	q := `INSERT INTO companies (id, name, subdomain, plan, trial_started_at, trial_ends_at, on_trial, is_active, is_demo, created_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`
+	if upsert {
+		q += ` ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, subdomain = EXCLUDED.subdomain, plan = EXCLUDED.plan,
+			trial_started_at = EXCLUDED.trial_started_at, trial_ends_at = EXCLUDED.trial_ends_at,
+			on_trial = EXCLUDED.on_trial, is_active = EXCLUDED.is_active, is_demo = EXCLUDED.is_demo`
+	}
 	_, err = tx.Exec(ctx, q,
 		c.ID, c.Name, c.Subdomain, c.Plan, c.TrialStartedAt, c.TrialEndsAt, c.OnTrial, c.IsActive, c.IsDemo, c.CreatedAt)
 	if err != nil {
@@ -49,8 +66,11 @@ func (r *CompanyRepo) Create(ctx context.Context, name, subdomain string, trialD
 	}
 
 	// Create default company_settings row
-	const csq = `INSERT INTO company_settings (company_id, name, vat_number, business_address)
+	csq := `INSERT INTO company_settings (company_id, name, vat_number, business_address)
 		VALUES ($1, $2, '', '')`
+	if upsert {
+		csq += ` ON CONFLICT (company_id) DO UPDATE SET name = EXCLUDED.name`
+	}
 	_, err = tx.Exec(ctx, csq, c.ID, c.Name)
 	if err != nil {
 		return nil, fmt.Errorf("insert company_settings: %w", err)

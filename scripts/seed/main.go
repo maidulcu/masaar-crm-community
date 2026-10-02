@@ -121,9 +121,9 @@ func main() {
 	}
 	for i, s := range apiSettings {
 		exec(ctx, pool, `
-			INSERT INTO api_settings (id,setting_key,setting_value,description,updated_by)
-			VALUES ($1,$2,$3,$4,$5) ON CONFLICT (setting_key) DO NOTHING
-		`, id("api-setting", s.key), s.key, s.val, s.desc, users[0].ID)
+			INSERT INTO api_settings (id,setting_key,setting_value,description,updated_by,company_id)
+			VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (company_id, setting_key) DO NOTHING
+		`, id("api-setting", s.key), s.key, s.val, s.desc, users[0].ID, companyID)
 		logged("APISetting", fmt.Sprintf("%s=%s", s.key, s.val))
 		_ = i
 	}
@@ -154,9 +154,9 @@ func main() {
 	}
 	for _, c := range contacts {
 		exec(ctx, pool, `
-			INSERT INTO contacts (id,phone_wa,full_name,email,language,lead_score,assigned_to)
-			VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (phone_wa) DO NOTHING
-		`, c.ID, c.Phone, c.Name, c.Email, c.Lang, c.Score, c.Assigned)
+			INSERT INTO contacts (id,phone_wa,full_name,email,language,lead_score,assigned_to,company_id)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT (company_id, phone_wa) DO NOTHING
+		`, c.ID, c.Phone, c.Name, c.Email, c.Lang, c.Score, c.Assigned, companyID)
 		logged("Contact", fmt.Sprintf("%s (%s)", c.Name, c.Phone))
 	}
 
@@ -191,10 +191,10 @@ func main() {
 		leadIDs[i] = l.ID
 		lastContact := l.LastContact.Truncate(time.Second)
 		exec(ctx, pool, `
-			INSERT INTO leads (id,contact_id,stage,source,deal_value,currency,notes,assigned_to,lead_score,last_contacted_at)
-			VALUES ($1,$2,$3,$4,$5,'AED',$6,$7,$8,$9)
+			INSERT INTO leads (id,contact_id,stage,source,deal_value,currency,notes,assigned_to,lead_score,last_contacted_at,company_id)
+			VALUES ($1,$2,$3,$4,$5,'AED',$6,$7,$8,$9,$10)
 			ON CONFLICT (id) DO NOTHING
-		`, l.ID, l.ContactID, l.Stage, l.Source, l.Value, l.Notes, l.Assigned, l.LeadScore, lastContact)
+		`, l.ID, l.ContactID, l.Stage, l.Source, l.Value, l.Notes, l.Assigned, l.LeadScore, lastContact, companyID)
 		logged("Lead", fmt.Sprintf("%s → %s (AED %.0f)", l.Stage, l.Source, l.Value))
 	}
 
@@ -247,9 +247,9 @@ func main() {
 			createdBy = &users[c.userIdx].ID
 		}
 		exec(ctx, pool, `
-			INSERT INTO communication_history (lead_id,contact_id,communication_type,direction,body,from_identifier,to_identifier,created_by)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-		`, leads[c.leadIdx].ID, contacts[c.leadIdx].ID, c.typ, c.dir, c.body, c.from, c.to, createdBy)
+			INSERT INTO communication_history (lead_id,contact_id,communication_type,direction,body,from_identifier,to_identifier,created_by,company_id)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+		`, leads[c.leadIdx].ID, contacts[c.leadIdx].ID, c.typ, c.dir, c.body, c.from, c.to, createdBy, companyID)
 		logged("CommHistory", fmt.Sprintf("%s %s", c.typ, c.dir))
 	}
 
@@ -275,10 +275,10 @@ func main() {
 	}
 	for _, d := range deals {
 		exec(ctx, pool, `
-			INSERT INTO deals (id,lead_id,title,stage,amount,currency,close_date,probability,owner_id)
-			VALUES ($1,$2,$3,$4,$5,'AED',$6,$7,$8)
+			INSERT INTO deals (id,lead_id,title,stage,amount,currency,close_date,probability,owner_id,company_id)
+			VALUES ($1,$2,$3,$4,$5,'AED',$6,$7,$8,$9)
 			ON CONFLICT (id) DO NOTHING
-		`, d.ID, d.LeadID, d.Title, d.Stage, d.Amount, d.CloseDate, d.Probability, d.Owner)
+		`, d.ID, d.LeadID, d.Title, d.Stage, d.Amount, d.CloseDate, d.Probability, d.Owner, companyID)
 		logged("Deal", fmt.Sprintf("%s (%s, AED %.0f)", d.Title, d.Stage, d.Amount))
 	}
 
@@ -301,10 +301,10 @@ func main() {
 	}
 	for _, inv := range invoices {
 		exec(ctx, pool, `
-			INSERT INTO vat_invoices (id,deal_id,invoice_no,subtotal,vat_rate,status,issued_at)
-			VALUES ($1,$2,$3,$4,$5,$6,$7)
-			ON CONFLICT (invoice_no) DO NOTHING
-		`, inv.ID, inv.DealID, inv.InvNo, inv.Subtotal, inv.VATRate, inv.Status, inv.IssuedAt)
+			INSERT INTO vat_invoices (id,deal_id,invoice_no,subtotal,vat_rate,status,issued_at,company_id)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+			ON CONFLICT (company_id, invoice_no) DO NOTHING
+		`, inv.ID, inv.DealID, inv.InvNo, inv.Subtotal, inv.VATRate, inv.Status, inv.IssuedAt, companyID)
 		logged("Invoice", fmt.Sprintf("%s (%s)", inv.InvNo, inv.Status))
 	}
 
@@ -362,10 +362,10 @@ func main() {
 		tID := id("thread", fmt.Sprintf("%d", i))
 		cID := contacts[t.contactIdx].ID
 		exec(ctx, pool, `
-			INSERT INTO whatsapp_threads (id,contact_id,wa_account_id,thread_status,last_message_at,message_count)
-			VALUES ($1,$2,'15551234567',$3,$4,$5)
+			INSERT INTO whatsapp_threads (id,contact_id,wa_account_id,thread_status,last_message_at,message_count,company_id)
+			VALUES ($1,$2,'15551234567',$3,$4,$5,$6)
 			ON CONFLICT (id) DO NOTHING
-		`, tID, cID, t.status, now.Add(-time.Duration(i)*time.Hour), len(t.messages))
+		`, tID, cID, t.status, now.Add(-time.Duration(i)*time.Hour), len(t.messages), companyID)
 		logged("Thread", fmt.Sprintf("contact %d (%d messages)", t.contactIdx+1, len(t.messages)))
 
 		for j, m := range t.messages {
@@ -399,9 +399,9 @@ func main() {
 	}
 	for _, n := range notifications {
 		exec(ctx, pool, `
-			INSERT INTO notifications (id,user_id,type,title,body,read)
-			VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (id) DO NOTHING
-		`, n.id, users[n.userIdx].ID, n.typ, n.title, n.body, n.read)
+			INSERT INTO notifications (id,user_id,type,title,body,read,company_id)
+			VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (id) DO NOTHING
+		`, n.id, users[n.userIdx].ID, n.typ, n.title, n.body, n.read, companyID)
 		logged("Notification", n.title)
 	}
 
@@ -732,7 +732,7 @@ func main() {
 	for _, l := range renewLogs {
 		exec(ctx, pool, `
 			INSERT INTO renewal_communication_log (id,renewal_id,communication_type,template_id,sent_date,delivery_status,response_text)
-			VALUES ($1,$2,$3,$4,$5,$6,$7)
+			VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (id) DO NOTHING
 		`, l.id, renewals[l.renewIdx].ID, l.commType, renewCommTpls[l.tplIdx].id,
 			now.Add(-48*time.Hour), l.delivered, l.response)
 		logged("RenewalCommLog", l.commType)
@@ -943,10 +943,10 @@ func main() {
 	}
 	for _, o := range outbounds {
 		exec(ctx, pool, `
-			INSERT INTO whatsapp_outbound (thread_id,to_number,message_body,wa_message_id,status,created_by)
-			VALUES ($1,$2,$3,$4,$5,$6)
+			INSERT INTO whatsapp_outbound (thread_id,to_number,message_body,wa_message_id,status,created_by,company_id)
+			VALUES ($1,$2,$3,$4,$5,$6,$7)
 		`, id("thread", fmt.Sprintf("%d", o.threadIdx)), o.toNumber, o.body,
-			"wa-out-"+id("out", fmt.Sprintf("%d", o.threadIdx)).String(), o.status, users[o.userIdx].ID)
+			"wa-out-"+id("out", fmt.Sprintf("%d", o.threadIdx)).String(), o.status, users[o.userIdx].ID, companyID)
 		logged("WhatsAppOutbound", fmt.Sprintf("→ %s", o.toNumber))
 	}
 
@@ -1017,9 +1017,9 @@ func main() {
 	}
 	for _, w := range webhooks {
 		exec(ctx, pool, `
-			INSERT INTO webhook_subscriptions (id,company_id,name,url,events,active)
-			VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (id) DO NOTHING
-		`, w.id, companyID, w.name, w.url, w.events, w.active)
+			INSERT INTO webhook_subscriptions (id,company_id,name,url,events,active,secret)
+			VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (id) DO NOTHING
+		`, w.id, companyID, w.name, w.url, w.events, w.active, "demo-"+w.id.String())
 		logged("WebhookSub", w.name)
 
 		exec(ctx, pool, `
@@ -1062,8 +1062,8 @@ func main() {
 	}
 
 	exec(ctx, pool, `
-		INSERT INTO bank_statements (id,company_id,bank_integration_id,file_name,file_size_bytes,file_format,processing_status,transactions_imported,created_by)
-		VALUES ($1,$2,$3,'statement_mar2026.csv',24580,'csv','processed',4,$4)
+		INSERT INTO bank_statements (id,company_id,bank_integration_id,file_name,file_size_bytes,file_url,file_format,processing_status,transactions_imported,uploaded_by,upload_date)
+		VALUES ($1,$2,$3,'statement_mar2026.csv',24580,'demo://statement_mar2026.csv','csv','completed',4,$4,NOW())
 		ON CONFLICT (id) DO NOTHING
 	`, id("bank-stmt", "1"), companyID, bankID, users[0].ID)
 	logged("BankStatement", "statement_mar2026.csv")
@@ -1073,7 +1073,7 @@ func main() {
 	// ══════════════════════════════════════════════════════════════════════════
 	exec(ctx, pool, `
 		INSERT INTO payment_confirmations (id,company_id,payment_id,confirmation_number,tenant_email,tenant_phone,delivery_status,delivery_method)
-		VALUES ($1,$2,$3,'CNF-2026-001','john.smith@acmecorp.ae','+971506611111','delivered','email')
+		VALUES ($1,$2,$3,'CNF-2026-001','john.smith@acmecorp.ae','+971506611111','sent','email')
 		ON CONFLICT (confirmation_number) DO NOTHING
 	`, id("pmt-conf", "1"), companyID, payments[0].ID)
 	logged("PaymentConfirmation", "CNF-2026-001")
@@ -1120,9 +1120,9 @@ func main() {
 	}
 	for _, a := range auditLogs {
 		exec(ctx, pool, `
-			INSERT INTO audit_logs (entity_type,entity_id,action,actor_id)
-			VALUES ($1,$2,$3,$4)
-		`, a.entityType, a.entityID, a.action, users[a.actorIdx].ID)
+			INSERT INTO audit_logs (entity_type,entity_id,action,actor_id,company_id)
+			VALUES ($1,$2,$3,$4,$5)
+		`, a.entityType, a.entityID, a.action, users[a.actorIdx].ID, companyID)
 	}
 	logged("AuditLogs", fmt.Sprintf("%d entries", len(auditLogs)))
 
@@ -1208,10 +1208,10 @@ func main() {
 	}
 	for _, o := range offers {
 		exec(ctx, pool, `
-			INSERT INTO offers (id,listing_id,contact_id,agent_id,offer_amount,currency,status,created_by)
+			INSERT INTO offers (id,listing_id,contact_id,agent_id,offer_amount,currency,status,company_id)
 			VALUES ($1,$2,$3,$4,$5,'AED',$6,$7) ON CONFLICT (id) DO NOTHING
 		`, o.id, listings[o.listingIdx].ID, contacts[o.contactIdx].ID, users[o.agentIdx].ID,
-			o.amount, o.status, users[0].ID)
+			o.amount, o.status, companyID)
 		logged("Offer", fmt.Sprintf("AED %.0f — %s", o.amount, o.status))
 	}
 
@@ -1238,11 +1238,15 @@ func main() {
 			checkedIn = timePtr(scheduled.Add(time.Hour))
 		}
 		exec(ctx, pool, `
-			INSERT INTO viewings (id,listing_id,contact_id,agent_id,scheduled_at,status,checked_in_at,created_by)
+			INSERT INTO viewings (id,listing_id,contact_id,agent_id,scheduled_at,status,checked_in_at,company_id)
 			VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT (id) DO NOTHING
 		`, v.id, listings[v.listingIdx].ID, contacts[v.contactIdx].ID, users[v.agentIdx].ID,
-			scheduled, v.status, checkedIn, users[0].ID)
-		logged("Viewing", fmt.Sprintf("%s — %s", listings[v.listingIdx].Title[:30], v.status))
+			scheduled, v.status, checkedIn, companyID)
+		title := listings[v.listingIdx].Title
+		if len(title) > 30 {
+			title = title[:30]
+		}
+		logged("Viewing", fmt.Sprintf("%s — %s", title, v.status))
 	}
 
 	// ══════════════════════════════════════════════════════════════════════════

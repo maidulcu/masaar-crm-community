@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/maidulcu/masaar-crm/internal/domain"
+	"github.com/maidulcu/masaar-crm/internal/tenant"
 )
 
 type LeaseRepo struct {
@@ -74,6 +75,10 @@ func (r *LeaseRepo) List(ctx context.Context, companyID uuid.UUID, page, limit i
 }
 
 func (r *LeaseRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.Lease, error) {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return nil, err
+	}
 	const q = `
 		SELECT id, company_id, property_id, tenant_id, template_id, start_date, end_date,
 		       renewal_start_date, renewal_end_date, monthly_rent, currency, security_deposit,
@@ -83,10 +88,10 @@ func (r *LeaseRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.Lease, e
 		       signed_by_landlord_date, signed_by_tenant_date, ejari_number, ejari_url,
 		       status, termination_reason, termination_date, notes,
 		       created_at, updated_at, created_by, updated_by
-		FROM leases WHERE id = $1
+		FROM leases WHERE id = $1 AND company_id = $2
 	`
 	l := &domain.Lease{}
-	err := r.db.QueryRow(ctx, q, id).Scan(
+	err = r.db.QueryRow(ctx, q, id, cid).Scan(
 		&l.ID, &l.CompanyID, &l.PropertyID, &l.TenantID, &l.TemplateID, &l.StartDate, &l.EndDate,
 		&l.RenewalStartDate, &l.RenewalEndDate, &l.MonthlyRent, &l.Currency, &l.SecurityDeposit,
 		&l.UtilityCharges, &l.LateFeePct, &l.PaymentFrequency, &l.PaymentDayOfMonth,
@@ -103,6 +108,14 @@ func (r *LeaseRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.Lease, e
 }
 
 func (r *LeaseRepo) Create(ctx context.Context, l *domain.Lease) error {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return err
+	}
+	l.CompanyID = cid // never trust a company id supplied by the client
+	if err := r.assertOwned(ctx, cid, l.PropertyID, l.TenantID, l.TemplateID); err != nil {
+		return err
+	}
 	const q = `
 		INSERT INTO leases (
 			id, company_id, property_id, tenant_id, template_id, start_date, end_date,
@@ -129,6 +142,10 @@ func (r *LeaseRepo) Create(ctx context.Context, l *domain.Lease) error {
 }
 
 func (r *LeaseRepo) Update(ctx context.Context, l *domain.Lease) error {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return err
+	}
 	const q = `
 		UPDATE leases
 		SET monthly_rent=$1, security_deposit=$2, utility_charges=$3, late_fee_percent=$4,
@@ -138,7 +155,7 @@ func (r *LeaseRepo) Update(ctx context.Context, l *domain.Lease) error {
 		    signed_by_landlord_date=$13, signed_by_tenant_date=$14, ejari_number=$15, ejari_url=$16,
 		    status=$17, termination_reason=$18, termination_date=$19, notes=$20,
 		    renewal_start_date=$21, renewal_end_date=$22, updated_by=$23, updated_at=NOW()
-		WHERE id=$24
+		WHERE id=$24 AND company_id=$25
 		RETURNING updated_at
 	`
 	return r.db.QueryRow(ctx, q,
@@ -148,16 +165,24 @@ func (r *LeaseRepo) Update(ctx context.Context, l *domain.Lease) error {
 		l.MoveOutInspectionDate, l.LeaseDocumentURL,
 		l.SignedByLandlordDate, l.SignedByTenantDate, l.EjariNumber, l.EjariURL,
 		l.Status, l.TerminationReason, l.TerminationDate, l.Notes,
-		l.RenewalStartDate, l.RenewalEndDate, l.UpdatedBy, l.ID,
+		l.RenewalStartDate, l.RenewalEndDate, l.UpdatedBy, l.ID, cid,
 	).Scan(&l.UpdatedAt)
 }
 
 func (r *LeaseRepo) Delete(ctx context.Context, id uuid.UUID) error {
-	_, err := r.db.Exec(ctx, `DELETE FROM leases WHERE id=$1`, id)
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return err
+	}
+	_, err = r.db.Exec(ctx, `DELETE FROM leases WHERE id=$1 AND company_id=$2`, id, cid)
 	return err
 }
 
 func (r *LeaseRepo) GetActiveByProperty(ctx context.Context, propertyID uuid.UUID) ([]domain.Lease, error) {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return nil, err
+	}
 	const q = `
 		SELECT id, company_id, property_id, tenant_id, template_id, start_date, end_date,
 		       renewal_start_date, renewal_end_date, monthly_rent, currency, security_deposit,
@@ -168,10 +193,10 @@ func (r *LeaseRepo) GetActiveByProperty(ctx context.Context, propertyID uuid.UUI
 		       status, termination_reason, termination_date, notes,
 		       created_at, updated_at, created_by, updated_by
 		FROM leases
-		WHERE property_id = $1 AND status = 'active'
+		WHERE property_id = $1 AND company_id = $2 AND status = 'active'
 		ORDER BY start_date DESC
 	`
-	rows, err := r.db.Query(ctx, q, propertyID)
+	rows, err := r.db.Query(ctx, q, propertyID, cid)
 	if err != nil {
 		return nil, fmt.Errorf("get active leases by property: %w", err)
 	}
@@ -198,6 +223,10 @@ func (r *LeaseRepo) GetActiveByProperty(ctx context.Context, propertyID uuid.UUI
 }
 
 func (r *LeaseRepo) GetByTenant(ctx context.Context, tenantID uuid.UUID) ([]domain.Lease, error) {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return nil, err
+	}
 	const q = `
 		SELECT id, company_id, property_id, tenant_id, template_id, start_date, end_date,
 		       renewal_start_date, renewal_end_date, monthly_rent, currency, security_deposit,
@@ -208,10 +237,10 @@ func (r *LeaseRepo) GetByTenant(ctx context.Context, tenantID uuid.UUID) ([]doma
 		       status, termination_reason, termination_date, notes,
 		       created_at, updated_at, created_by, updated_by
 		FROM leases
-		WHERE tenant_id = $1
+		WHERE tenant_id = $1 AND company_id = $2
 		ORDER BY start_date DESC
 	`
-	rows, err := r.db.Query(ctx, q, tenantID)
+	rows, err := r.db.Query(ctx, q, tenantID, cid)
 	if err != nil {
 		return nil, fmt.Errorf("get leases by tenant: %w", err)
 	}
@@ -238,9 +267,31 @@ func (r *LeaseRepo) GetByTenant(ctx context.Context, tenantID uuid.UUID) ([]doma
 }
 
 func (r *LeaseRepo) UpdateLastGeneratedPaymentDate(ctx context.Context, leaseID uuid.UUID, date *time.Time) error {
-	_, err := r.db.Exec(ctx,
-		`UPDATE leases SET last_generated_payment_date=$1, updated_at=NOW() WHERE id=$2`,
-		date, leaseID,
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return err
+	}
+	_, err = r.db.Exec(ctx,
+		`UPDATE leases SET last_generated_payment_date=$1, updated_at=NOW() WHERE id=$2 AND company_id=$3`,
+		date, leaseID, cid,
 	)
 	return err
+}
+
+// assertOwned verifies that the property, tenant and (optional) template a lease points at
+// all belong to the given company, so a lease can never reference another company's data.
+func (r *LeaseRepo) assertOwned(ctx context.Context, cid, propertyID, tenantID uuid.UUID, templateID *uuid.UUID) error {
+	var ok bool
+	err := r.db.QueryRow(ctx, `
+		SELECT EXISTS (SELECT 1 FROM rental_properties WHERE id = $1 AND company_id = $4)
+		   AND EXISTS (SELECT 1 FROM tenants WHERE id = $2 AND company_id = $4)
+		   AND ($3::uuid IS NULL OR EXISTS (SELECT 1 FROM lease_templates WHERE id = $3 AND company_id = $4))`,
+		propertyID, tenantID, templateID, cid).Scan(&ok)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return ErrForeignReference
+	}
+	return nil
 }

@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/maidulcu/masaar-crm/internal/domain"
+	"github.com/maidulcu/masaar-crm/internal/tenant"
 )
 
 type InspectionTemplateRepo struct {
@@ -19,6 +20,11 @@ func NewInspectionTemplateRepo(conn *pgxpool.Pool) *InspectionTemplateRepo {
 }
 
 func (r *InspectionTemplateRepo) Create(ctx context.Context, template *domain.InspectionTemplate) error {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return err
+	}
+	template.CompanyID = cid // never trust a company id supplied by the client
 	checklistJSON, _ := json.Marshal(template.ChecklistItems)
 	return r.conn.QueryRow(ctx, `
 		INSERT INTO inspection_templates (id, company_id, template_name, inspection_type, checklist_items, estimated_duration_minutes)
@@ -55,13 +61,17 @@ func (r *InspectionTemplateRepo) List(ctx context.Context, companyID uuid.UUID) 
 }
 
 func (r *InspectionTemplateRepo) Get(ctx context.Context, id uuid.UUID) (*domain.InspectionTemplate, error) {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return nil, err
+	}
 	var t domain.InspectionTemplate
 	var checklistJSON []byte
-	err := r.conn.QueryRow(ctx, `
+	err = r.conn.QueryRow(ctx, `
 		SELECT id, company_id, template_name, inspection_type, checklist_items, estimated_duration_minutes, created_at
 		FROM inspection_templates
-		WHERE id = $1
-	`, id).Scan(&t.ID, &t.CompanyID, &t.TemplateName, &t.InspectionType, &checklistJSON, &t.EstimatedDurationMinutes, &t.CreatedAt)
+		WHERE id = $1 AND company_id = $2
+	`, id, cid).Scan(&t.ID, &t.CompanyID, &t.TemplateName, &t.InspectionType, &checklistJSON, &t.EstimatedDurationMinutes, &t.CreatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -72,12 +82,16 @@ func (r *InspectionTemplateRepo) Get(ctx context.Context, id uuid.UUID) (*domain
 }
 
 func (r *InspectionTemplateRepo) Update(ctx context.Context, template *domain.InspectionTemplate) error {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return err
+	}
 	checklistJSON, _ := json.Marshal(template.ChecklistItems)
-	_, err := r.conn.Exec(ctx, `
+	_, err = r.conn.Exec(ctx, `
 		UPDATE inspection_templates
 		SET template_name = $2, inspection_type = $3, checklist_items = $4, estimated_duration_minutes = $5
-		WHERE id = $1
-	`, template.ID, template.TemplateName, template.InspectionType, checklistJSON, template.EstimatedDurationMinutes)
+		WHERE id = $1 AND company_id = $6
+	`, template.ID, template.TemplateName, template.InspectionType, checklistJSON, template.EstimatedDurationMinutes, cid)
 	return err
 }
 
@@ -90,22 +104,36 @@ func NewInspectionRepo(conn *pgxpool.Pool) *InspectionRepo {
 }
 
 func (r *InspectionRepo) Create(ctx context.Context, insp *domain.Inspection) error {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return err
+	}
+	insp.CompanyID = cid // never trust a company id supplied by the client
 	checklistJSON, _ := json.Marshal(insp.ChecklistResults)
+	// Property, template, inspector and tenant (when given) must belong to this company.
 	return r.conn.QueryRow(ctx, `
 		INSERT INTO inspections (id, company_id, property_id, template_id, inspection_type, scheduled_date, inspector_id, tenant_id, status, findings, severity_level, photos_urls, checklist_results, created_by)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+		SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14
+		WHERE EXISTS (SELECT 1 FROM rental_properties WHERE id = $3 AND company_id = $2)
+		  AND ($4::uuid IS NULL OR EXISTS (SELECT 1 FROM inspection_templates WHERE id = $4 AND company_id = $2))
+		  AND ($7::uuid IS NULL OR EXISTS (SELECT 1 FROM users WHERE id = $7 AND company_id = $2))
+		  AND ($8::uuid IS NULL OR EXISTS (SELECT 1 FROM tenants WHERE id = $8 AND company_id = $2))
 		RETURNING id, created_at, updated_at
 	`, insp.ID, insp.CompanyID, insp.PropertyID, insp.TemplateID, insp.InspectionType, insp.ScheduledDate, insp.InspectorID, insp.TenantID, insp.Status, insp.Findings, insp.SeverityLevel, insp.PhotosURLs, checklistJSON, insp.CreatedBy).Scan(&insp.ID, &insp.CreatedAt, &insp.UpdatedAt)
 }
 
 func (r *InspectionRepo) Get(ctx context.Context, id uuid.UUID) (*domain.Inspection, error) {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return nil, err
+	}
 	var insp domain.Inspection
 	var checklistJSON []byte
-	err := r.conn.QueryRow(ctx, `
+	err = r.conn.QueryRow(ctx, `
 		SELECT id, company_id, property_id, template_id, inspection_type, scheduled_date, completed_date, inspector_id, tenant_id, status, findings, severity_level, photos_urls, checklist_results, created_by, created_at, updated_at
 		FROM inspections
-		WHERE id = $1
-	`, id).Scan(
+		WHERE id = $1 AND company_id = $2
+	`, id, cid).Scan(
 		&insp.ID, &insp.CompanyID, &insp.PropertyID, &insp.TemplateID, &insp.InspectionType, &insp.ScheduledDate, &insp.CompletedDate, &insp.InspectorID, &insp.TenantID, &insp.Status, &insp.Findings, &insp.SeverityLevel, &insp.PhotosURLs, &checklistJSON, &insp.CreatedBy, &insp.CreatedAt, &insp.UpdatedAt,
 	)
 	if err != nil {
@@ -152,8 +180,12 @@ func (r *InspectionRepo) List(ctx context.Context, companyID uuid.UUID, limit, o
 }
 
 func (r *InspectionRepo) ListByProperty(ctx context.Context, propertyID uuid.UUID, limit, offset int) ([]domain.Inspection, int, error) {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return nil, 0, err
+	}
 	var total int
-	err := r.conn.QueryRow(ctx, `SELECT COUNT(*) FROM inspections WHERE property_id = $1`, propertyID).Scan(&total)
+	err = r.conn.QueryRow(ctx, `SELECT COUNT(*) FROM inspections WHERE property_id = $1 AND company_id = $2`, propertyID, cid).Scan(&total)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -161,10 +193,10 @@ func (r *InspectionRepo) ListByProperty(ctx context.Context, propertyID uuid.UUI
 	rows, err := r.conn.Query(ctx, `
 		SELECT id, company_id, property_id, template_id, inspection_type, scheduled_date, completed_date, inspector_id, tenant_id, status, findings, severity_level, photos_urls, checklist_results, created_by, created_at, updated_at
 		FROM inspections
-		WHERE property_id = $1
+		WHERE property_id = $1 AND company_id = $4
 		ORDER BY scheduled_date DESC
 		LIMIT $2 OFFSET $3
-	`, propertyID, limit, offset)
+	`, propertyID, limit, offset, cid)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -186,11 +218,15 @@ func (r *InspectionRepo) ListByProperty(ctx context.Context, propertyID uuid.UUI
 }
 
 func (r *InspectionRepo) Update(ctx context.Context, insp *domain.Inspection) error {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return err
+	}
 	checklistJSON, _ := json.Marshal(insp.ChecklistResults)
 	return r.conn.QueryRow(ctx, `
 		UPDATE inspections
 		SET status = $2, findings = $3, severity_level = $4, photos_urls = $5, checklist_results = $6, completed_date = $7, updated_at = CURRENT_TIMESTAMP
-		WHERE id = $1
+		WHERE id = $1 AND company_id = $8
 		RETURNING updated_at
-	`, insp.ID, insp.Status, insp.Findings, insp.SeverityLevel, insp.PhotosURLs, checklistJSON, insp.CompletedDate).Scan(&insp.UpdatedAt)
+	`, insp.ID, insp.Status, insp.Findings, insp.SeverityLevel, insp.PhotosURLs, checklistJSON, insp.CompletedDate, cid).Scan(&insp.UpdatedAt)
 }

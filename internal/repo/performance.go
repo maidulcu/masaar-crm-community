@@ -6,6 +6,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/maidulcu/masaar-crm/internal/tenant"
 )
 
 // ── Domain types ──────────────────────────────────────────────────────────────
@@ -16,10 +17,10 @@ type AgentKPIs struct {
 	AgentName        string    `json:"agent_name"`
 	Period           string    `json:"period"` // YYYY-MM
 	DealsWon         int       `json:"deals_won"`
-	Revenue          float64   `json:"revenue"`           // sum of won deal amounts
+	Revenue          float64   `json:"revenue"` // sum of won deal amounts
 	ListingsAdded    int       `json:"listings_added"`
 	LeadsAssigned    int       `json:"leads_assigned"`
-	LeadsConverted   int       `json:"leads_converted"`   // leads moved to won stage
+	LeadsConverted   int       `json:"leads_converted"`    // leads moved to won stage
 	AvgResponseHours float64   `json:"avg_response_hours"` // hours to first contact
 	Rank             int       `json:"rank,omitempty"`
 	Badges           []Badge   `json:"badges,omitempty"`
@@ -67,35 +68,41 @@ func NewPerformanceRepo(db *pgxpool.Pool) *PerformanceRepo {
 
 // GetAgentKPIs returns performance metrics for a single agent within [from, to].
 func (r *PerformanceRepo) GetAgentKPIs(ctx context.Context, agentID uuid.UUID, from, to time.Time) (*AgentKPIs, error) {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return nil, err
+	}
 	kpi := &AgentKPIs{AgentID: agentID, Period: from.Format("2006-01")}
 
-	// Agent name
-	_ = r.db.QueryRow(ctx, `SELECT name FROM users WHERE id = $1`, agentID).Scan(&kpi.AgentName)
+	// The agent must belong to the caller's company; otherwise report "not found".
+	if err := r.db.QueryRow(ctx, `SELECT name FROM users WHERE id = $1 AND company_id = $2`, agentID, cid).Scan(&kpi.AgentName); err != nil {
+		return nil, ErrUserNotFound
+	}
 
 	// Won deals + revenue
 	_ = r.db.QueryRow(ctx, `
 		SELECT COUNT(*), COALESCE(SUM(amount),0)
 		FROM deals
-		WHERE owner_id=$1 AND stage='won' AND updated_at BETWEEN $2 AND $3
-	`, agentID, from, to).Scan(&kpi.DealsWon, &kpi.Revenue)
+		WHERE owner_id=$1 AND company_id=$4 AND stage='won' AND updated_at BETWEEN $2 AND $3
+	`, agentID, from, to, cid).Scan(&kpi.DealsWon, &kpi.Revenue)
 
 	// Listings added
 	_ = r.db.QueryRow(ctx, `
 		SELECT COUNT(*) FROM listings
-		WHERE created_by=$1 AND created_at BETWEEN $2 AND $3
-	`, agentID, from, to).Scan(&kpi.ListingsAdded)
+		WHERE created_by=$1 AND company_id=$4 AND created_at BETWEEN $2 AND $3
+	`, agentID, from, to, cid).Scan(&kpi.ListingsAdded)
 
 	// Leads assigned in period
 	_ = r.db.QueryRow(ctx, `
 		SELECT COUNT(*) FROM leads
-		WHERE assigned_to=$1 AND created_at BETWEEN $2 AND $3 AND deleted_at IS NULL
-	`, agentID, from, to).Scan(&kpi.LeadsAssigned)
+		WHERE assigned_to=$1 AND company_id=$4 AND created_at BETWEEN $2 AND $3 AND deleted_at IS NULL
+	`, agentID, from, to, cid).Scan(&kpi.LeadsAssigned)
 
 	// Leads converted (moved to won stage) — approximated by stage=won + assigned_to
 	_ = r.db.QueryRow(ctx, `
 		SELECT COUNT(*) FROM leads
-		WHERE assigned_to=$1 AND stage='won' AND updated_at BETWEEN $2 AND $3 AND deleted_at IS NULL
-	`, agentID, from, to).Scan(&kpi.LeadsConverted)
+		WHERE assigned_to=$1 AND company_id=$4 AND stage='won' AND updated_at BETWEEN $2 AND $3 AND deleted_at IS NULL
+	`, agentID, from, to, cid).Scan(&kpi.LeadsConverted)
 
 	// Avg response time: hours between lead creation and first last_contacted_at
 	_ = r.db.QueryRow(ctx, `
@@ -103,11 +110,11 @@ func (r *PerformanceRepo) GetAgentKPIs(ctx context.Context, agentID uuid.UUID, f
 		  EXTRACT(EPOCH FROM (last_contacted_at - created_at)) / 3600
 		), 0)
 		FROM leads
-		WHERE assigned_to=$1
+		WHERE assigned_to=$1 AND company_id=$4
 		  AND last_contacted_at IS NOT NULL
 		  AND created_at BETWEEN $2 AND $3
 		  AND deleted_at IS NULL
-	`, agentID, from, to).Scan(&kpi.AvgResponseHours)
+	`, agentID, from, to, cid).Scan(&kpi.AvgResponseHours)
 
 	kpi.Badges = computeBadges(kpi)
 	return kpi, nil
@@ -224,9 +231,18 @@ func (r *PerformanceRepo) GetKPITrends(ctx context.Context, agentID uuid.UUID, n
 	prevFrom, prevTo := monthBounds(now.AddDate(0, -1, 0))
 	yearFrom, yearTo := monthBounds(now.AddDate(-1, 0, 0))
 
-	cur, _ := r.GetAgentKPIs(ctx, agentID, thisFrom, thisTo)
-	prev, _ := r.GetAgentKPIs(ctx, agentID, prevFrom, prevTo)
-	year, _ := r.GetAgentKPIs(ctx, agentID, yearFrom, yearTo)
+	cur, err := r.GetAgentKPIs(ctx, agentID, thisFrom, thisTo)
+	if err != nil {
+		return nil, err
+	}
+	prev, err := r.GetAgentKPIs(ctx, agentID, prevFrom, prevTo)
+	if err != nil {
+		return nil, err
+	}
+	year, err := r.GetAgentKPIs(ctx, agentID, yearFrom, yearTo)
+	if err != nil {
+		return nil, err
+	}
 
 	trends := []KPITrend{
 		trendRow("deals_won", float64(cur.DealsWon), float64(prev.DealsWon), float64(year.DealsWon)),
@@ -241,13 +257,17 @@ func (r *PerformanceRepo) GetKPITrends(ctx context.Context, agentID uuid.UUID, n
 
 // GetTargets returns all targets for an agent in a given period (YYYY-MM).
 func (r *PerformanceRepo) GetTargets(ctx context.Context, agentID uuid.UUID, period string) ([]AgentTarget, error) {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return nil, err
+	}
 	const q = `
 		SELECT id, agent_id, company_id, metric, target_value, period
 		FROM agent_targets
-		WHERE agent_id=$1 AND period=$2
+		WHERE agent_id=$1 AND period=$2 AND company_id=$3
 		ORDER BY metric
 	`
-	rows, err := r.db.Query(ctx, q, agentID, period)
+	rows, err := r.db.Query(ctx, q, agentID, period, cid)
 	if err != nil {
 		return nil, err
 	}
@@ -266,9 +286,16 @@ func (r *PerformanceRepo) GetTargets(ctx context.Context, agentID uuid.UUID, per
 
 // UpsertTarget sets or updates a target for an agent.
 func (r *PerformanceRepo) UpsertTarget(ctx context.Context, t *AgentTarget) error {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return err
+	}
+	t.CompanyID = cid // never trust a company id supplied by the client
+	// The agent must belong to this company.
 	const q = `
 		INSERT INTO agent_targets (id, agent_id, company_id, metric, target_value, period, updated_at)
-		VALUES (uuid_generate_v4(), $1, $2, $3, $4, $5, NOW())
+		SELECT uuid_generate_v4(), $1, $2, $3, $4, $5, NOW()
+		WHERE EXISTS (SELECT 1 FROM users WHERE id = $1 AND company_id = $2)
 		ON CONFLICT (agent_id, metric, period) DO UPDATE
 		  SET target_value = EXCLUDED.target_value, updated_at = NOW()
 		RETURNING id
@@ -280,7 +307,11 @@ func (r *PerformanceRepo) UpsertTarget(ctx context.Context, t *AgentTarget) erro
 
 // DeleteTarget removes a target.
 func (r *PerformanceRepo) DeleteTarget(ctx context.Context, id uuid.UUID) error {
-	_, err := r.db.Exec(ctx, `DELETE FROM agent_targets WHERE id=$1`, id)
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return err
+	}
+	_, err = r.db.Exec(ctx, `DELETE FROM agent_targets WHERE id=$1 AND company_id=$2`, id, cid)
 	return err
 }
 

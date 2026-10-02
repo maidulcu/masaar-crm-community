@@ -8,6 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/maidulcu/masaar-crm/internal/domain"
+	"github.com/maidulcu/masaar-crm/internal/tenant"
 )
 
 type EmailRepository struct {
@@ -19,6 +20,10 @@ func NewEmailRepository(pool *pgxpool.Pool) *EmailRepository {
 }
 
 func (r *EmailRepository) Create(ctx context.Context, e *domain.EmailHistory) error {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return err
+	}
 	var metadataJSON []byte
 	if e.Metadata != nil {
 		b, err := json.Marshal(e.Metadata)
@@ -29,11 +34,11 @@ func (r *EmailRepository) Create(ctx context.Context, e *domain.EmailHistory) er
 	}
 
 	query := `INSERT INTO email_history
-	(from_email, to_email, subject, body, html_body, status, error_message, related_to, related_id, created_by, metadata)
-	VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+	(from_email, to_email, subject, body, html_body, status, error_message, related_to, related_id, created_by, metadata, company_id)
+	VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 	RETURNING id, created_at`
 
-	err := r.pool.QueryRow(ctx, query,
+	err = r.pool.QueryRow(ctx, query,
 		e.FromEmail,
 		e.ToEmail,
 		e.Subject,
@@ -45,12 +50,17 @@ func (r *EmailRepository) Create(ctx context.Context, e *domain.EmailHistory) er
 		e.RelatedID,
 		e.CreatedBy,
 		metadataJSON,
+		cid,
 	).Scan(&e.ID, &e.CreatedAt)
 
 	return err
 }
 
 func (r *EmailRepository) UpdateStatus(ctx context.Context, id int64, status domain.EmailStatus, errorMsg string) error {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return err
+	}
 	query := `UPDATE email_history SET status = $1, error_message = $2`
 	args := []any{status, errorMsg}
 
@@ -61,20 +71,26 @@ func (r *EmailRepository) UpdateStatus(ctx context.Context, id int64, status dom
 
 	query += ` WHERE id = $` + strconv.Itoa(len(args)+1)
 	args = append(args, id)
+	query += ` AND company_id = $` + strconv.Itoa(len(args)+1)
+	args = append(args, cid)
 
-	_, err := r.pool.Exec(ctx, query, args...)
+	_, err = r.pool.Exec(ctx, query, args...)
 	return err
 }
 
 func (r *EmailRepository) GetByID(ctx context.Context, id int64) (*domain.EmailHistory, error) {
 	query := `SELECT id, from_email, to_email, subject, body, html_body, status, error_message,
 	related_to, related_id, sent_at, created_at, created_by, metadata
-	FROM email_history WHERE id = $1`
+	FROM email_history WHERE id = $1 AND company_id = $2`
 
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return nil, err
+	}
 	var e domain.EmailHistory
 	var metadataJSON []byte
 
-	err := r.pool.QueryRow(ctx, query, id).Scan(
+	err = r.pool.QueryRow(ctx, query, id, cid).Scan(
 		&e.ID,
 		&e.FromEmail,
 		&e.ToEmail,
@@ -105,9 +121,13 @@ func (r *EmailRepository) GetByID(ctx context.Context, id int64) (*domain.EmailH
 func (r *EmailRepository) ListByRelated(ctx context.Context, relatedTo string, relatedID int64) ([]domain.EmailHistory, error) {
 	query := `SELECT id, from_email, to_email, subject, body, html_body, status, error_message,
 	related_to, related_id, sent_at, created_at, created_by, metadata
-	FROM email_history WHERE related_to = $1 AND related_id = $2 ORDER BY created_at DESC`
+	FROM email_history WHERE related_to = $1 AND related_id = $2 AND company_id = $3 ORDER BY created_at DESC`
 
-	rows, err := r.pool.Query(ctx, query, relatedTo, relatedID)
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := r.pool.Query(ctx, query, relatedTo, relatedID, cid)
 	if err != nil {
 		return nil, err
 	}
@@ -157,16 +177,20 @@ func (r *EmailRepository) ListAll(ctx context.Context, page, limit int) ([]domai
 	}
 	offset := (page - 1) * limit
 
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return nil, 0, err
+	}
 	var total int
-	if err := r.pool.QueryRow(ctx, `SELECT COUNT(*) FROM email_history`).Scan(&total); err != nil {
+	if err := r.pool.QueryRow(ctx, `SELECT COUNT(*) FROM email_history WHERE company_id = $1`, cid).Scan(&total); err != nil {
 		return nil, 0, err
 	}
 
 	query := `SELECT id, from_email, to_email, subject, body, html_body, status, error_message,
 	related_to, related_id, sent_at, created_at, created_by, metadata
-	FROM email_history ORDER BY created_at DESC LIMIT $1 OFFSET $2`
+	FROM email_history WHERE company_id = $3 ORDER BY created_at DESC LIMIT $1 OFFSET $2`
 
-	rows, err := r.pool.Query(ctx, query, limit, offset)
+	rows, err := r.pool.Query(ctx, query, limit, offset, cid)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -210,9 +234,13 @@ func (r *EmailRepository) ListAll(ctx context.Context, page, limit int) ([]domai
 func (r *EmailRepository) ListByStatus(ctx context.Context, status domain.EmailStatus, limit int) ([]domain.EmailHistory, error) {
 	query := `SELECT id, from_email, to_email, subject, body, html_body, status, error_message,
 	related_to, related_id, sent_at, created_at, created_by, metadata
-	FROM email_history WHERE status = $1 ORDER BY created_at DESC LIMIT $2`
+	FROM email_history WHERE status = $1 AND company_id = $3 ORDER BY created_at DESC LIMIT $2`
 
-	rows, err := r.pool.Query(ctx, query, status, limit)
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := r.pool.Query(ctx, query, status, limit, cid)
 	if err != nil {
 		return nil, err
 	}

@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/maidulcu/masaar-crm/internal/domain"
+	"github.com/maidulcu/masaar-crm/internal/tenant"
 )
 
 type PaymentRepo struct {
@@ -66,15 +67,19 @@ func (r *PaymentRepo) List(ctx context.Context, companyID uuid.UUID, page, limit
 }
 
 func (r *PaymentRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.Payment, error) {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return nil, err
+	}
 	const q = `
 		SELECT id, company_id, lease_id, amount, currency, due_date, paid_date, payment_method,
 		       payment_reference, status, bank_transaction_id, reconciled_at, reconciled_by,
 		       notes, receipt_url, late_fee_applied, late_fee_amount,
 		       created_at, updated_at, created_by, updated_by
-		FROM payments WHERE id = $1
+		FROM payments WHERE id = $1 AND company_id = $2
 	`
 	p := &domain.Payment{}
-	err := r.db.QueryRow(ctx, q, id).Scan(
+	err = r.db.QueryRow(ctx, q, id, cid).Scan(
 		&p.ID, &p.CompanyID, &p.LeaseID, &p.Amount, &p.Currency, &p.DueDate, &p.PaidDate, &p.PaymentMethod,
 		&p.PaymentReference, &p.Status, &p.BankTransactionID, &p.ReconciledAt, &p.ReconciledBy,
 		&p.Notes, &p.ReceiptURL, &p.LateFeesApplied, &p.LateFeeAmount,
@@ -87,6 +92,18 @@ func (r *PaymentRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.Paymen
 }
 
 func (r *PaymentRepo) Create(ctx context.Context, p *domain.Payment) error {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return err
+	}
+	p.CompanyID = cid // never trust a company id supplied by the client
+	var leaseOK bool
+	if err := r.db.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM leases WHERE id = $1 AND company_id = $2)`, p.LeaseID, cid).Scan(&leaseOK); err != nil {
+		return err
+	}
+	if !leaseOK {
+		return ErrForeignReference
+	}
 	const q = `
 		INSERT INTO payments (
 			id, company_id, lease_id, amount, currency, due_date, paid_date, payment_method,
@@ -106,36 +123,48 @@ func (r *PaymentRepo) Create(ctx context.Context, p *domain.Payment) error {
 }
 
 func (r *PaymentRepo) Update(ctx context.Context, p *domain.Payment) error {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return err
+	}
 	const q = `
 		UPDATE payments
 		SET amount=$1, paid_date=$2, payment_method=$3, payment_reference=$4, status=$5,
 		    bank_transaction_id=$6, reconciled_at=$7, reconciled_by=$8, notes=$9, receipt_url=$10,
 		    late_fee_applied=$11, late_fee_amount=$12, updated_by=$13, updated_at=NOW()
-		WHERE id=$14
+		WHERE id=$14 AND company_id=$15
 		RETURNING updated_at
 	`
 	return r.db.QueryRow(ctx, q,
 		p.Amount, p.PaidDate, p.PaymentMethod, p.PaymentReference, p.Status,
 		p.BankTransactionID, p.ReconciledAt, p.ReconciledBy, p.Notes, p.ReceiptURL,
-		p.LateFeesApplied, p.LateFeeAmount, p.UpdatedBy, p.ID,
+		p.LateFeesApplied, p.LateFeeAmount, p.UpdatedBy, p.ID, cid,
 	).Scan(&p.UpdatedAt)
 }
 
 func (r *PaymentRepo) Delete(ctx context.Context, id uuid.UUID) error {
-	_, err := r.db.Exec(ctx, `DELETE FROM payments WHERE id=$1`, id)
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return err
+	}
+	_, err = r.db.Exec(ctx, `DELETE FROM payments WHERE id=$1 AND company_id=$2`, id, cid)
 	return err
 }
 
 func (r *PaymentRepo) GetByLeaseID(ctx context.Context, leaseID uuid.UUID) ([]domain.Payment, error) {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return nil, err
+	}
 	const q = `
 		SELECT id, company_id, lease_id, amount, currency, due_date, paid_date, payment_method,
 		       payment_reference, status, bank_transaction_id, reconciled_at, reconciled_by,
 		       notes, receipt_url, late_fee_applied, late_fee_amount,
 		       created_at, updated_at, created_by, updated_by
-		FROM payments WHERE lease_id = $1
+		FROM payments WHERE lease_id = $1 AND company_id = $2
 		ORDER BY due_date ASC
 	`
-	rows, err := r.db.Query(ctx, q, leaseID)
+	rows, err := r.db.Query(ctx, q, leaseID, cid)
 	if err != nil {
 		return nil, fmt.Errorf("get payments by lease: %w", err)
 	}

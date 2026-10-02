@@ -45,7 +45,8 @@ func ValidateAPIKey(apiKeyRepo *repo.ApiKeyRepo) fiber.Handler {
 
 		// Store in locals
 		c.Locals("api_key_id", apiKey.ID)
-		c.Locals("company_id", apiKey.CompanyID)
+		// String form, consistent with ExtractClaims: handlers and tenant.From read it as a string.
+		c.Locals("company_id", apiKey.CompanyID.String())
 		c.Locals("api_key_scopes", apiKey.Scopes)
 		c.Locals("api_key_name", apiKey.Name)
 

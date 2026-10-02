@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/maidulcu/masaar-crm/internal/domain"
+	"github.com/maidulcu/masaar-crm/internal/tenant"
 )
 
 type BankIntegrationRepo struct {
@@ -66,15 +67,19 @@ func (r *BankIntegrationRepo) List(ctx context.Context, companyID uuid.UUID, pag
 }
 
 func (r *BankIntegrationRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.BankIntegration, error) {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return nil, err
+	}
 	const q = `
 		SELECT id, company_id, bank_name, bank_code, account_number, account_name, iban,
 		       integration_type, status, api_key_encrypted, api_secret_encrypted, api_endpoint,
 		       auto_sync, last_sync_date, sync_interval_hours, last_sync_error, sync_error_count,
 		       is_connected, connection_test_date, created_at, updated_at, created_by, updated_by
-		FROM bank_integrations WHERE id = $1
+		FROM bank_integrations WHERE id = $1 AND company_id = $2
 	`
 	bi := &domain.BankIntegration{}
-	err := r.db.QueryRow(ctx, q, id).Scan(
+	err = r.db.QueryRow(ctx, q, id, cid).Scan(
 		&bi.ID, &bi.CompanyID, &bi.BankName, &bi.BankCode, &bi.AccountNumber, &bi.AccountName, &bi.IBAN,
 		&bi.IntegrationType, &bi.Status, &bi.APIKeyEncrypted, &bi.APISecretEncrypted, &bi.APIEndpoint,
 		&bi.AutoSync, &bi.LastSyncDate, &bi.SyncIntervalHours, &bi.LastSyncError, &bi.SyncErrorCount,
@@ -87,6 +92,11 @@ func (r *BankIntegrationRepo) GetByID(ctx context.Context, id uuid.UUID) (*domai
 }
 
 func (r *BankIntegrationRepo) Create(ctx context.Context, bi *domain.BankIntegration) error {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return err
+	}
+	bi.CompanyID = cid // never trust a company id supplied by the client
 	const q = `
 		INSERT INTO bank_integrations (
 			id, company_id, bank_name, bank_code, account_number, account_name, iban,
@@ -106,36 +116,48 @@ func (r *BankIntegrationRepo) Create(ctx context.Context, bi *domain.BankIntegra
 }
 
 func (r *BankIntegrationRepo) Update(ctx context.Context, bi *domain.BankIntegration) error {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return err
+	}
 	const q = `
 		UPDATE bank_integrations
 		SET bank_name=$1, bank_code=$2, account_number=$3, account_name=$4, iban=$5,
 		    integration_type=$6, status=$7, api_key_encrypted=$8, api_secret_encrypted=$9,
 		    api_endpoint=$10, auto_sync=$11, sync_interval_hours=$12, is_connected=$13,
 		    connection_test_date=$14, updated_by=$15, updated_at=NOW()
-		WHERE id=$16
+		WHERE id=$16 AND company_id=$17
 		RETURNING updated_at
 	`
 	return r.db.QueryRow(ctx, q,
 		bi.BankName, bi.BankCode, bi.AccountNumber, bi.AccountName, bi.IBAN,
 		bi.IntegrationType, bi.Status, bi.APIKeyEncrypted, bi.APISecretEncrypted,
 		bi.APIEndpoint, bi.AutoSync, bi.SyncIntervalHours, bi.IsConnected,
-		bi.ConnectionTestDate, bi.UpdatedBy, bi.ID,
+		bi.ConnectionTestDate, bi.UpdatedBy, bi.ID, cid,
 	).Scan(&bi.UpdatedAt)
 }
 
 func (r *BankIntegrationRepo) Delete(ctx context.Context, id uuid.UUID) error {
-	_, err := r.db.Exec(ctx, `DELETE FROM bank_integrations WHERE id=$1`, id)
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return err
+	}
+	_, err = r.db.Exec(ctx, `DELETE FROM bank_integrations WHERE id=$1 AND company_id=$2`, id, cid)
 	return err
 }
 
 func (r *BankIntegrationRepo) UpdateSyncStatus(ctx context.Context, id uuid.UUID, syncDate time.Time, isError bool, errorMsg string) error {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return err
+	}
 	query := `
 		UPDATE bank_integrations
 		SET last_sync_date=$1, sync_error_count=CASE WHEN $3 THEN sync_error_count+1 ELSE 0 END,
 		    last_sync_error=$4, updated_at=NOW()
-		WHERE id=$2
+		WHERE id=$2 AND company_id=$5
 	`
-	_, err := r.db.Exec(ctx, query, syncDate, id, isError, errorMsg)
+	_, err = r.db.Exec(ctx, query, syncDate, id, isError, errorMsg, cid)
 	return err
 }
 

@@ -5,6 +5,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/maidulcu/masaar-crm/internal/domain"
+	"github.com/maidulcu/masaar-crm/internal/tenant"
 )
 
 type StatsRepo struct {
@@ -19,17 +20,21 @@ func NewStatsRepo(db *pgxpool.Pool) *StatsRepo {
 func (r *StatsRepo) Overview(ctx context.Context) (*domain.Stats, error) {
 	const q = `
 		SELECT
-		  (SELECT COUNT(*)                          FROM contacts)                                           AS total_contacts,
-		  (SELECT COUNT(*)                          FROM leads WHERE stage NOT IN ('won','lost'))             AS active_leads,
-		  (SELECT COUNT(*)                          FROM leads WHERE created_at >= NOW() - INTERVAL '7 days') AS new_leads_week,
-		  (SELECT COUNT(*)                          FROM whatsapp_threads WHERE thread_status = 'open')       AS open_threads,
-		  (SELECT COUNT(*)                          FROM deals WHERE stage = 'open')                          AS open_deals,
-		  (SELECT COALESCE(SUM(amount), 0)          FROM deals WHERE stage = 'open')                          AS open_deals_value,
-		  (SELECT COUNT(*)                          FROM deals WHERE stage = 'won')                           AS won_deals,
-		  (SELECT COALESCE(SUM(amount), 0)          FROM deals WHERE stage = 'won')                           AS won_deals_value
+		  (SELECT COUNT(*)                          FROM contacts WHERE company_id = $1)                                           AS total_contacts,
+		  (SELECT COUNT(*)                          FROM leads WHERE company_id = $1 AND deleted_at IS NULL AND stage NOT IN ('won','lost'))             AS active_leads,
+		  (SELECT COUNT(*)                          FROM leads WHERE company_id = $1 AND deleted_at IS NULL AND created_at >= NOW() - INTERVAL '7 days') AS new_leads_week,
+		  (SELECT COUNT(*)                          FROM whatsapp_threads WHERE company_id = $1 AND thread_status = 'open')       AS open_threads,
+		  (SELECT COUNT(*)                          FROM deals WHERE company_id = $1 AND stage = 'open')                          AS open_deals,
+		  (SELECT COALESCE(SUM(amount), 0)          FROM deals WHERE company_id = $1 AND stage = 'open')                          AS open_deals_value,
+		  (SELECT COUNT(*)                          FROM deals WHERE company_id = $1 AND stage = 'won')                           AS won_deals,
+		  (SELECT COALESCE(SUM(amount), 0)          FROM deals WHERE company_id = $1 AND stage = 'won')                           AS won_deals_value
 	`
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return nil, err
+	}
 	s := &domain.Stats{}
-	err := r.db.QueryRow(ctx, q).Scan(
+	err = r.db.QueryRow(ctx, q, cid).Scan(
 		&s.TotalContacts,
 		&s.ActiveLeads,
 		&s.NewLeadsWeek,

@@ -7,6 +7,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/maidulcu/masaar-crm/internal/domain"
+	"github.com/maidulcu/masaar-crm/internal/tenant"
 )
 
 type PipelineStageRepo struct {
@@ -41,11 +42,15 @@ func (r *PipelineStageRepo) ListByCompany(ctx context.Context, companyID uuid.UU
 }
 
 func (r *PipelineStageRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.PipelineStage, error) {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return nil, err
+	}
 	var s domain.PipelineStage
-	err := r.db.QueryRow(ctx, `
+	err = r.db.QueryRow(ctx, `
 		SELECT id, company_id, entity_type, name, sort_order, color, is_won, is_lost, is_default, created_at
-		FROM pipeline_stages WHERE id = $1
-	`, id).Scan(&s.ID, &s.CompanyID, &s.EntityType, &s.Name, &s.SortOrder, &s.Color, &s.IsWon, &s.IsLost, &s.IsDefault, &s.CreatedAt)
+		FROM pipeline_stages WHERE id = $1 AND company_id = $2
+	`, id, cid).Scan(&s.ID, &s.CompanyID, &s.EntityType, &s.Name, &s.SortOrder, &s.Color, &s.IsWon, &s.IsLost, &s.IsDefault, &s.CreatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("get pipeline stage: %w", err)
 	}
@@ -53,6 +58,11 @@ func (r *PipelineStageRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.
 }
 
 func (r *PipelineStageRepo) Create(ctx context.Context, s *domain.PipelineStage) error {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return err
+	}
+	s.CompanyID = cid // never trust a company id supplied by the client
 	s.ID = uuid.New()
 	return r.db.QueryRow(ctx, `
 		INSERT INTO pipeline_stages (id, company_id, entity_type, name, sort_order, color, is_won, is_lost, is_default)
@@ -63,22 +73,34 @@ func (r *PipelineStageRepo) Create(ctx context.Context, s *domain.PipelineStage)
 }
 
 func (r *PipelineStageRepo) Update(ctx context.Context, s *domain.PipelineStage) error {
-	_, err := r.db.Exec(ctx, `
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return err
+	}
+	_, err = r.db.Exec(ctx, `
 		UPDATE pipeline_stages
 		SET name=$1, sort_order=$2, color=$3, is_won=$4, is_lost=$5
-		WHERE id=$6
-	`, s.Name, s.SortOrder, s.Color, s.IsWon, s.IsLost, s.ID)
+		WHERE id=$6 AND company_id=$7
+	`, s.Name, s.SortOrder, s.Color, s.IsWon, s.IsLost, s.ID, cid)
 	return err
 }
 
 func (r *PipelineStageRepo) Delete(ctx context.Context, id uuid.UUID) error {
-	_, err := r.db.Exec(ctx, `DELETE FROM pipeline_stages WHERE id=$1`, id)
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return err
+	}
+	_, err = r.db.Exec(ctx, `DELETE FROM pipeline_stages WHERE id=$1 AND company_id=$2`, id, cid)
 	return err
 }
 
 func (r *PipelineStageRepo) Reorder(ctx context.Context, ids []uuid.UUID) error {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return err
+	}
 	for i, id := range ids {
-		if _, err := r.db.Exec(ctx, `UPDATE pipeline_stages SET sort_order=$1 WHERE id=$2`, i, id); err != nil {
+		if _, err := r.db.Exec(ctx, `UPDATE pipeline_stages SET sort_order=$1 WHERE id=$2 AND company_id=$3`, i, id, cid); err != nil {
 			return fmt.Errorf("reorder stage %s: %w", id, err)
 		}
 	}

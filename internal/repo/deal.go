@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/maidulcu/masaar-crm/internal/domain"
+	"github.com/maidulcu/masaar-crm/internal/tenant"
 )
 
 type DealRepo struct {
@@ -19,14 +20,18 @@ func NewDealRepo(db *pgxpool.Pool) *DealRepo {
 }
 
 func (r *DealRepo) List(ctx context.Context, ownerID *uuid.UUID, stage string, page, limit int) (*domain.PaginatedResult[domain.Deal], error) {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return nil, err
+	}
 	offset := (page - 1) * limit
 
-	args := []any{}
-	where := "true"
+	args := []any{cid}
+	where := "company_id = $1"
 
 	if ownerID != nil {
 		args = append(args, *ownerID)
-		where = "owner_id = $" + strconv.Itoa(len(args))
+		where += " AND owner_id = $" + strconv.Itoa(len(args))
 	}
 	if stage != "" {
 		args = append(args, stage)
@@ -73,10 +78,14 @@ func (r *DealRepo) List(ctx context.Context, ownerID *uuid.UUID, stage string, p
 func (r *DealRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.Deal, error) {
 	const q = `
 		SELECT id, lead_id, title, stage, amount, currency, close_date, probability, owner_id, created_at, updated_at
-		FROM deals WHERE id = $1
+		FROM deals WHERE id = $1 AND company_id = $2
 	`
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return nil, err
+	}
 	d := &domain.Deal{}
-	err := r.db.QueryRow(ctx, q, id).Scan(
+	err = r.db.QueryRow(ctx, q, id, cid).Scan(
 		&d.ID, &d.LeadID, &d.Title, &d.Stage,
 		&d.Amount, &d.Currency, &d.CloseDate,
 		&d.Probability, &d.OwnerID,
@@ -89,37 +98,56 @@ func (r *DealRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.Deal, err
 }
 
 func (r *DealRepo) Create(ctx context.Context, d *domain.Deal) error {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return err
+	}
+	// The lead and owner (when given) must belong to the same company.
 	const q = `
-		INSERT INTO deals (id, lead_id, title, stage, amount, currency, close_date, probability, owner_id)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+		INSERT INTO deals (id, company_id, lead_id, title, stage, amount, currency, close_date, probability, owner_id)
+		SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10
+		WHERE ($3::uuid IS NULL OR EXISTS (SELECT 1 FROM leads WHERE id = $3 AND company_id = $2))
+		  AND ($10::uuid IS NULL OR EXISTS (SELECT 1 FROM users WHERE id = $10 AND company_id = $2))
 		RETURNING created_at, updated_at
 	`
 	d.ID = uuid.New()
 	return r.db.QueryRow(ctx, q,
-		d.ID, d.LeadID, d.Title, d.Stage,
+		d.ID, cid, d.LeadID, d.Title, d.Stage,
 		d.Amount, d.Currency, d.CloseDate,
 		d.Probability, d.OwnerID,
 	).Scan(&d.CreatedAt, &d.UpdatedAt)
 }
 
 func (r *DealRepo) Update(ctx context.Context, d *domain.Deal) error {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return err
+	}
 	const q = `
 		UPDATE deals SET title=$1, amount=$2, currency=$3, probability=$4, close_date=$5, updated_at=NOW()
-		WHERE id=$6
+		WHERE id=$6 AND company_id=$7
 		RETURNING updated_at
 	`
-	return r.db.QueryRow(ctx, q, d.Title, d.Amount, d.Currency, d.Probability, d.CloseDate, d.ID).Scan(&d.UpdatedAt)
+	return r.db.QueryRow(ctx, q, d.Title, d.Amount, d.Currency, d.Probability, d.CloseDate, d.ID, cid).Scan(&d.UpdatedAt)
 }
 
 func (r *DealRepo) UpdateStage(ctx context.Context, id uuid.UUID, stage domain.DealStage) error {
-	_, err := r.db.Exec(ctx,
-		`UPDATE deals SET stage=$1, updated_at=NOW() WHERE id=$2`,
-		stage, id,
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return err
+	}
+	_, err = r.db.Exec(ctx,
+		`UPDATE deals SET stage=$1, updated_at=NOW() WHERE id=$2 AND company_id=$3`,
+		stage, id, cid,
 	)
 	return err
 }
 
 func (r *DealRepo) Delete(ctx context.Context, id uuid.UUID) error {
-	_, err := r.db.Exec(ctx, `DELETE FROM deals WHERE id=$1`, id)
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return err
+	}
+	_, err = r.db.Exec(ctx, `DELETE FROM deals WHERE id=$1 AND company_id=$2`, id, cid)
 	return err
 }

@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/maidulcu/masaar-crm/internal/domain"
+	"github.com/maidulcu/masaar-crm/internal/tenant"
 )
 
 type BankStatementRepo struct {
@@ -19,6 +20,20 @@ func NewBankStatementRepo(db *pgxpool.Pool) *BankStatementRepo {
 }
 
 func (r *BankStatementRepo) Create(ctx context.Context, bs *domain.BankStatement) error {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return err
+	}
+	bs.CompanyID = cid // never trust a company id supplied by the client
+	if bs.BankIntegrationID != uuid.Nil {
+		var ok bool
+		if err := r.db.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM bank_integrations WHERE id = $1 AND company_id = $2)`, bs.BankIntegrationID, cid).Scan(&ok); err != nil {
+			return err
+		}
+		if !ok {
+			return ErrForeignReference
+		}
+	}
 	const q = `
 		INSERT INTO bank_statements (
 			id, company_id, bank_integration_id, file_name, file_size_bytes, file_url,
@@ -34,14 +49,18 @@ func (r *BankStatementRepo) Create(ctx context.Context, bs *domain.BankStatement
 }
 
 func (r *BankStatementRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.BankStatement, error) {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return nil, err
+	}
 	const q = `
 		SELECT id, company_id, bank_integration_id, file_name, file_size_bytes, file_url,
 		       file_format, uploaded_by, upload_date, processing_status, transactions_imported,
 		       import_error, data_classification, retention_until, created_at, updated_at, deleted_at
-		FROM bank_statements WHERE id = $1 AND deleted_at IS NULL
+		FROM bank_statements WHERE id = $1 AND company_id = $2 AND deleted_at IS NULL
 	`
 	bs := &domain.BankStatement{}
-	err := r.db.QueryRow(ctx, q, id).Scan(
+	err = r.db.QueryRow(ctx, q, id, cid).Scan(
 		&bs.ID, &bs.CompanyID, &bs.BankIntegrationID, &bs.FileName, &bs.FileSizeBytes, &bs.FileURL,
 		&bs.FileFormat, &bs.UploadedBy, &bs.UploadDate, &bs.ProcessingStatus, &bs.TransactionsImported,
 		&bs.ImportError, &bs.DataClassification, &bs.RetentionUntil, &bs.CreatedAt, &bs.UpdatedAt, &bs.DeletedAt,
@@ -98,14 +117,18 @@ func (r *BankStatementRepo) ListByCompany(ctx context.Context, companyID uuid.UU
 }
 
 func (r *BankStatementRepo) UpdateProcessingStatus(ctx context.Context, id uuid.UUID, status domain.ProcessingStatus, transactionCount int, errMsg string) error {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return err
+	}
 	const q = `
 		UPDATE bank_statements
 		SET processing_status = $1, transactions_imported = $2, import_error = $3, updated_at = NOW()
-		WHERE id = $4
+		WHERE id = $4 AND company_id = $5
 		RETURNING updated_at
 	`
 	var updated time.Time
-	return r.db.QueryRow(ctx, q, status, transactionCount, errMsg, id).Scan(&updated)
+	return r.db.QueryRow(ctx, q, status, transactionCount, errMsg, id, cid).Scan(&updated)
 }
 
 func (r *BankStatementRepo) GetPendingForProcessing(ctx context.Context, companyID uuid.UUID) ([]domain.BankStatement, error) {
@@ -139,7 +162,11 @@ func (r *BankStatementRepo) GetPendingForProcessing(ctx context.Context, company
 }
 
 func (r *BankStatementRepo) Delete(ctx context.Context, id uuid.UUID) error {
-	const q = `UPDATE bank_statements SET deleted_at = NOW() WHERE id = $1`
-	_, err := r.db.Exec(ctx, q, id)
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return err
+	}
+	const q = `UPDATE bank_statements SET deleted_at = NOW() WHERE id = $1 AND company_id = $2`
+	_, err = r.db.Exec(ctx, q, id, cid)
 	return err
 }

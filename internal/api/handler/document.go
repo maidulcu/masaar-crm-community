@@ -365,12 +365,12 @@ func (h *DocumentHandler) PublicGetSignature(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid id"})
 	}
 
-	sigs, err := h.docs.GetSignatureByID(c.Context(), sigID)
+	sigs, err := h.docs.GetSignatureByToken(c.Context(), sigID)
 	if err != nil {
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "signature not found"})
 	}
 
-	doc, err := h.docs.GetDocument(c.Context(), sigs.DocumentID)
+	doc, err := h.docs.GetDocumentForSigning(c.Context(), sigs.DocumentID)
 	if err != nil {
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "document not found"})
 	}
@@ -393,8 +393,8 @@ func (h *DocumentHandler) PublicSign(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid id"})
 	}
 
-	if err := h.docs.MarkSigned(c.Context(), sigID, time.Now()); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	if err := h.docs.MarkSignedByToken(c.Context(), sigID, time.Now()); err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to record signature"})
 	}
 
 	return c.JSON(fiber.Map{"status": "signed"})

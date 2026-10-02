@@ -16,6 +16,7 @@ import (
 	"github.com/maidulcu/masaar-crm/internal/config"
 	"github.com/maidulcu/masaar-crm/internal/domain"
 	"github.com/maidulcu/masaar-crm/internal/repo"
+	"github.com/maidulcu/masaar-crm/internal/tenant"
 	"github.com/maidulcu/masaar-crm/internal/ws"
 )
 
@@ -183,6 +184,14 @@ func (h *WhatsAppHandler) Receive(c *fiber.Ctx) error {
 			return c.SendStatus(fiber.StatusUnauthorized)
 		}
 	}
+	// Inbound webhooks carry no user session; they belong to this deployment's company.
+	companyID, err := uuid.Parse(h.config.AppCompanyID)
+	if err != nil {
+		log.Printf("whatsapp: invalid APP_COMPANY_ID: %v", err)
+		return c.SendStatus(fiber.StatusInternalServerError)
+	}
+	ctx := tenant.With(c.Context(), companyID)
+
 	var payload struct {
 		Object string `json:"object"`
 		Entry  []struct {
@@ -283,13 +292,13 @@ func (h *WhatsAppHandler) Receive(c *fiber.Ctx) error {
 					}
 				}
 
-				contact, err := h.contacts.Upsert(c.Context(), msg.From, senderName)
+				contact, err := h.contacts.Upsert(ctx, msg.From, senderName)
 				if err != nil {
 					log.Printf("whatsapp: upsert contact error for msg %s: %v", msg.ID, err)
 					return c.Status(fiber.StatusInternalServerError).SendString("contact upsert failed")
 				}
 
-				thread, err := h.wa.UpsertThread(c.Context(), contact.ID, val.Metadata.PhoneNumberID)
+				thread, err := h.wa.UpsertThread(ctx, contact.ID, val.Metadata.PhoneNumberID)
 				if err != nil {
 					log.Printf("whatsapp: upsert thread error for msg %s: %v", msg.ID, err)
 					return c.Status(fiber.StatusInternalServerError).SendString("thread upsert failed")
@@ -302,12 +311,12 @@ func (h *WhatsAppHandler) Receive(c *fiber.Ctx) error {
 					MediaURL:    mediaURL,
 					WAMessageID: msg.ID,
 				}
-				if err := h.wa.SaveMessage(c.Context(), waMsg); err != nil {
+				if err := h.wa.SaveMessage(ctx, waMsg); err != nil {
 					log.Printf("whatsapp: save message error for msg %s: %v", msg.ID, err)
 					return c.Status(fiber.StatusInternalServerError).SendString("message save failed")
 				}
 
-				_ = h.wa.UpdateThreadMeta(c.Context(), thread.ID)
+				_ = h.wa.UpdateThreadMeta(ctx, thread.ID)
 
 				// Auto-tag leads based on message content
 				if h.taggingService != nil && msg.Type == "text" {

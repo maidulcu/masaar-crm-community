@@ -7,6 +7,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/maidulcu/masaar-crm/internal/domain"
+	"github.com/maidulcu/masaar-crm/internal/tenant"
 )
 
 type TenantRepo struct {
@@ -69,6 +70,10 @@ func (r *TenantRepo) List(ctx context.Context, companyID uuid.UUID, page, limit 
 }
 
 func (r *TenantRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.Tenant, error) {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return nil, err
+	}
 	const q = `
 		SELECT id, company_id, full_name_en, full_name_ar, email, phone, phone_wa, id_type, id_number,
 		       id_expiry_date, id_document_url, is_verified, verification_status, verification_date,
@@ -76,10 +81,10 @@ func (r *TenantRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.Tenant,
 		       income_currency, salary_certificate_url, nationality, country_of_origin, permanent_address,
 		       emergency_contact_name, emergency_contact_phone, status, notes, created_at, updated_at,
 		       created_by, updated_by
-		FROM tenants WHERE id = $1
+		FROM tenants WHERE id = $1 AND company_id = $2
 	`
 	t := &domain.Tenant{}
-	err := r.db.QueryRow(ctx, q, id).Scan(
+	err = r.db.QueryRow(ctx, q, id, cid).Scan(
 		&t.ID, &t.CompanyID, &t.FullNameEN, &t.FullNameAR, &t.Email, &t.Phone, &t.PhoneWA, &t.IDType, &t.IDNumber,
 		&t.IDExpiryDate, &t.IDDocumentURL, &t.IsVerified, &t.VerificationStatus, &t.VerificationDate,
 		&t.VerifiedBy, &t.VerificationNotes, &t.EmploymentStatus, &t.EmployerName, &t.AnnualIncome,
@@ -94,6 +99,11 @@ func (r *TenantRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.Tenant,
 }
 
 func (r *TenantRepo) Create(ctx context.Context, t *domain.Tenant) error {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return err
+	}
+	t.CompanyID = cid // never trust a company id supplied by the client
 	const q = `
 		INSERT INTO tenants (
 			id, company_id, full_name_en, full_name_ar, email, phone, phone_wa, id_type, id_number,
@@ -118,6 +128,10 @@ func (r *TenantRepo) Create(ctx context.Context, t *domain.Tenant) error {
 }
 
 func (r *TenantRepo) Update(ctx context.Context, t *domain.Tenant) error {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return err
+	}
 	const q = `
 		UPDATE tenants
 		SET full_name_en=$1, full_name_ar=$2, email=$3, phone=$4, phone_wa=$5, id_type=$6, id_number=$7,
@@ -126,7 +140,7 @@ func (r *TenantRepo) Update(ctx context.Context, t *domain.Tenant) error {
 		    income_currency=$18, salary_certificate_url=$19, nationality=$20, country_of_origin=$21,
 		    permanent_address=$22, emergency_contact_name=$23, emergency_contact_phone=$24, status=$25,
 		    notes=$26, updated_by=$27, updated_at=NOW()
-		WHERE id=$28
+		WHERE id=$28 AND company_id=$29
 		RETURNING updated_at
 	`
 	return r.db.QueryRow(ctx, q,
@@ -135,16 +149,24 @@ func (r *TenantRepo) Update(ctx context.Context, t *domain.Tenant) error {
 		t.VerifiedBy, t.VerificationNotes, t.EmploymentStatus, t.EmployerName, t.AnnualIncome,
 		t.IncomeCurrency, t.SalaryCertificateURL, t.Nationality, t.CountryOfOrigin,
 		t.PermanentAddress, t.EmergencyContactName, t.EmergencyContactPhone, t.Status,
-		t.Notes, t.UpdatedBy, t.ID,
+		t.Notes, t.UpdatedBy, t.ID, cid,
 	).Scan(&t.UpdatedAt)
 }
 
 func (r *TenantRepo) Delete(ctx context.Context, id uuid.UUID) error {
-	_, err := r.db.Exec(ctx, `DELETE FROM tenants WHERE id=$1`, id)
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return err
+	}
+	_, err = r.db.Exec(ctx, `DELETE FROM tenants WHERE id=$1 AND company_id=$2`, id, cid)
 	return err
 }
 
 func (r *TenantRepo) GetByIDNumber(ctx context.Context, idNumber string) (*domain.Tenant, error) {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return nil, err
+	}
 	const q = `
 		SELECT id, company_id, full_name_en, full_name_ar, email, phone, phone_wa, id_type, id_number,
 		       id_expiry_date, id_document_url, is_verified, verification_status, verification_date,
@@ -152,10 +174,10 @@ func (r *TenantRepo) GetByIDNumber(ctx context.Context, idNumber string) (*domai
 		       income_currency, salary_certificate_url, nationality, country_of_origin, permanent_address,
 		       emergency_contact_name, emergency_contact_phone, status, notes, created_at, updated_at,
 		       created_by, updated_by
-		FROM tenants WHERE id_number = $1
+		FROM tenants WHERE id_number = $1 AND company_id = $2
 	`
 	t := &domain.Tenant{}
-	err := r.db.QueryRow(ctx, q, idNumber).Scan(
+	err = r.db.QueryRow(ctx, q, idNumber, cid).Scan(
 		&t.ID, &t.CompanyID, &t.FullNameEN, &t.FullNameAR, &t.Email, &t.Phone, &t.PhoneWA, &t.IDType, &t.IDNumber,
 		&t.IDExpiryDate, &t.IDDocumentURL, &t.IsVerified, &t.VerificationStatus, &t.VerificationDate,
 		&t.VerifiedBy, &t.VerificationNotes, &t.EmploymentStatus, &t.EmployerName, &t.AnnualIncome,

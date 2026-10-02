@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/maidulcu/masaar-crm/internal/domain"
+	"github.com/maidulcu/masaar-crm/internal/tenant"
 )
 
 type LeadRepo struct {
@@ -39,15 +40,19 @@ func scanLead(row interface {
 
 // KanbanBoard returns active (non-deleted) leads grouped by stage with joined contact.
 func (r *LeadRepo) KanbanBoard(ctx context.Context) (map[domain.LeadStage][]domain.Lead, error) {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return nil, err
+	}
 	const q = `
 		SELECT` + leadCols + `,
 		       c.id, c.phone_wa, c.full_name, c.email, c.language, c.lead_score
 		FROM leads l
-		JOIN contacts c ON c.id = l.contact_id
-		WHERE l.deleted_at IS NULL
+		JOIN contacts c ON c.id = l.contact_id AND c.company_id = l.company_id
+		WHERE l.deleted_at IS NULL AND l.company_id = $1
 		ORDER BY l.stage, l.created_at DESC
 	`
-	rows, err := r.db.Query(ctx, q)
+	rows, err := r.db.Query(ctx, q, cid)
 	if err != nil {
 		return nil, fmt.Errorf("kanban query: %w", err)
 	}
@@ -86,13 +91,17 @@ type LeadFilter struct {
 
 // List returns leads matching the filter, ordered by created_at DESC.
 func (r *LeadRepo) List(ctx context.Context, f LeadFilter) ([]domain.Lead, error) {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return nil, err
+	}
 	if f.Limit == 0 {
 		f.Limit = 50
 	}
 
-	args := []any{}
-	conds := []string{"l.deleted_at IS NULL"}
-	n := 1
+	args := []any{cid}
+	conds := []string{"l.deleted_at IS NULL", "l.company_id = $1"}
+	n := 2
 
 	if f.Query != "" {
 		conds = append(conds, fmt.Sprintf(
@@ -130,7 +139,7 @@ func (r *LeadRepo) List(ctx context.Context, f LeadFilter) ([]domain.Lead, error
 		SELECT`+leadCols+`,
 		       c.id, c.phone_wa, c.full_name, c.email, c.language, c.lead_score
 		FROM leads l
-		JOIN contacts c ON c.id = l.contact_id
+		JOIN contacts c ON c.id = l.contact_id AND c.company_id = l.company_id
 		%s
 		ORDER BY l.created_at DESC
 		LIMIT $%d OFFSET $%d
@@ -163,65 +172,99 @@ func (r *LeadRepo) List(ctx context.Context, f LeadFilter) ([]domain.Lead, error
 }
 
 func (r *LeadRepo) Create(ctx context.Context, l *domain.Lead) error {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return err
+	}
+	// The contact (and agent, if any) must belong to the same company; a foreign
+	// UUID inserts nothing and surfaces as ErrNoRows.
 	const q = `
-		INSERT INTO leads (id, contact_id, stage, source, deal_value, currency, notes, assigned_to)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+		INSERT INTO leads (id, company_id, contact_id, stage, source, deal_value, currency, notes, assigned_to)
+		SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9
+		WHERE EXISTS (SELECT 1 FROM contacts WHERE id = $3 AND company_id = $2)
+		  AND ($9::uuid IS NULL OR EXISTS (SELECT 1 FROM users WHERE id = $9 AND company_id = $2))
 		RETURNING created_at, updated_at
 	`
 	l.ID = uuid.New()
 	return r.db.QueryRow(ctx, q,
-		l.ID, l.ContactID, l.Stage, l.Source, l.DealValue, l.Currency, l.Notes, l.AssignedTo,
+		l.ID, cid, l.ContactID, l.Stage, l.Source, l.DealValue, l.Currency, l.Notes, l.AssignedTo,
 	).Scan(&l.CreatedAt, &l.UpdatedAt)
 }
 
 func (r *LeadRepo) UpdateNotes(ctx context.Context, id uuid.UUID, notes string) error {
-	_, err := r.db.Exec(ctx,
-		`UPDATE leads SET notes=$1, updated_at=NOW() WHERE id=$2 AND deleted_at IS NULL`,
-		notes, id,
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return err
+	}
+	_, err = r.db.Exec(ctx,
+		`UPDATE leads SET notes=$1, updated_at=NOW() WHERE id=$2 AND company_id=$3 AND deleted_at IS NULL`,
+		notes, id, cid,
 	)
 	return err
 }
 
 // UpdateStage moves the lead stage and optionally sets closed_reason for won/lost.
 func (r *LeadRepo) UpdateStage(ctx context.Context, id uuid.UUID, stage domain.LeadStage, reason string) error {
-	_, err := r.db.Exec(ctx,
-		`UPDATE leads SET stage=$1, closed_reason=$2, updated_at=NOW() WHERE id=$3 AND deleted_at IS NULL`,
-		stage, reason, id,
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return err
+	}
+	_, err = r.db.Exec(ctx,
+		`UPDATE leads SET stage=$1, closed_reason=$2, updated_at=NOW() WHERE id=$3 AND company_id=$4 AND deleted_at IS NULL`,
+		stage, reason, id, cid,
 	)
 	return err
 }
 
 // Assign sets or clears the agent assigned to a lead.
 func (r *LeadRepo) Assign(ctx context.Context, id uuid.UUID, userID *uuid.UUID) error {
-	_, err := r.db.Exec(ctx,
-		`UPDATE leads SET assigned_to=$1, updated_at=NOW() WHERE id=$2 AND deleted_at IS NULL`,
-		userID, id,
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return err
+	}
+	_, err = r.db.Exec(ctx,
+		`UPDATE leads SET assigned_to=$1, updated_at=NOW()
+		 WHERE id=$2 AND company_id=$3 AND deleted_at IS NULL
+		   AND ($1::uuid IS NULL OR EXISTS (SELECT 1 FROM users WHERE id=$1 AND company_id=$3))`,
+		userID, id, cid,
 	)
 	return err
 }
 
 // TouchLastContacted updates last_contacted_at to now.
 func (r *LeadRepo) TouchLastContacted(ctx context.Context, id uuid.UUID) error {
-	_, err := r.db.Exec(ctx,
-		`UPDATE leads SET last_contacted_at=NOW(), updated_at=NOW() WHERE id=$1 AND deleted_at IS NULL`,
-		id,
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return err
+	}
+	_, err = r.db.Exec(ctx,
+		`UPDATE leads SET last_contacted_at=NOW(), updated_at=NOW() WHERE id=$1 AND company_id=$2 AND deleted_at IS NULL`,
+		id, cid,
 	)
 	return err
 }
 
 func (r *LeadRepo) UpdateScore(ctx context.Context, id uuid.UUID, score int) error {
-	_, err := r.db.Exec(ctx,
-		`UPDATE leads SET lead_score=$1, score_updated_at=NOW(), updated_at=NOW() WHERE id=$2`,
-		score, id,
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return err
+	}
+	_, err = r.db.Exec(ctx,
+		`UPDATE leads SET lead_score=$1, score_updated_at=NOW(), updated_at=NOW() WHERE id=$2 AND company_id=$3`,
+		score, id, cid,
 	)
 	return err
 }
 
 func (r *LeadRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.Lead, error) {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return nil, err
+	}
 	q := `SELECT` + leadCols + `
-		FROM leads l WHERE l.id = $1 AND l.deleted_at IS NULL`
+		FROM leads l WHERE l.id = $1 AND l.company_id = $2 AND l.deleted_at IS NULL`
 	l := &domain.Lead{}
-	if err := scanLead(r.db.QueryRow(ctx, q, id), l); err != nil {
+	if err := scanLead(r.db.QueryRow(ctx, q, id, cid), l); err != nil {
 		return nil, fmt.Errorf("get lead by id: %w", err)
 	}
 	return l, nil
@@ -229,9 +272,13 @@ func (r *LeadRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.Lead, err
 
 // Delete soft-deletes a lead by setting deleted_at.
 func (r *LeadRepo) Delete(ctx context.Context, id uuid.UUID) error {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return err
+	}
 	tag, err := r.db.Exec(ctx,
-		`UPDATE leads SET deleted_at=NOW(), updated_at=NOW() WHERE id=$1 AND deleted_at IS NULL`,
-		id,
+		`UPDATE leads SET deleted_at=NOW(), updated_at=NOW() WHERE id=$1 AND company_id=$2 AND deleted_at IS NULL`,
+		id, cid,
 	)
 	if err != nil {
 		return err

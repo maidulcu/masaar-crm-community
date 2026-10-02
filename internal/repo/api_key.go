@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"github.com/maidulcu/masaar-crm/internal/tenant"
 	"strings"
 	"time"
 
@@ -14,15 +15,15 @@ import (
 )
 
 type ApiKey struct {
-	ID        uuid.UUID
-	CompanyID uuid.UUID
-	Name      string
-	KeyHash   string    // Never expose
-	KeyPrefix string    // Safe to show in UI (first 8 chars)
-	Scopes    string    // Comma-separated: "lead:create,lead:read"
+	ID         uuid.UUID
+	CompanyID  uuid.UUID
+	Name       string
+	KeyHash    string // Never expose
+	KeyPrefix  string // Safe to show in UI (first 8 chars)
+	Scopes     string // Comma-separated: "lead:create,lead:read"
 	LastUsedAt *time.Time
-	CreatedAt time.Time
-	RevokedAt *time.Time
+	CreatedAt  time.Time
+	RevokedAt  *time.Time
 }
 
 type ApiKeyRepo struct {
@@ -111,7 +112,11 @@ func (r *ApiKeyRepo) List(ctx context.Context, companyID uuid.UUID) ([]ApiKey, e
 
 // Revoke marks a key as revoked.
 func (r *ApiKeyRepo) Revoke(ctx context.Context, id uuid.UUID) error {
-	_, err := r.db.Exec(ctx, `UPDATE api_keys SET revoked_at = NOW() WHERE id = $1`, id)
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return err
+	}
+	_, err = r.db.Exec(ctx, `UPDATE api_keys SET revoked_at = NOW() WHERE id = $1 AND company_id = $2`, id, cid)
 	return err
 }
 

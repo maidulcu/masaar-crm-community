@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/maidulcu/masaar-crm/internal/domain"
+	"github.com/maidulcu/masaar-crm/internal/tenant"
 )
 
 type PaymentReminderRepo struct {
@@ -19,10 +20,17 @@ func NewPaymentReminderRepo(db *pgxpool.Pool) *PaymentReminderRepo {
 }
 
 func (r *PaymentReminderRepo) Create(ctx context.Context, reminder *domain.PaymentReminder) error {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return err
+	}
+	reminder.CompanyID = cid // never trust a company id supplied by the client
+	// The payment must belong to the caller's company.
 	const q = `
 		INSERT INTO payment_reminders (
 			id, company_id, payment_id, reminder_type, reminder_date, delivery_method, delivery_status
-		) VALUES ($1, $2, $3, $4, $5, $6, $7)
+		) SELECT $1, $2, $3, $4, $5, $6, $7
+		WHERE EXISTS (SELECT 1 FROM payments WHERE id = $3 AND company_id = $2)
 		RETURNING created_at, updated_at
 	`
 	reminder.ID = uuid.New()
@@ -61,36 +69,48 @@ func (r *PaymentReminderRepo) GetPending(ctx context.Context, companyID uuid.UUI
 }
 
 func (r *PaymentReminderRepo) MarkSent(ctx context.Context, id uuid.UUID) error {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return err
+	}
 	const q = `
 		UPDATE payment_reminders
 		SET delivery_status = 'sent', sent_at = NOW(), updated_at = NOW()
-		WHERE id = $1
+		WHERE id = $1 AND company_id = $2
 		RETURNING updated_at
 	`
 	var updated time.Time
-	return r.db.QueryRow(ctx, q, id).Scan(&updated)
+	return r.db.QueryRow(ctx, q, id, cid).Scan(&updated)
 }
 
 func (r *PaymentReminderRepo) MarkFailed(ctx context.Context, id uuid.UUID, errMsg string) error {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return err
+	}
 	const q = `
 		UPDATE payment_reminders
 		SET delivery_status = 'failed', delivery_error = $1, updated_at = NOW()
-		WHERE id = $2
+		WHERE id = $2 AND company_id = $3
 		RETURNING updated_at
 	`
 	var updated time.Time
-	return r.db.QueryRow(ctx, q, errMsg, id).Scan(&updated)
+	return r.db.QueryRow(ctx, q, errMsg, id, cid).Scan(&updated)
 }
 
 func (r *PaymentReminderRepo) GetByPaymentAndType(ctx context.Context, paymentID uuid.UUID, reminderType domain.ReminderType, deliveryMethod domain.DeliveryMethod) (*domain.PaymentReminder, error) {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return nil, err
+	}
 	const q = `
 		SELECT id, company_id, payment_id, reminder_type, reminder_date, sent_at,
 		       delivery_method, delivery_status, delivery_error, created_at, updated_at
 		FROM payment_reminders
-		WHERE payment_id = $1 AND reminder_type = $2 AND delivery_method = $3
+		WHERE payment_id = $1 AND reminder_type = $2 AND delivery_method = $3 AND company_id = $4
 	`
 	pr := &domain.PaymentReminder{}
-	err := r.db.QueryRow(ctx, q, paymentID, reminderType, deliveryMethod).Scan(
+	err = r.db.QueryRow(ctx, q, paymentID, reminderType, deliveryMethod, cid).Scan(
 		&pr.ID, &pr.CompanyID, &pr.PaymentID, &pr.ReminderType, &pr.ReminderDate, &pr.SentAt,
 		&pr.DeliveryMethod, &pr.DeliveryStatus, &pr.DeliveryError, &pr.CreatedAt, &pr.UpdatedAt,
 	)

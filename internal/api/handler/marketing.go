@@ -9,6 +9,7 @@ import (
 	"github.com/maidulcu/masaar-crm/internal/email"
 	"github.com/maidulcu/masaar-crm/internal/pdf"
 	"github.com/maidulcu/masaar-crm/internal/repo"
+	"github.com/maidulcu/masaar-crm/internal/tenant"
 	qrcode "github.com/skip2/go-qrcode"
 )
 
@@ -48,20 +49,17 @@ func (h *MarketingHandler) PublicListing(c *fiber.Ctx) error {
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid id"})
 	}
-	listing, err := h.listingRepo.GetByID(c.Context(), id)
+	// Only published listings are ever returned publicly.
+	listing, err := h.listingRepo.GetPublicByID(c.Context(), id)
 	if err != nil {
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "listing not found"})
-	}
-	// Only expose published listings publicly
-	if listing.Status != domain.ListingStatusPublished {
-		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "listing not available"})
 	}
 	// Strip sensitive owner fields before returning publicly
 	listing.OwnerEmail = ""
 	listing.OwnerPhone = ""
 
-	// Fetch company branding for the public page
-	settings, _ := h.companySettings.Get(c.Context())
+	// Company branding comes from the listing's own company.
+	settings, _ := h.companySettings.Get(tenant.With(c.Context(), listing.CompanyID))
 	resp := fiber.Map{"listing": listing}
 	if settings != nil {
 		resp["company"] = fiber.Map{

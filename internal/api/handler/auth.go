@@ -410,15 +410,15 @@ func registrationAllowed(open bool, userCount int, countErr error) bool {
 // @Failure      503   {object}  object{error=string}
 // @Router       /auth/register [post]
 func (h *AuthHandler) Register(c *fiber.Ctx) error {
-	if !h.config.AllowRegistration {
-		// Fresh install bootstrap: with registration closed there would be no way to
-		// create the first admin, so signup stays open until a user exists.
-		userCount, err := h.users.Count(c.Context())
-		if !registrationAllowed(false, userCount, err) {
-			return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{
-				"error": "public registration is disabled on this instance",
-			})
-		}
+	// Fresh install bootstrap: with registration closed there would be no way to create
+	// the first admin, so signup stays open until a user exists. The first signup also
+	// adopts this deployment's own company (APP_COMPANY_ID) rather than creating a new one.
+	userCount, countErr := h.users.Count(c.Context())
+	firstRun := countErr == nil && userCount == 0
+	if !registrationAllowed(h.config.AllowRegistration, userCount, countErr) {
+		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{
+			"error": "public registration is disabled on this instance",
+		})
 	}
 
 	var body struct {
@@ -478,7 +478,12 @@ func (h *AuthHandler) Register(c *fiber.Ctx) error {
 	}
 
 	// Create company with trial
-	company, err := h.companyRepo.Create(c.Context(), body.CompanyName, body.Subdomain, h.config.TrialDurationDays)
+	var company *domain.Company
+	if appCompanyID, perr := uuid.Parse(h.config.AppCompanyID); firstRun && perr == nil {
+		company, err = h.companyRepo.Bootstrap(c.Context(), appCompanyID, body.CompanyName, body.Subdomain, h.config.TrialDurationDays)
+	} else {
+		company, err = h.companyRepo.Create(c.Context(), body.CompanyName, body.Subdomain, h.config.TrialDurationDays)
+	}
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to create company"})
 	}

@@ -7,6 +7,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/maidulcu/masaar-crm/internal/domain"
+	"github.com/maidulcu/masaar-crm/internal/tenant"
 )
 
 type MessageTemplateRepo struct {
@@ -56,10 +57,14 @@ func (r *MessageTemplateRepo) List(ctx context.Context, companyID uuid.UUID, pag
 }
 
 func (r *MessageTemplateRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.MessageTemplate, error) {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return nil, err
+	}
 	q := `SELECT id, company_id, name, body, category, variables, is_active, created_by, updated_by, created_at, updated_at
-		FROM message_templates WHERE id = $1`
+		FROM message_templates WHERE id = $1 AND company_id = $2`
 	t := &domain.MessageTemplate{}
-	err := r.db.QueryRow(ctx, q, id).Scan(&t.ID, &t.CompanyID, &t.Name, &t.Body, &t.Category, &t.Variables,
+	err = r.db.QueryRow(ctx, q, id, cid).Scan(&t.ID, &t.CompanyID, &t.Name, &t.Body, &t.Category, &t.Variables,
 		&t.IsActive, &t.CreatedBy, &t.UpdatedBy, &t.CreatedAt, &t.UpdatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("get message template: %w", err)
@@ -68,6 +73,11 @@ func (r *MessageTemplateRepo) GetByID(ctx context.Context, id uuid.UUID) (*domai
 }
 
 func (r *MessageTemplateRepo) Create(ctx context.Context, t *domain.MessageTemplate) error {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return err
+	}
+	t.CompanyID = cid // never trust a company id supplied by the client
 	q := `INSERT INTO message_templates (id, company_id, name, body, category, variables, is_active, created_by, updated_by)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING created_at, updated_at`
 	t.ID = uuid.New()
@@ -76,13 +86,21 @@ func (r *MessageTemplateRepo) Create(ctx context.Context, t *domain.MessageTempl
 }
 
 func (r *MessageTemplateRepo) Update(ctx context.Context, t *domain.MessageTemplate) error {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return err
+	}
 	q := `UPDATE message_templates SET name=$1, body=$2, category=$3, variables=$4, is_active=$5, updated_by=$6, updated_at=NOW()
-		WHERE id=$7 RETURNING updated_at`
-	return r.db.QueryRow(ctx, q, t.Name, t.Body, t.Category, t.Variables, t.IsActive, t.UpdatedBy, t.ID).
+		WHERE id=$7 AND company_id=$8 RETURNING updated_at`
+	return r.db.QueryRow(ctx, q, t.Name, t.Body, t.Category, t.Variables, t.IsActive, t.UpdatedBy, t.ID, cid).
 		Scan(&t.UpdatedAt)
 }
 
 func (r *MessageTemplateRepo) Delete(ctx context.Context, id uuid.UUID) error {
-	_, err := r.db.Exec(ctx, `DELETE FROM message_templates WHERE id = $1`, id)
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return err
+	}
+	_, err = r.db.Exec(ctx, `DELETE FROM message_templates WHERE id = $1 AND company_id = $2`, id, cid)
 	return err
 }

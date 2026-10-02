@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/maidulcu/masaar-crm/internal/tenant"
 	"time"
 
 	"github.com/google/uuid"
@@ -42,25 +43,25 @@ const (
 )
 
 type AgentCommission struct {
-	ID                  uuid.UUID        `json:"id"`
-	CompanyID           uuid.UUID        `json:"company_id"`
-	AgentID             uuid.UUID        `json:"agent_id"`
-	AgentName           string           `json:"agent_name,omitempty"`
-	PeriodStart         time.Time        `json:"commission_period_start"`
-	PeriodEnd           time.Time        `json:"commission_period_end"`
-	StructureID         *uuid.UUID       `json:"commission_structure_id"`
-	DealsCount          int              `json:"deals_count"`
-	DealsRevenue        float64          `json:"deals_revenue"`
-	LeasesCount         int              `json:"leases_count"`
-	LeasesRevenue       float64          `json:"leases_revenue"`
-	TotalCommission     *float64         `json:"total_commission"`
-	Status              CommissionStatus `json:"status"`
-	ApprovalDate        *time.Time       `json:"approval_date"`
-	PaymentDate         *time.Time       `json:"payment_date"`
-	PaymentReference    string           `json:"payment_reference"`
-	Notes               string           `json:"notes"`
-	CreatedAt           time.Time        `json:"created_at"`
-	UpdatedAt           time.Time        `json:"updated_at"`
+	ID               uuid.UUID        `json:"id"`
+	CompanyID        uuid.UUID        `json:"company_id"`
+	AgentID          uuid.UUID        `json:"agent_id"`
+	AgentName        string           `json:"agent_name,omitempty"`
+	PeriodStart      time.Time        `json:"commission_period_start"`
+	PeriodEnd        time.Time        `json:"commission_period_end"`
+	StructureID      *uuid.UUID       `json:"commission_structure_id"`
+	DealsCount       int              `json:"deals_count"`
+	DealsRevenue     float64          `json:"deals_revenue"`
+	LeasesCount      int              `json:"leases_count"`
+	LeasesRevenue    float64          `json:"leases_revenue"`
+	TotalCommission  *float64         `json:"total_commission"`
+	Status           CommissionStatus `json:"status"`
+	ApprovalDate     *time.Time       `json:"approval_date"`
+	PaymentDate      *time.Time       `json:"payment_date"`
+	PaymentReference string           `json:"payment_reference"`
+	Notes            string           `json:"notes"`
+	CreatedAt        time.Time        `json:"created_at"`
+	UpdatedAt        time.Time        `json:"updated_at"`
 }
 
 // CommissionRepo handles commission structures and agent commission records.
@@ -103,6 +104,11 @@ func (r *CommissionRepo) ListStructures(ctx context.Context, companyID uuid.UUID
 }
 
 func (r *CommissionRepo) CreateStructure(ctx context.Context, s *CommissionStructure) error {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return err
+	}
+	s.CompanyID = cid // never trust a company id supplied by the client
 	s.ID = uuid.New()
 	if s.Rules == nil {
 		s.Rules = json.RawMessage(`{}`)
@@ -121,13 +127,18 @@ func (r *CommissionRepo) CreateStructure(ctx context.Context, s *CommissionStruc
 }
 
 func (r *CommissionRepo) UpdateStructure(ctx context.Context, s *CommissionStructure) error {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return err
+	}
+	s.CompanyID = cid
 	const q = `
 		UPDATE commission_structures
 		SET structure_name=$1, commission_type=$2, applicable_to=$3,
 		    effective_from=$4, effective_to=$5, rules=$6
 		WHERE id=$7 AND company_id=$8
 	`
-	_, err := r.db.Exec(ctx, q,
+	_, err = r.db.Exec(ctx, q,
 		s.Name, s.Type, s.ApplicableTo,
 		s.EffectiveFrom, s.EffectiveTo, s.Rules,
 		s.ID, s.CompanyID,
@@ -219,6 +230,11 @@ func (r *CommissionRepo) ListAgentCommissions(ctx context.Context, companyID uui
 }
 
 func (r *CommissionRepo) CreateAgentCommission(ctx context.Context, c *AgentCommission) error {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return err
+	}
+	c.CompanyID = cid // never trust a company id supplied by the client
 	c.ID = uuid.New()
 	if c.Status == "" {
 		c.Status = CommissionPending
@@ -228,7 +244,9 @@ func (r *CommissionRepo) CreateAgentCommission(ctx context.Context, c *AgentComm
 			(id, company_id, agent_id, commission_period_start, commission_period_end,
 			 commission_structure_id, deals_count, deals_revenue, leases_count, leases_revenue,
 			 total_commission, status, notes)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+		SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13
+		WHERE EXISTS (SELECT 1 FROM users WHERE id = $3 AND company_id = $2)
+		  AND ($6::uuid IS NULL OR EXISTS (SELECT 1 FROM commission_structures WHERE id = $6 AND company_id = $2))
 		RETURNING created_at, updated_at
 	`
 	return r.db.QueryRow(ctx, q,
@@ -239,6 +257,10 @@ func (r *CommissionRepo) CreateAgentCommission(ctx context.Context, c *AgentComm
 }
 
 func (r *CommissionRepo) UpdateCommissionStatus(ctx context.Context, id uuid.UUID, status CommissionStatus, paymentRef string) error {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return err
+	}
 	var paymentDate *time.Time
 	if status == CommissionPaid {
 		now := time.Now()
@@ -249,18 +271,22 @@ func (r *CommissionRepo) UpdateCommissionStatus(ctx context.Context, id uuid.UUI
 		now := time.Now()
 		approvalDate = &now
 	}
-	_, err := r.db.Exec(ctx, `
+	_, err = r.db.Exec(ctx, `
 		UPDATE agent_commissions
 		SET status=$1, payment_reference=$2, payment_date=$3, approval_date=$4, updated_at=NOW()
-		WHERE id=$5
-	`, status, paymentRef, paymentDate, approvalDate, id)
+		WHERE id=$5 AND company_id=$6
+	`, status, paymentRef, paymentDate, approvalDate, id, cid)
 	return err
 }
 
 func (r *CommissionRepo) UpdateCommissionAmount(ctx context.Context, id uuid.UUID, total float64, notes string) error {
-	_, err := r.db.Exec(ctx,
-		`UPDATE agent_commissions SET total_commission=$1, notes=$2, updated_at=NOW() WHERE id=$3`,
-		total, notes, id,
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return err
+	}
+	_, err = r.db.Exec(ctx,
+		`UPDATE agent_commissions SET total_commission=$1, notes=$2, updated_at=NOW() WHERE id=$3 AND company_id=$4`,
+		total, notes, id, cid,
 	)
 	return err
 }
@@ -268,23 +294,30 @@ func (r *CommissionRepo) UpdateCommissionAmount(ctx context.Context, id uuid.UUI
 // CalculateForPeriod computes commission totals for an agent over a date range
 // by querying their won deals and signed leases.
 func (r *CommissionRepo) CalculateForPeriod(ctx context.Context, agentID uuid.UUID, from, to time.Time) (dealsCount int, dealsRevenue float64, leasesCount int, leasesRevenue float64, err error) {
+	cid, terr := tenant.From(ctx)
+	if terr != nil {
+		err = terr
+		return
+	}
 	// Won deals in period
 	err = r.db.QueryRow(ctx, `
 		SELECT COUNT(*), COALESCE(SUM(amount),0)
 		FROM deals
-		WHERE owner_id = $1 AND stage = 'won'
+		WHERE owner_id = $1 AND company_id = $4 AND stage = 'won'
 		  AND updated_at >= $2 AND updated_at <= $3
-	`, agentID, from, to).Scan(&dealsCount, &dealsRevenue)
+	`, agentID, from, to, cid).Scan(&dealsCount, &dealsRevenue)
 	if err != nil {
 		return
 	}
 
-	// Active leases signed in period
+	// Leases created by the agent in period (leases have no dedicated agent column; the
+	// creator is the agent who set the lease up). Previously this referenced non-existent
+	// columns (agent_id, rent_amount) and always failed.
 	err = r.db.QueryRow(ctx, `
-		SELECT COUNT(*), COALESCE(SUM(rent_amount),0)
+		SELECT COUNT(*), COALESCE(SUM(monthly_rent),0)
 		FROM leases
-		WHERE agent_id = $1
+		WHERE created_by = $1 AND company_id = $4
 		  AND start_date >= $2 AND start_date <= $3
-	`, agentID, from, to).Scan(&leasesCount, &leasesRevenue)
+	`, agentID, from, to, cid).Scan(&leasesCount, &leasesRevenue)
 	return
 }

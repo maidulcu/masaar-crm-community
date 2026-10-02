@@ -325,9 +325,15 @@ func (r *AnalyticsRepository) GetTenantPerformance(ctx context.Context, companyI
 
 	// Calculate risk score (0-100)
 	// Factors: late payments (40%), disputes (30%), tenure (30%)
-	disputeQuery := `SELECT COUNT(*) FROM leads WHERE contact_id = (SELECT id FROM contacts WHERE email = (SELECT email FROM tenants WHERE id = $1)) AND stage = 'lost'`
+	disputeQuery := `
+		SELECT COUNT(*) FROM leads
+		WHERE company_id = $2 AND stage = 'lost'
+		  AND contact_id IN (
+		      SELECT id FROM contacts
+		      WHERE company_id = $2
+		        AND email = (SELECT email FROM tenants WHERE id = $1 AND company_id = $2))`
 	var disputes int
-	err = r.conn.QueryRow(ctx, disputeQuery, tenantID).Scan(&disputes)
+	err = r.conn.QueryRow(ctx, disputeQuery, tenantID, companyID).Scan(&disputes)
 	if err == nil {
 		metrics.DisputeCount = disputes
 	}
@@ -448,16 +454,16 @@ func (r *AnalyticsRepository) GetFinancialAnalytics(ctx context.Context, company
 	}
 
 	return &domain.FinancialAnalytics{
-		Period:              startDate.Format("2006-01-02") + " to " + endDate.Format("2006-01-02"),
-		TotalRevenue:        totalRevenue,
-		TotalExpenses:       totalExpenses,
-		NetProfit:           netProfit,
-		ProfitMargin:        profitMargin,
-		RentCollected:       rentCollected,
-		RentPending:         rentPending,
-		UtilitiesExpense:    utilitiesExp,
-		MaintenanceExpense:  maintenanceExp,
-		OtherExpenses:       otherExp,
+		Period:             startDate.Format("2006-01-02") + " to " + endDate.Format("2006-01-02"),
+		TotalRevenue:       totalRevenue,
+		TotalExpenses:      totalExpenses,
+		NetProfit:          netProfit,
+		ProfitMargin:       profitMargin,
+		RentCollected:      rentCollected,
+		RentPending:        rentPending,
+		UtilitiesExpense:   utilitiesExp,
+		MaintenanceExpense: maintenanceExp,
+		OtherExpenses:      otherExp,
 	}, nil
 }
 
