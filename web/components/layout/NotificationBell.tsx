@@ -1,5 +1,5 @@
 'use client'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { useNotifications } from '@/hooks/useNotifications'
 import { useAuthStore } from '@/store/auth'
@@ -12,12 +12,29 @@ export function NotificationBell() {
   const [open, setOpen] = useState(false)
   const { t, isRtl } = useLang()
 
+  useEffect(() => {
+    if (!open) return
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setOpen(false)
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [open])
+
+  const bellAriaLabel = unread > 0
+    ? t(`الإشعارات (${unread} غير مقروءة)`, `Notifications (${unread} unread)`)
+    : t('الإشعارات', 'Notifications')
+
   return (
     <div className="relative">
       <button
         onClick={() => setOpen((v) => !v)}
-        className="relative p-2 rounded-lg text-surface-500 hover:bg-surface-100 hover:text-surface-900 transition-colors"
-        aria-label="Notifications"
+        className="relative p-2 rounded-lg text-surface-500 hover:bg-surface-100 hover:text-surface-900 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500"
+        aria-label={bellAriaLabel}
+        aria-expanded={open}
+        aria-haspopup="dialog"
       >
         <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75}
@@ -44,7 +61,7 @@ export function NotificationBell() {
               {unread > 0 && (
                 <button
                   onClick={markAllRead}
-                  className="text-xs text-primary-600 hover:text-primary-700 font-medium"
+                  className="text-xs text-primary-600 hover:text-primary-700 font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 rounded px-1"
                 >
                   {t('تحديد الكل كمقروء', 'Mark all read')}
                 </button>
@@ -61,7 +78,7 @@ export function NotificationBell() {
                     key={n.id}
                     onClick={() => markRead(n.id)}
                     className={clsx(
-                      "w-full text-start px-4 py-3 text-sm hover:bg-surface-50 transition-colors",
+                      "w-full text-start px-4 py-3 text-sm hover:bg-surface-50 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500",
                       !n.read && "bg-primary-50/60"
                     )}
                   >
@@ -74,7 +91,7 @@ export function NotificationBell() {
             <Link
               href="/notifications"
               onClick={() => setOpen(false)}
-              className="block px-4 py-2.5 text-sm text-center text-primary-600 hover:bg-surface-50 font-medium border-t border-surface-200/70"
+              className="block px-4 py-2.5 text-sm text-center text-primary-600 hover:bg-surface-50 font-medium border-t border-surface-200/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500"
             >
               {t('عرض الكل', 'View all')}
             </Link>
