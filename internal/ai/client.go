@@ -11,8 +11,8 @@ var ErrCommunityEdition = errors.New("AI features require a Pro plan — visit h
 // Client is a no-op stub for the community edition.
 type Client struct{}
 
-func NewClient(baseURL, model string) *Client        { return &Client{} }
-func NewGeminiClient(apiKey, model string) *Client   { return &Client{} }
+func NewClient(baseURL, model string) *Client      { return &Client{} }
+func NewGeminiClient(apiKey, model string) *Client { return &Client{} }
 
 func (c *Client) Generate(ctx context.Context, prompt string) (string, error) {
 	return "", ErrCommunityEdition

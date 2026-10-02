@@ -1,37 +1,48 @@
 'use client'
 import { create } from 'zustand'
 import type { AuthUser, Company } from '@/types'
-import { getUser, getToken, saveSession, clearSession, updateUser, isLoggedIn, getCompany, saveCompany, clearCompany } from '@/lib/auth'
+import { getUser, getToken, saveSession, clearSession, updateUser, isLoggedIn, getCompany, saveCompany, clearCompany, purgeLegacyTokens } from '@/lib/auth'
+import { silentRefresh } from '@/lib/api'
 
 interface AuthState {
   user: AuthUser | null
   company: Company | null
   token: string | null
-  setSession: (token: string, refreshToken: string, user: AuthUser, company?: Company) => void
+  /** False until the first session restore (cookie -> access token) has finished. */
+  ready: boolean
+  setSession: (token: string, user: AuthUser, company?: Company) => void
   updateUser: (updates: Partial<AuthUser>) => void
   logout: () => void
-  init: () => void
+  init: () => Promise<void>
 }
 
 export const useAuthStore = create<AuthState>((set) => ({
   user: null,
   company: null,
   token: null,
+  ready: false,
 
-  init: () => {
+  // The access token is memory-only, so after a reload it is restored from the HttpOnly
+  // refresh cookie. Client-side navigations keep the in-memory token and skip the round-trip.
+  init: async () => {
+    purgeLegacyTokens()
     if (isLoggedIn()) {
-      set({ user: getUser(), company: getCompany(), token: getToken() })
+      set({ user: getUser(), company: getCompany(), token: getToken(), ready: true })
+      return
+    }
+    const token = await silentRefresh()
+    if (token) {
+      set({ user: getUser(), company: getCompany(), token, ready: true })
     } else {
       clearSession()
-      clearCompany()
-      set({ user: null, company: null, token: null })
+      set({ user: null, company: null, token: null, ready: true })
     }
   },
 
-  setSession: (token, refreshToken, user, company) => {
-    saveSession(token, refreshToken, user)
+  setSession: (token, user, company) => {
+    saveSession(token, user)
     if (company) saveCompany(company)
-    set({ user, company, token })
+    set({ user, company: company ?? getCompany(), token, ready: true })
   },
 
   updateUser: (updates) => {

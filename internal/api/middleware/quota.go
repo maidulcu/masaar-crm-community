@@ -51,9 +51,9 @@ func CheckQuota(billingRepo *repo.BillingRepo, rdb *redis.Client, resource strin
 		allowed, limit := billing.CheckQuota(plan, resource, 0) // check if feature enabled at all
 		if !allowed && limit == 0 {
 			return c.Status(fiber.StatusPaymentRequired).JSON(fiber.Map{
-				"error":    fmt.Sprintf("%s access requires a paid plan", resource),
-				"plan":     planID,
-				"upgrade":  "/settings/billing",
+				"error":   fmt.Sprintf("%s access requires a paid plan", resource),
+				"plan":    planID,
+				"upgrade": "/settings/billing",
 			})
 		}
 
