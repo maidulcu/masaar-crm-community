@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/maidulcu/masaar-crm/internal/domain"
+	"github.com/maidulcu/masaar-crm/internal/tenant"
 )
 
 type ViewingRepo struct {
@@ -35,6 +36,10 @@ func scanViewing(row interface{ Scan(...any) error }, v *domain.Viewing) error {
 
 // Create inserts a new viewing.
 func (r *ViewingRepo) Create(ctx context.Context, v *domain.Viewing) error {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return err
+	}
 	v.ID = uuid.New()
 	if v.DurationMin <= 0 {
 		v.DurationMin = 30
@@ -42,34 +47,43 @@ func (r *ViewingRepo) Create(ctx context.Context, v *domain.Viewing) error {
 	if v.Status == "" {
 		v.Status = domain.ViewingScheduled
 	}
+	// Every referenced entity must belong to the caller's company.
 	const q = `
 		INSERT INTO viewings
-			(id, listing_id, contact_id, agent_id, lead_id,
+			(id, company_id, listing_id, contact_id, agent_id, lead_id,
 			 scheduled_at, duration_min, status, address, notes)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+		SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11
+		WHERE EXISTS (SELECT 1 FROM contacts WHERE id = $4 AND company_id = $2)
+		  AND ($3::uuid IS NULL OR EXISTS (SELECT 1 FROM listings WHERE id = $3 AND company_id = $2))
+		  AND ($5::uuid IS NULL OR EXISTS (SELECT 1 FROM users WHERE id = $5 AND company_id = $2))
+		  AND ($6::uuid IS NULL OR EXISTS (SELECT 1 FROM leads WHERE id = $6 AND company_id = $2))
 		RETURNING created_at, updated_at
 	`
 	return r.db.QueryRow(ctx, q,
-		v.ID, v.ListingID, v.ContactID, v.AgentID, v.LeadID,
+		v.ID, cid, v.ListingID, v.ContactID, v.AgentID, v.LeadID,
 		v.ScheduledAt, v.DurationMin, v.Status, v.Address, v.Notes,
 	).Scan(&v.CreatedAt, &v.UpdatedAt)
 }
 
 // GetByID returns a single viewing with joined contact, listing title, agent name.
 func (r *ViewingRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.Viewing, error) {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return nil, err
+	}
 	const q = `
 		SELECT ` + viewingCols + `,
-		       c.id, c.phone_wa, c.full_name, c.email, c.language, c.lead_score,
+		       c.id, c.phone_wa, c.full_name, COALESCE(c.email,''), c.language, c.lead_score,
 		       COALESCE(l.title,''), COALESCE(u.name,'')
 		FROM viewings v
-		JOIN contacts c ON c.id = v.contact_id
-		LEFT JOIN listings l ON l.id = v.listing_id
-		LEFT JOIN users    u ON u.id = v.agent_id
-		WHERE v.id = $1
+		JOIN contacts c ON c.id = v.contact_id AND c.company_id = v.company_id
+		LEFT JOIN listings l ON l.id = v.listing_id AND l.company_id = v.company_id
+		LEFT JOIN users    u ON u.id = v.agent_id AND u.company_id = v.company_id
+		WHERE v.id = $1 AND v.company_id = $2
 	`
 	var vw domain.Viewing
 	var c domain.Contact
-	err := r.db.QueryRow(ctx, q, id).Scan(
+	err = r.db.QueryRow(ctx, q, id, cid).Scan(
 		&vw.ID, &vw.ListingID, &vw.ContactID, &vw.AgentID, &vw.LeadID,
 		&vw.ScheduledAt, &vw.DurationMin, &vw.Status, &vw.Address, &vw.Notes,
 		&vw.CheckedInAt, &vw.CheckedOutAt, &vw.ReminderSent,
@@ -98,6 +112,10 @@ type ViewingFilter struct {
 
 // List returns viewings matching the filter, ordered by scheduled_at ASC.
 func (r *ViewingRepo) List(ctx context.Context, f ViewingFilter) ([]domain.Viewing, int, error) {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return nil, 0, err
+	}
 	if f.Limit == 0 {
 		f.Limit = 100
 	}
@@ -106,9 +124,9 @@ func (r *ViewingRepo) List(ctx context.Context, f ViewingFilter) ([]domain.Viewi
 	}
 	offset := (f.Page - 1) * f.Limit
 
-	args := []any{}
-	conds := []string{"1=1"}
-	n := 1
+	args := []any{cid}
+	conds := []string{"v.company_id = $1"}
+	n := 2
 
 	if f.AgentID != nil {
 		conds = append(conds, fmt.Sprintf("v.agent_id = $%d", n))
@@ -153,12 +171,12 @@ func (r *ViewingRepo) List(ctx context.Context, f ViewingFilter) ([]domain.Viewi
 	args = append(args, f.Limit, offset)
 	q := fmt.Sprintf(`
 		SELECT `+viewingCols+`,
-		       c.id, c.phone_wa, c.full_name, c.email, c.language, c.lead_score,
+		       c.id, c.phone_wa, c.full_name, COALESCE(c.email,''), c.language, c.lead_score,
 		       COALESCE(l.title,''), COALESCE(u.name,'')
 		FROM viewings v
-		JOIN contacts  c ON c.id = v.contact_id
-		LEFT JOIN listings l ON l.id = v.listing_id
-		LEFT JOIN users    u ON u.id = v.agent_id
+		JOIN contacts  c ON c.id = v.contact_id AND c.company_id = v.company_id
+		LEFT JOIN listings l ON l.id = v.listing_id AND l.company_id = v.company_id
+		LEFT JOIN users    u ON u.id = v.agent_id AND u.company_id = v.company_id
 		%s
 		ORDER BY v.scheduled_at ASC
 		LIMIT $%d OFFSET $%d
@@ -192,84 +210,107 @@ func (r *ViewingRepo) List(ctx context.Context, f ViewingFilter) ([]domain.Viewi
 
 // Update replaces mutable fields on a viewing.
 func (r *ViewingRepo) Update(ctx context.Context, v *domain.Viewing) error {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return err
+	}
 	const q = `
 		UPDATE viewings
 		SET listing_id=$1, agent_id=$2, lead_id=$3,
 		    scheduled_at=$4, duration_min=$5, address=$6, notes=$7,
 		    updated_at=NOW()
-		WHERE id=$8
+		WHERE id=$8 AND company_id=$9
+		  AND ($1::uuid IS NULL OR EXISTS (SELECT 1 FROM listings WHERE id = $1 AND company_id = $9))
+		  AND ($2::uuid IS NULL OR EXISTS (SELECT 1 FROM users WHERE id = $2 AND company_id = $9))
+		  AND ($3::uuid IS NULL OR EXISTS (SELECT 1 FROM leads WHERE id = $3 AND company_id = $9))
 		RETURNING updated_at
 	`
 	return r.db.QueryRow(ctx, q,
 		v.ListingID, v.AgentID, v.LeadID,
 		v.ScheduledAt, v.DurationMin, v.Address, v.Notes,
-		v.ID,
+		v.ID, cid,
 	).Scan(&v.UpdatedAt)
 }
 
 // UpdateStatus changes the viewing status (confirm, check-in, complete, cancel, no-show).
 func (r *ViewingRepo) UpdateStatus(ctx context.Context, id uuid.UUID, status domain.ViewingStatus) error {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return err
+	}
 	var checkinClause string
 	if status == domain.ViewingCheckedIn {
 		checkinClause = ", checked_in_at = NOW()"
 	} else if status == domain.ViewingCompleted {
 		checkinClause = ", checked_out_at = NOW()"
 	}
-	_, err := r.db.Exec(ctx, fmt.Sprintf(
-		`UPDATE viewings SET status=$1%s, updated_at=NOW() WHERE id=$2`,
+	_, err = r.db.Exec(ctx, fmt.Sprintf(
+		`UPDATE viewings SET status=$1%s, updated_at=NOW() WHERE id=$2 AND company_id=$3`,
 		checkinClause,
-	), status, id)
+	), status, id, cid)
 	return err
 }
 
 // Delete hard-deletes a viewing.
 func (r *ViewingRepo) Delete(ctx context.Context, id uuid.UUID) error {
-	_, err := r.db.Exec(ctx, `DELETE FROM viewings WHERE id=$1`, id)
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return err
+	}
+	_, err = r.db.Exec(ctx, `DELETE FROM viewings WHERE id=$1 AND company_id=$2`, id, cid)
 	return err
 }
 
 // CheckConflict returns true if the agent already has a viewing that overlaps
 // the proposed time window [start, start+durationMin). Excludes cancelledviewing.
 func (r *ViewingRepo) CheckConflict(ctx context.Context, agentID uuid.UUID, start time.Time, durationMin int, excludeID *uuid.UUID) (bool, error) {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return false, err
+	}
 	end := start.Add(time.Duration(durationMin) * time.Minute)
 	q := `
 		SELECT EXISTS (
 			SELECT 1 FROM viewings
-			WHERE agent_id = $1
+			WHERE agent_id = $1 AND company_id = $4
 			  AND status NOT IN ('cancelled','no_show','completed')
 			  AND scheduled_at < $3
 			  AND (scheduled_at + duration_min * interval '1 minute') > $2
 	`
-	args := []any{agentID, start, end}
+	args := []any{agentID, start, end, cid}
 	if excludeID != nil {
-		q += " AND id <> $4"
+		q += " AND id <> $5"
 		args = append(args, *excludeID)
 	}
 	q += ")"
 
 	var conflict bool
-	err := r.db.QueryRow(ctx, q, args...).Scan(&conflict)
+	err = r.db.QueryRow(ctx, q, args...).Scan(&conflict)
 	return conflict, err
 }
 
 // DueForReminder returns viewings scheduled within the next `withinMinutes` minutes
 // that haven't had a reminder sent yet.
 func (r *ViewingRepo) DueForReminder(ctx context.Context, withinMinutes int) ([]domain.Viewing, error) {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return nil, err
+	}
 	cutoff := time.Now().UTC().Add(time.Duration(withinMinutes) * time.Minute)
 	const q = `
 		SELECT ` + viewingCols + `,
-		       c.id, c.phone_wa, c.full_name, c.email, c.language, c.lead_score,
+		       c.id, c.phone_wa, c.full_name, COALESCE(c.email,''), c.language, c.lead_score,
 		       COALESCE(l.title,''), COALESCE(u.name,'')
 		FROM viewings v
-		JOIN contacts  c ON c.id = v.contact_id
-		LEFT JOIN listings l ON l.id = v.listing_id
-		LEFT JOIN users    u ON u.id = v.agent_id
-		WHERE v.reminder_sent = false
+		JOIN contacts  c ON c.id = v.contact_id AND c.company_id = v.company_id
+		LEFT JOIN listings l ON l.id = v.listing_id AND l.company_id = v.company_id
+		LEFT JOIN users    u ON u.id = v.agent_id AND u.company_id = v.company_id
+		WHERE v.company_id = $2 AND v.reminder_sent = false
 		  AND v.status IN ('scheduled','confirmed')
 		  AND v.scheduled_at BETWEEN NOW() AND $1
 		ORDER BY v.scheduled_at ASC
 	`
-	rows, err := r.db.Query(ctx, q, cutoff)
+	rows, err := r.db.Query(ctx, q, cutoff, cid)
 	if err != nil {
 		return nil, err
 	}
@@ -297,6 +338,10 @@ func (r *ViewingRepo) DueForReminder(ctx context.Context, withinMinutes int) ([]
 
 // MarkReminderSent sets reminder_sent = true for a viewing.
 func (r *ViewingRepo) MarkReminderSent(ctx context.Context, id uuid.UUID) error {
-	_, err := r.db.Exec(ctx, `UPDATE viewings SET reminder_sent=true WHERE id=$1`, id)
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return err
+	}
+	_, err = r.db.Exec(ctx, `UPDATE viewings SET reminder_sent=true WHERE id=$1 AND company_id=$2`, id, cid)
 	return err
 }

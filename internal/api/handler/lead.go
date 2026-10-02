@@ -171,7 +171,7 @@ func (h *LeadHandler) Create(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	h.hub.Broadcast(ws.Event{
+	h.hub.BroadcastToCompany(localsCompanyID(c), ws.Event{
 		Type:    "lead.created",
 		Payload: lead,
 	})
@@ -246,7 +246,7 @@ func (h *LeadHandler) UpdateStage(c *fiber.Ctx) error {
 		h.scoringService.UpdateScoreOnStageChange(c.Context(), id, body.Stage)
 	}
 
-	h.hub.Broadcast(ws.Event{
+	h.hub.BroadcastToCompany(localsCompanyID(c), ws.Event{
 		Type: "lead.stage_changed",
 		Payload: fiber.Map{
 			"lead_id": id,

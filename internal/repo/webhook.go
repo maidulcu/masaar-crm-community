@@ -2,6 +2,7 @@ package repo
 
 import (
 	"context"
+	"github.com/maidulcu/masaar-crm/internal/tenant"
 	"strings"
 	"time"
 
@@ -106,7 +107,11 @@ func (r *WebhookRepo) ListActiveForEvent(ctx context.Context, companyID uuid.UUI
 }
 
 func (r *WebhookRepo) Delete(ctx context.Context, id uuid.UUID) error {
-	_, err := r.db.Exec(ctx, `DELETE FROM webhook_subscriptions WHERE id = $1`, id)
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return err
+	}
+	_, err = r.db.Exec(ctx, `DELETE FROM webhook_subscriptions WHERE id = $1 AND company_id = $2`, id, cid)
 	return err
 }
 

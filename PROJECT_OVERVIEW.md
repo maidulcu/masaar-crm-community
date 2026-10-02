@@ -488,7 +488,7 @@ go run ./cmd/server
 # Frontend only
 cd web && npm install && npm run dev
 
-# Default login: admin@masaar.local / changeme
+# First run: create your admin at http://localhost:3000/signup
 # API: http://localhost:8080/api/v1
 # Swagger: http://localhost:8080/docs
 ```

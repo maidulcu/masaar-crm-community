@@ -3,7 +3,7 @@ version: '3.8'
 services:
   # PostgreSQL Database
   postgres:
-    image: postgres:16-alpine
+    image: pgvector/pgvector:pg16
     container_name: masaar-postgres
     environment:
       POSTGRES_USER: ${DB_USER:-masaar}
@@ -75,6 +75,15 @@ services:
       # Server
       PORT: ${PORT:-8080}
       APP_ENV: ${APP_ENV:-production}
+      APP_URL: ${APP_URL:-http://localhost:3000}
+      APP_COMPANY_ID: ${APP_COMPANY_ID:-00000000-0000-0000-0000-000000000001}
+      # Signup is open only until the first account exists. Set true to host several
+      # companies (data is isolated per company; WhatsApp/SMTP/AI settings are shared).
+      ALLOW_REGISTRATION: ${ALLOW_REGISTRATION:-false}
+      # Required in production: set to your frontend origin, e.g. https://crm.example.com
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:3000}
+      DOCS_PASSWORD: ${DOCS_PASSWORD:-}
+      TRUSTED_PROXIES: ${TRUSTED_PROXIES:-127.0.0.1,::1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16}
 
       # Database
       DATABASE_URL: postgres://${DB_USER:-masaar}:${DB_PASSWORD:-masaar}@postgres:5432/${DB_NAME:-masaar}?sslmode=disable
@@ -92,7 +101,8 @@ services:
       WA_API_VERSION: ${WA_API_VERSION:-v19.0}
       WA_PHONE_NUMBER_ID: ${WA_PHONE_NUMBER_ID:-}
       WA_ACCESS_TOKEN: ${WA_ACCESS_TOKEN:-}
-      WA_BASE_URL: ${WA_BASE_URL:-https://graph.instagram.com}
+      WA_APP_SECRET: ${WA_APP_SECRET:-}
+      WA_BASE_URL: ${WA_BASE_URL:-https://graph.facebook.com}
 
       # SMTP Email (Optional)
       SMTP_HOST: ${SMTP_HOST:-}
@@ -102,17 +112,21 @@ services:
       SMTP_FROM_EMAIL: ${SMTP_FROM_EMAIL:-noreply@masaar.local}
       SMTP_FROM_NAME: ${SMTP_FROM_NAME:-Masaar CRM}
 
+      # Magic-link / bot protection (Optional)
+      MAGIC_LINK_BASE_URL: ${MAGIC_LINK_BASE_URL:-http://localhost:3000}
+      TURNSTILE_SECRET_KEY: ${TURNSTILE_SECRET_KEY:-}
+
       # Ollama LLM
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434}
       OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3}
 
       # BuyOrSell24 Integration (Optional)
-      BOS24_TOKEN: ${BOS24_TOKEN:-}
+      BOS24_API_TOKEN: ${BOS24_API_TOKEN:-}
 
     ports:
       - "${PORT:-8080}:8080"
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -125,15 +139,20 @@ services:
     build:
       context: ./web
       dockerfile: Dockerfile
+      # NEXT_PUBLIC_* values are inlined into the JS bundle at build time, so they
+      # must be passed as build args (setting them at runtime has no effect).
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8080}
+        NEXT_PUBLIC_WS_URL: ${NEXT_PUBLIC_WS_URL:-ws://localhost:8080}
+        NEXT_PUBLIC_TURNSTILE_SITE_KEY: ${NEXT_PUBLIC_TURNSTILE_SITE_KEY:-}
+        NEXT_PUBLIC_DEMO_ENABLED: ${NEXT_PUBLIC_DEMO_ENABLED:-false}
     container_name: masaar-frontend
     depends_on:
       - masaar
-    environment:
-      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8080}
     ports:
       - "${FRONTEND_PORT:-3000}:3000"
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000"]
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/api/health', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
       interval: 30s
       timeout: 10s
       retries: 3

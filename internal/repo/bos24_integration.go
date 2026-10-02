@@ -7,6 +7,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/maidulcu/masaar-crm/internal/domain"
+	"github.com/maidulcu/masaar-crm/internal/tenant"
 )
 
 // BOS24IntegrationRepo handles storage for per-company BOS24 integration settings
@@ -152,13 +153,19 @@ func (r *BOS24IntegrationRepo) CreateLeadFromInquiry(ctx context.Context,
 	bos24InquiryID int,
 	notes string,
 ) (created bool, leadID uuid.UUID, err error) {
+	cid, terr := tenant.From(ctx)
+	if terr != nil {
+		return false, uuid.Nil, terr
+	}
+	// The contact decides the lead's company, and must be in the caller's company.
 	const q = `
-		INSERT INTO leads (id, contact_id, stage, source, deal_value, currency, notes, bos24_inquiry_id)
-		VALUES (uuid_generate_v4(), $1, 'new', 'bos24', 0, 'AED', $2, $3)
+		INSERT INTO leads (id, company_id, contact_id, stage, source, deal_value, currency, notes, bos24_inquiry_id)
+		SELECT uuid_generate_v4(), $4, $1, 'new', 'bos24', 0, 'AED', $2, $3
+		WHERE EXISTS (SELECT 1 FROM contacts WHERE id = $1 AND company_id = $4)
 		ON CONFLICT (bos24_inquiry_id) DO NOTHING
 		RETURNING id
 	`
-	err = r.db.QueryRow(ctx, q, contactID, notes, bos24InquiryID).Scan(&leadID)
+	err = r.db.QueryRow(ctx, q, contactID, notes, bos24InquiryID, cid).Scan(&leadID)
 	if err != nil {
 		// pgx returns ErrNoRows when DO NOTHING fires — that's a duplicate, not an error
 		if err.Error() == "no rows in result set" {
@@ -172,11 +179,15 @@ func (r *BOS24IntegrationRepo) CreateLeadFromInquiry(ctx context.Context,
 // UpdateContactEmailIfEmpty sets email on a contact only when the contact's
 // current email is NULL or empty — used when enriching from a BOS24 inquiry.
 func (r *BOS24IntegrationRepo) UpdateContactEmailIfEmpty(ctx context.Context, contactID uuid.UUID, email string) error {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return err
+	}
 	const q = `
 		UPDATE contacts SET email = $1, updated_at = NOW()
-		WHERE id = $2 AND (email IS NULL OR email = '')
+		WHERE id = $2 AND company_id = $3 AND (email IS NULL OR email = '')
 	`
-	_, err := r.db.Exec(ctx, q, email, contactID)
+	_, err = r.db.Exec(ctx, q, email, contactID, cid)
 	return err
 }
 

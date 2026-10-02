@@ -114,7 +114,7 @@ Try it at **[masaar.dynamicweblab.com](https://masaar.dynamicweblab.com)**
 
 ```bash
 git clone https://github.com/maidulcu/masaar-crm-community.git
-cd masaar-crm
+cd masaar-crm-community
 cp .env.example .env
 docker compose up
 ```
@@ -125,7 +125,11 @@ docker compose up
 | API | http://localhost:8080/api/v1 |
 | Swagger UI | http://localhost:8080/docs |
 
-Default login: `admin@masaar.local` / `changeme`
+**First run:** open http://localhost:3000/signup and create your admin account. Signup closes automatically once the first user exists (`ALLOW_REGISTRATION=false` is the default).
+
+> **Multi-company:** all CRM data (contacts, leads, deals, invoices, WhatsApp, documents, …) is isolated per company. Deployment-wide settings are shared, though: the WhatsApp Cloud API number, SMTP and AI configuration come from environment variables, and inbound WhatsApp messages are routed to the company in `APP_COMPANY_ID` (the first account created on a fresh install). Signup is closed by default (`ALLOW_REGISTRATION=false`); set it to `true` only if you want to host several companies.
+>
+> In production set `APP_ENV=production` with a real `JWT_SECRET` and `ALLOWED_ORIGINS`; the server refuses to start with placeholder values. `NEXT_PUBLIC_*` variables are baked in at build time — rebuild the web image after changing them.
 
 ---
 
@@ -248,7 +252,7 @@ Contributions are welcome. Please open an issue first to discuss significant cha
 ```bash
 # Fork the repo, then:
 git clone https://github.com/maidulcu/masaar-crm-community.git
-cd masaar-crm
+cd masaar-crm-community
 cp .env.example .env
 docker compose up -d postgres redis ollama
 go run ./cmd/server

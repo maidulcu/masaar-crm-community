@@ -43,20 +43,20 @@ type Config struct {
 	BOS24BaseURL string
 
 	// Email provider: "smtp" (default) or "azure" (Azure Communication Services)
-	EmailProvider  string
-	SMTPHost     string
-	SMTPPort     string
-	SMTPUser     string
-	SMTPPassword string
+	EmailProvider string
+	SMTPHost      string
+	SMTPPort      string
+	SMTPUser      string
+	SMTPPassword  string
 	SMTPFromEmail string
-	SMTPFromName string
+	SMTPFromName  string
 	// Azure Communication Services (REST API, not SMTP)
-	AzureCommEndpoint   string
-	AzureCommKey        string
+	AzureCommEndpoint    string
+	AzureCommKey         string
 	AzureCommFromAddress string
 
 	// Magic Link (Passwordless Login)
-	MagicLinkBaseURL  string
+	MagicLinkBaseURL   string
 	MagicLinkExpiryMin int
 	MagicLinkRateLimit int
 
@@ -72,6 +72,9 @@ type Config struct {
 
 	// SaaS registration
 	AllowRegistration bool
+	// AppCompanyID is the company that owns system-originated events (inbound
+	// webhooks) in a single-company deployment.
+	AppCompanyID      string
 	TrialDurationDays int
 	TrialPlanID       string
 
@@ -80,6 +83,11 @@ type Config struct {
 
 	// CORS — comma-separated allowed origins; defaults to * in development only
 	AllowedOrigins string
+	// TrustedProxies lists reverse-proxy IPs/CIDRs whose X-Forwarded-For header is honoured
+	// (needed for correct per-client rate limiting behind nginx).
+	TrustedProxies string
+	// DocsPassword protects the Swagger UI in production. Empty disables the UI there.
+	DocsPassword string
 
 	// DocuSign e-signature (optional — used for automated signature requests)
 	DocusignIntegrationKey string
@@ -103,48 +111,51 @@ func Load() *Config {
 	}
 
 	return &Config{
-		Port:                 getEnv("PORT", "8080"),
-		DatabaseURL:          getEnv("DATABASE_URL", "postgres://masaar:masaar@localhost:5432/masaar?sslmode=disable"),
-		RedisURL:             getEnv("REDIS_URL", "redis://localhost:6379"),
-		JWTSecret:            getEnv("JWT_SECRET", "change-me-in-production"),
-		JWTAccessExpiryMin:   getEnvInt("JWT_ACCESS_EXPIRY_MIN", 15),
-		JWTRefreshExpiryDays: getEnvInt("JWT_REFRESH_EXPIRY_DAYS", 7),
-		WAVerifyToken:        getEnv("WA_VERIFY_TOKEN", "masaar-webhook-token"),
-		WAAPIVersion:         getEnv("WA_API_VERSION", "v19.0"),
-		WAPhoneNumberID:      getEnv("WA_PHONE_NUMBER_ID", ""),
-		WAAccessToken:        getEnv("WA_ACCESS_TOKEN", ""),
-		WABaseURL:            getEnv("WA_BASE_URL", "https://graph.facebook.com/v19.0"),
-		WAAppSecret:          getEnv("WA_APP_SECRET", ""),
-		AIProvider:           getEnv("AI_PROVIDER", "ollama"),
-		OllamaBaseURL:        getEnv("OLLAMA_BASE_URL", "http://localhost:11434"),
-		OllamaModel:          getEnv("OLLAMA_MODEL", "llama3"),
-		GeminiAPIKey:         getEnv("GEMINI_API_KEY", ""),
-		GeminiModel:          getEnv("GEMINI_MODEL", "gemini-2.0-flash"),
-		BOS24Token:            getEnv("BOS24_API_TOKEN", ""),
-		BOS24BaseURL:          getEnv("BOS24_BASE_URL", "https://data.buyorsell24.com"),
-		EmailProvider:         getEnv("EMAIL_PROVIDER", "smtp"),
-		SMTPHost:             getEnv("SMTP_HOST", ""),
-		SMTPPort:             getEnv("SMTP_PORT", "587"),
-		SMTPUser:             getEnv("SMTP_USER", ""),
-		SMTPPassword:         getEnv("SMTP_PASSWORD", ""),
-		SMTPFromEmail:        getEnv("SMTP_FROM_EMAIL", "noreply@masaar.local"),
-		SMTPFromName:         getEnv("SMTP_FROM_NAME", "Masaar CRM"),
-		AzureCommEndpoint:    getEnv("AZURE_COMM_ENDPOINT", ""),
-		AzureCommKey:         getEnv("AZURE_COMM_KEY", ""),
-		AzureCommFromAddress: getEnv("AZURE_COMM_FROM_ADDRESS", ""),
-		MagicLinkBaseURL:     getEnv("MAGIC_LINK_BASE_URL", "http://localhost:3000"),
-		MagicLinkExpiryMin:   getEnvInt("MAGIC_LINK_EXPIRY_MIN", 15),
-		MagicLinkRateLimit:   getEnvInt("MAGIC_LINK_RATE_LIMIT", 3),
-		SMSCountryEnabled:    getEnv("SMSCOUNTRY_ENABLED", "") == "true",
-		SMSCountryAuthKey:    getEnv("SMSCOUNTRY_AUTH_KEY", ""),
-		SMSCountryAuthToken:  getEnv("SMSCOUNTRY_AUTH_TOKEN", ""),
-		SMSCountrySenderID:   getEnv("SMSCOUNTRY_SENDER_ID", ""),
-		AppEnv:               getEnv("APP_ENV", "development"),
-		AppURL:               getEnv("APP_URL", "http://localhost:3000"),
-		AllowRegistration:    getEnv("ALLOW_REGISTRATION", "true") == "true",
-		TrialDurationDays:    getEnvInt("TRIAL_DURATION_DAYS", 90),
-		TrialPlanID:          getEnv("TRIAL_PLAN_ID", "starter"),
-		TurnstileSecretKey:    getEnv("TURNSTILE_SECRET_KEY", ""),
+		Port:                   getEnv("PORT", "8080"),
+		DatabaseURL:            getEnv("DATABASE_URL", "postgres://masaar:masaar@localhost:5432/masaar?sslmode=disable"),
+		RedisURL:               getEnv("REDIS_URL", "redis://localhost:6379"),
+		JWTSecret:              getEnv("JWT_SECRET", "change-me-in-production"),
+		JWTAccessExpiryMin:     getEnvInt("JWT_ACCESS_EXPIRY_MIN", 15),
+		JWTRefreshExpiryDays:   getEnvInt("JWT_REFRESH_EXPIRY_DAYS", 7),
+		WAVerifyToken:          getEnv("WA_VERIFY_TOKEN", "masaar-webhook-token"),
+		WAAPIVersion:           getEnv("WA_API_VERSION", "v19.0"),
+		WAPhoneNumberID:        getEnv("WA_PHONE_NUMBER_ID", ""),
+		WAAccessToken:          getEnv("WA_ACCESS_TOKEN", ""),
+		WABaseURL:              getEnv("WA_BASE_URL", "https://graph.facebook.com/v19.0"),
+		WAAppSecret:            getEnv("WA_APP_SECRET", ""),
+		AIProvider:             getEnv("AI_PROVIDER", "ollama"),
+		OllamaBaseURL:          getEnv("OLLAMA_BASE_URL", "http://localhost:11434"),
+		OllamaModel:            getEnv("OLLAMA_MODEL", "llama3"),
+		GeminiAPIKey:           getEnv("GEMINI_API_KEY", ""),
+		GeminiModel:            getEnv("GEMINI_MODEL", "gemini-2.0-flash"),
+		BOS24Token:             getEnv("BOS24_API_TOKEN", ""),
+		BOS24BaseURL:           getEnv("BOS24_BASE_URL", "https://data.buyorsell24.com"),
+		EmailProvider:          getEnv("EMAIL_PROVIDER", "smtp"),
+		SMTPHost:               getEnv("SMTP_HOST", ""),
+		SMTPPort:               getEnv("SMTP_PORT", "587"),
+		SMTPUser:               getEnv("SMTP_USER", ""),
+		SMTPPassword:           getEnv("SMTP_PASSWORD", ""),
+		SMTPFromEmail:          getEnv("SMTP_FROM_EMAIL", "noreply@masaar.local"),
+		SMTPFromName:           getEnv("SMTP_FROM_NAME", "Masaar CRM"),
+		AzureCommEndpoint:      getEnv("AZURE_COMM_ENDPOINT", ""),
+		AzureCommKey:           getEnv("AZURE_COMM_KEY", ""),
+		AzureCommFromAddress:   getEnv("AZURE_COMM_FROM_ADDRESS", ""),
+		MagicLinkBaseURL:       getEnv("MAGIC_LINK_BASE_URL", "http://localhost:3000"),
+		MagicLinkExpiryMin:     getEnvInt("MAGIC_LINK_EXPIRY_MIN", 15),
+		MagicLinkRateLimit:     getEnvInt("MAGIC_LINK_RATE_LIMIT", 3),
+		SMSCountryEnabled:      getEnv("SMSCOUNTRY_ENABLED", "") == "true",
+		SMSCountryAuthKey:      getEnv("SMSCOUNTRY_AUTH_KEY", ""),
+		SMSCountryAuthToken:    getEnv("SMSCOUNTRY_AUTH_TOKEN", ""),
+		SMSCountrySenderID:     getEnv("SMSCOUNTRY_SENDER_ID", ""),
+		AppEnv:                 getEnv("APP_ENV", "development"),
+		AppURL:                 getEnv("APP_URL", "http://localhost:3000"),
+		AllowRegistration:      getEnv("ALLOW_REGISTRATION", "false") == "true",
+		AppCompanyID:           getEnv("APP_COMPANY_ID", "00000000-0000-0000-0000-000000000001"),
+		TrialDurationDays:      getEnvInt("TRIAL_DURATION_DAYS", 90),
+		TrialPlanID:            getEnv("TRIAL_PLAN_ID", "starter"),
+		TurnstileSecretKey:     getEnv("TURNSTILE_SECRET_KEY", ""),
+		TrustedProxies:         getEnv("TRUSTED_PROXIES", "127.0.0.1,::1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"),
+		DocsPassword:           getEnv("DOCS_PASSWORD", ""),
 		AllowedOrigins:         getEnv("ALLOWED_ORIGINS", "*"),
 		DocusignIntegrationKey: getEnv("DOCUSIGN_INTEGRATION_KEY", ""),
 		DocusignPrivateKey:     getEnv("DOCUSIGN_PRIVATE_KEY", ""),
@@ -153,10 +164,10 @@ func Load() *Config {
 		DocusignBaseURL:        getEnv("DOCUSIGN_BASE_URL", "https://demo.docusign.net/restapi"),
 		DocusignWebhookSecret:  getEnv("DOCUSIGN_WEBHOOK_SECRET", ""),
 		StripeSecretKey:        getEnv("STRIPE_SECRET_KEY", ""),
-		StripeWebhookSecret:   getEnv("STRIPE_WEBHOOK_SECRET", ""),
-		StripePriceIDStarter:  getEnv("STRIPE_PRICE_STARTER", ""),
-		StripePriceIDPro:      getEnv("STRIPE_PRICE_PRO", ""),
-		StripePriceIDBusiness: getEnv("STRIPE_PRICE_BUSINESS", ""),
+		StripeWebhookSecret:    getEnv("STRIPE_WEBHOOK_SECRET", ""),
+		StripePriceIDStarter:   getEnv("STRIPE_PRICE_STARTER", ""),
+		StripePriceIDPro:       getEnv("STRIPE_PRICE_PRO", ""),
+		StripePriceIDBusiness:  getEnv("STRIPE_PRICE_BUSINESS", ""),
 	}
 }
 

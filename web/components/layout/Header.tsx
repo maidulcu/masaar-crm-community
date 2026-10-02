@@ -1,4 +1,5 @@
 'use client'
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useAuthStore } from '@/store/auth'
 import { useLang } from '@/context/LangContext'
@@ -6,7 +7,7 @@ import { NotificationBell } from './NotificationBell'
 import { api } from '@/lib/api'
 import { getRefreshToken } from '@/lib/auth'
 
-export function Header({ title }: { title: string }) {
+export function Header({ title, back }: { title: string; back?: string }) {
   const { user, logout } = useAuthStore()
   const { lang, setLang, t } = useLang()
   const router = useRouter()
@@ -20,7 +21,18 @@ export function Header({ title }: { title: string }) {
 
   return (
     <header className="h-16 flex items-center justify-between px-6 bg-white/80 backdrop-blur-md border-b border-surface-200/70 shrink-0 sticky top-0 z-30">
-      <h1 className="font-semibold text-surface-900 text-[15px] tracking-tight">{title}</h1>
+      <div className="flex items-center gap-3 min-w-0">
+        {back && (
+          <Link
+            href={back}
+            aria-label={t('رجوع', 'Back')}
+            className="text-surface-500 hover:text-surface-900 transition-colors rtl:rotate-180"
+          >
+            <span aria-hidden="true">←</span>
+          </Link>
+        )}
+        <h1 className="font-semibold text-surface-900 text-[15px] tracking-tight truncate">{title}</h1>
+      </div>
 
       <div className="flex items-center gap-2">
         {/* RTL/LTR toggle */}

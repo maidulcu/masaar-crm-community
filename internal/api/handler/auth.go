@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -385,6 +386,16 @@ func (h *AuthHandler) ResetPassword(c *fiber.Ctx) error {
 	return c.SendStatus(fiber.StatusNoContent)
 }
 
+// registrationAllowed decides whether POST /auth/register may proceed. Open
+// registration always allows it; otherwise only the very first account on an
+// empty database is allowed. Any error counting users fails closed.
+func registrationAllowed(open bool, userCount int, countErr error) bool {
+	if open {
+		return true
+	}
+	return countErr == nil && userCount == 0
+}
+
 // Register godoc
 // @Summary      Register new company
 // @Description  Creates a new company with a 90-day trial and an admin user. Rate-limited: 3 req/min/IP.
@@ -399,7 +410,12 @@ func (h *AuthHandler) ResetPassword(c *fiber.Ctx) error {
 // @Failure      503   {object}  object{error=string}
 // @Router       /auth/register [post]
 func (h *AuthHandler) Register(c *fiber.Ctx) error {
-	if !h.config.AllowRegistration {
+	// Fresh install bootstrap: with registration closed there would be no way to create
+	// the first admin, so signup stays open until a user exists. The first signup also
+	// adopts this deployment's own company (APP_COMPANY_ID) rather than creating a new one.
+	userCount, countErr := h.users.Count(c.Context())
+	firstRun := countErr == nil && userCount == 0
+	if !registrationAllowed(h.config.AllowRegistration, userCount, countErr) {
 		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{
 			"error": "public registration is disabled on this instance",
 		})
@@ -462,7 +478,12 @@ func (h *AuthHandler) Register(c *fiber.Ctx) error {
 	}
 
 	// Create company with trial
-	company, err := h.companyRepo.Create(c.Context(), body.CompanyName, body.Subdomain, h.config.TrialDurationDays)
+	var company *domain.Company
+	if appCompanyID, perr := uuid.Parse(h.config.AppCompanyID); firstRun && perr == nil {
+		company, err = h.companyRepo.Bootstrap(c.Context(), appCompanyID, body.CompanyName, body.Subdomain, h.config.TrialDurationDays)
+	} else {
+		company, err = h.companyRepo.Create(c.Context(), body.CompanyName, body.Subdomain, h.config.TrialDurationDays)
+	}
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to create company"})
 	}
@@ -537,7 +558,7 @@ func (h *AuthHandler) generateTokenPair(user *domain.User) (access, refresh stri
 
 	accessClaims := jwt.MapClaims{
 		"sub":        user.ID.String(),
-		"aud":        "masaar-crm",
+		"aud":        middleware.AccessTokenAudience,
 		"name":       user.Name,
 		"role":       string(user.Role),
 		"company_id": user.CompanyID.String(),
@@ -681,14 +702,11 @@ func (h *AuthHandler) VerifyMagicLink(c *fiber.Ctx) error {
 	ctx := context.Background()
 	tokenKey := fmt.Sprintf("magic:%s", body.Token)
 
-	// Get and delete token (single-use)
-	tokenData, err := h.redis.Get(ctx, tokenKey).Result()
+	// Atomically fetch-and-delete so a token can never be redeemed twice, even concurrently.
+	tokenData, err := h.redis.GetDel(ctx, tokenKey).Result()
 	if err != nil {
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "invalid or expired token"})
 	}
-
-	// Delete token to prevent reuse
-	h.redis.Del(ctx, tokenKey)
 
 	// Parse token data: email|lang_pref
 	parts := split(tokenData, "|")
@@ -804,6 +822,66 @@ func generateOTP() (string, error) {
 	return string(otp), nil
 }
 
+// ─── SMS OTP verification ─────────────────────────────────────────────────────
+
+const (
+	smsOTPMaxAttempts   = 5
+	smsOTPAttemptWindow = 15 * time.Minute
+)
+
+type otpResult int
+
+const (
+	otpOK otpResult = iota
+	otpInvalid
+	otpLocked
+)
+
+// consumeSMSOTP validates a phone's one-time code. A 6-digit code has only 10^6
+// possibilities, so attempts are capped per phone number: after
+// smsOTPMaxAttempts tries the code is destroyed and the caller must request a
+// new one. A correct code is consumed atomically (the DEL must remove the key)
+// so two concurrent requests cannot both succeed.
+func consumeSMSOTP(ctx context.Context, rdb *redis.Client, phone, otp string) (otpResult, error) {
+	otpKey := fmt.Sprintf("sms_otp:%s", phone)
+	attemptsKey := fmt.Sprintf("sms_otp_attempts:%s", phone)
+
+	attempts, err := rdb.Incr(ctx, attemptsKey).Result()
+	if err != nil {
+		return otpInvalid, err
+	}
+	// Refresh on every attempt so a crash between INCR and EXPIRE can never leave a permanent lock.
+	if err := rdb.Expire(ctx, attemptsKey, smsOTPAttemptWindow).Err(); err != nil {
+		return otpInvalid, err
+	}
+	if attempts > smsOTPMaxAttempts {
+		rdb.Del(ctx, otpKey)
+		return otpLocked, nil
+	}
+
+	stored, err := rdb.Get(ctx, otpKey).Result()
+	if err == redis.Nil {
+		return otpInvalid, nil
+	}
+	if err != nil {
+		return otpInvalid, err
+	}
+	storedOTP := split(stored, "|")[0] // payload is "otp|lang_pref"
+	if subtle.ConstantTimeCompare([]byte(otp), []byte(storedOTP)) != 1 {
+		return otpInvalid, nil
+	}
+
+	deleted, err := rdb.Del(ctx, otpKey).Result()
+	if err != nil {
+		return otpInvalid, err
+	}
+	if deleted != 1 {
+		return otpInvalid, nil // another request consumed it first
+	}
+	rdb.Del(ctx, attemptsKey, fmt.Sprintf("sms_rate:%s", phone))
+	return otpOK, nil
+}
+
 // RequestSMSOTP godoc
 // @Summary      Request SMS OTP
 // @Description  Send a 6-digit OTP to a phone number for passwordless login. Rate limited to 3 per hour.
@@ -900,24 +978,14 @@ func (h *AuthHandler) VerifySMSOTP(c *fiber.Ctx) error {
 	}
 
 	ctx := context.Background()
-	otpKey := fmt.Sprintf("sms_otp:%s", phone)
-
-	stored, err := h.redis.Get(ctx, otpKey).Result()
-	if err != nil {
+	switch res, err := consumeSMSOTP(ctx, h.redis, phone, otp); {
+	case err != nil:
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "internal server error"})
+	case res == otpLocked:
+		return c.Status(fiber.StatusTooManyRequests).JSON(fiber.Map{"error": "too many attempts, request a new code"})
+	case res == otpInvalid:
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "invalid or expired OTP"})
 	}
-
-	parts := split(stored, "|")
-	storedOTP := parts[0]
-	// lang_pref is stored in OTP payload but not needed here — user record already has it.
-
-	if otp != storedOTP {
-		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "invalid OTP"})
-	}
-
-	// Consume OTP (single-use)
-	h.redis.Del(ctx, otpKey)
-	h.redis.Del(ctx, fmt.Sprintf("sms_rate:%s", phone))
 
 	// Find user by phone — SMS OTP does NOT auto-create accounts in multi-tenant mode.
 	// New users must register via POST /auth/register to create a company workspace first.

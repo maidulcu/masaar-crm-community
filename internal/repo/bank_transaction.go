@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/maidulcu/masaar-crm/internal/domain"
+	"github.com/maidulcu/masaar-crm/internal/tenant"
 )
 
 type BankTransactionRepo struct {
@@ -64,14 +65,18 @@ func (r *BankTransactionRepo) List(ctx context.Context, companyID uuid.UUID, pag
 }
 
 func (r *BankTransactionRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.BankTransaction, error) {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return nil, err
+	}
 	const q = `
 		SELECT id, company_id, bank_integration_id, external_id, transaction_date, amount, currency,
 		       from_account, to_account, from_name, to_name, reference, transaction_type, status,
 		       matched_payment_id, match_confidence, matched_at, imported_at, last_checked, sync_error
-		FROM bank_transactions WHERE id = $1
+		FROM bank_transactions WHERE id = $1 AND company_id = $2
 	`
 	bt := &domain.BankTransaction{}
-	err := r.db.QueryRow(ctx, q, id).Scan(
+	err = r.db.QueryRow(ctx, q, id, cid).Scan(
 		&bt.ID, &bt.CompanyID, &bt.BankIntegrationID, &bt.ExternalID, &bt.TransactionDate, &bt.Amount, &bt.Currency,
 		&bt.FromAccount, &bt.ToAccount, &bt.FromName, &bt.ToName, &bt.Reference, &bt.TransactionType, &bt.Status,
 		&bt.MatchedPaymentID, &bt.MatchConfidence, &bt.MatchedAt, &bt.ImportedAt, &bt.LastChecked, &bt.SyncError,
@@ -83,6 +88,20 @@ func (r *BankTransactionRepo) GetByID(ctx context.Context, id uuid.UUID) (*domai
 }
 
 func (r *BankTransactionRepo) Create(ctx context.Context, bt *domain.BankTransaction) error {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return err
+	}
+	bt.CompanyID = cid               // never trust a company id supplied by the client
+	if bt.BankIntegrationID != nil { // optional link; when set it must be one of this company's
+		var ok bool
+		if err := r.db.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM bank_integrations WHERE id = $1 AND company_id = $2)`, *bt.BankIntegrationID, cid).Scan(&ok); err != nil {
+			return err
+		}
+		if !ok {
+			return ErrForeignReference
+		}
+	}
 	const q = `
 		INSERT INTO bank_transactions (
 			id, company_id, bank_integration_id, external_id, transaction_date, amount, currency,
@@ -100,12 +119,17 @@ func (r *BankTransactionRepo) Create(ctx context.Context, bt *domain.BankTransac
 }
 
 func (r *BankTransactionRepo) Update(ctx context.Context, bt *domain.BankTransaction) error {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return err
+	}
 	const q = `
 		UPDATE bank_transactions
 		SET matched_payment_id=$1, match_confidence=$2, matched_at=$3, last_checked=$4
-		WHERE id=$5
+		WHERE id=$5 AND company_id=$6
+		  AND ($1::uuid IS NULL OR EXISTS (SELECT 1 FROM payments WHERE id = $1 AND company_id = $6))
 	`
-	_, err := r.db.Exec(ctx, q, bt.MatchedPaymentID, bt.MatchConfidence, bt.MatchedAt, bt.LastChecked, bt.ID)
+	_, err = r.db.Exec(ctx, q, bt.MatchedPaymentID, bt.MatchConfidence, bt.MatchedAt, bt.LastChecked, bt.ID, cid)
 	return err
 }
 
@@ -141,15 +165,19 @@ func (r *BankTransactionRepo) GetUnmatchedByAmount(ctx context.Context, companyI
 }
 
 func (r *BankTransactionRepo) GetSinceDateByIntegration(ctx context.Context, integrationID uuid.UUID, since time.Time) ([]domain.BankTransaction, error) {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return nil, err
+	}
 	const q = `
 		SELECT id, company_id, bank_integration_id, external_id, transaction_date, amount, currency,
 		       from_account, to_account, from_name, to_name, reference, transaction_type, status,
 		       matched_payment_id, match_confidence, matched_at, imported_at, last_checked, sync_error
 		FROM bank_transactions
-		WHERE bank_integration_id = $1 AND transaction_date >= $2
+		WHERE bank_integration_id = $1 AND transaction_date >= $2 AND company_id = $3
 		ORDER BY transaction_date DESC
 	`
-	rows, err := r.db.Query(ctx, q, integrationID, since)
+	rows, err := r.db.Query(ctx, q, integrationID, since, cid)
 	if err != nil {
 		return nil, fmt.Errorf("get transactions since date: %w", err)
 	}

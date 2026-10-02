@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/maidulcu/masaar-crm/internal/domain"
+	"github.com/maidulcu/masaar-crm/internal/tenant"
 )
 
 type ApprovalRepo struct {
@@ -51,6 +52,11 @@ func (r *ApprovalRepo) SaveConfig(ctx context.Context, c *domain.ApprovalConfig)
 
 // Create inserts a new approval request.
 func (r *ApprovalRepo) Create(ctx context.Context, a *domain.ApprovalRequest) error {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return err
+	}
+	a.CompanyID = cid // never trust a company id supplied by the client
 	a.ID = uuid.New()
 	const q = `
 		INSERT INTO approval_requests
@@ -65,6 +71,10 @@ func (r *ApprovalRepo) Create(ctx context.Context, a *domain.ApprovalRequest) er
 
 // GetByEntity returns the latest pending approval for an entity, or nil.
 func (r *ApprovalRepo) GetByEntity(ctx context.Context, entityType domain.ApprovalEntity, entityID uuid.UUID) (*domain.ApprovalRequest, error) {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return nil, err
+	}
 	const q = `
 		SELECT ar.id, ar.company_id, ar.entity_type, ar.entity_id,
 		       ar.requested_by, ar.reviewed_by, ar.status,
@@ -73,11 +83,11 @@ func (r *ApprovalRepo) GetByEntity(ctx context.Context, entityType domain.Approv
 		FROM approval_requests ar
 		LEFT JOIN users u1 ON u1.id = ar.requested_by
 		LEFT JOIN users u2 ON u2.id = ar.reviewed_by
-		WHERE ar.entity_type = $1 AND ar.entity_id = $2
+		WHERE ar.entity_type = $1 AND ar.entity_id = $2 AND ar.company_id = $3
 		ORDER BY ar.created_at DESC LIMIT 1
 	`
 	a := &domain.ApprovalRequest{}
-	err := r.db.QueryRow(ctx, q, entityType, entityID).Scan(
+	err = r.db.QueryRow(ctx, q, entityType, entityID, cid).Scan(
 		&a.ID, &a.CompanyID, &a.EntityType, &a.EntityID,
 		&a.RequestedBy, &a.ReviewedBy, &a.Status,
 		&a.Notes, &a.ReviewerNote, &a.CreatedAt, &a.ReviewedAt,
@@ -158,6 +168,10 @@ func (r *ApprovalRepo) List(ctx context.Context, companyID uuid.UUID, status, en
 
 // GetByID returns a single approval request by its ID.
 func (r *ApprovalRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.ApprovalRequest, error) {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return nil, err
+	}
 	const q = `
 		SELECT ar.id, ar.company_id, ar.entity_type, ar.entity_id,
 		       ar.requested_by, ar.reviewed_by, ar.status,
@@ -166,10 +180,10 @@ func (r *ApprovalRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.Appro
 		FROM approval_requests ar
 		LEFT JOIN users u1 ON u1.id = ar.requested_by
 		LEFT JOIN users u2 ON u2.id = ar.reviewed_by
-		WHERE ar.id = $1
+		WHERE ar.id = $1 AND ar.company_id = $2
 	`
 	a := &domain.ApprovalRequest{}
-	err := r.db.QueryRow(ctx, q, id).Scan(
+	err = r.db.QueryRow(ctx, q, id, cid).Scan(
 		&a.ID, &a.CompanyID, &a.EntityType, &a.EntityID,
 		&a.RequestedBy, &a.ReviewedBy, &a.Status,
 		&a.Notes, &a.ReviewerNote, &a.CreatedAt, &a.ReviewedAt,
@@ -183,11 +197,15 @@ func (r *ApprovalRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.Appro
 
 // Review approves or rejects a request, sets reviewer + timestamp.
 func (r *ApprovalRepo) Review(ctx context.Context, id uuid.UUID, reviewerID uuid.UUID, status domain.ApprovalStatus, note string) error {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return err
+	}
 	now := time.Now()
-	_, err := r.db.Exec(ctx, `
+	_, err = r.db.Exec(ctx, `
 		UPDATE approval_requests
 		SET status=$1, reviewed_by=$2, reviewer_note=$3, reviewed_at=$4
-		WHERE id=$5 AND status='pending'
-	`, status, reviewerID, note, now, id)
+		WHERE id=$5 AND company_id=$6 AND status='pending'
+	`, status, reviewerID, note, now, id, cid)
 	return err
 }

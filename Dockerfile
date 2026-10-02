@@ -2,41 +2,34 @@
 FROM golang:1.25-alpine AS builder
 WORKDIR /build
 
-# Install build dependencies
-RUN apk add --no-cache git gcc musl-dev
+RUN apk add --no-cache git ca-certificates
 
-# Copy go mod files
+# Cache dependencies separately for better layer caching
 COPY go.mod go.sum ./
-
-# Download dependencies
 RUN go mod download
 
-# Copy source code
 COPY . .
 
-# Build binary
-RUN CGO_ENABLED=1 GOOS=linux go build -a -installsuffix cgo -o masaar ./cmd/server
+# Static binary: no CGO dependencies are required
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o masaar ./cmd/server
 
 # Final stage
-FROM alpine:latest
+FROM alpine:3.22
+
+RUN apk add --no-cache ca-certificates tzdata wget \
+    && addgroup -S masaar && adduser -S masaar -G masaar
 
 WORKDIR /app
 
-# Install runtime dependencies
-RUN apk add --no-cache ca-certificates wget
+COPY --from=builder --chown=masaar:masaar /build/masaar .
+COPY --from=builder --chown=masaar:masaar /build/migrations ./migrations
 
-# Copy binary from builder
-COPY --from=builder /build/masaar .
+# Never run the server as root
+USER masaar
 
-# Copy migrations
-COPY migrations ./migrations
-
-# Expose port
 EXPOSE 8080
 
-# Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
   CMD wget --no-verbose --tries=1 --spider http://localhost:8080/health || exit 1
 
-# Run application
-CMD ["/app/masaar"]
+ENTRYPOINT ["/app/masaar"]

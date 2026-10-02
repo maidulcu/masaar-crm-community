@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/maidulcu/masaar-crm/internal/domain"
+	"github.com/maidulcu/masaar-crm/internal/tenant"
 )
 
 type OfferRepo struct {
@@ -33,11 +34,19 @@ func scanOffer(row interface{ Scan(...any) error }, o *domain.Offer) error {
 
 // Create inserts a new offer.
 func (r *OfferRepo) Create(ctx context.Context, o *domain.Offer) error {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return err
+	}
+	// Contact, listing and agent must all belong to the caller's company.
 	const q = `
 		INSERT INTO offers
-			(id, listing_id, contact_id, agent_id, parent_offer_id,
+			(id, company_id, listing_id, contact_id, agent_id, parent_offer_id,
 			 offer_amount, currency, status, terms, notes, valid_until)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+		SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12
+		WHERE EXISTS (SELECT 1 FROM contacts WHERE id = $4 AND company_id = $2)
+		  AND EXISTS (SELECT 1 FROM listings WHERE id = $3 AND company_id = $2)
+		  AND ($5::uuid IS NULL OR EXISTS (SELECT 1 FROM users WHERE id = $5 AND company_id = $2))
 		RETURNING created_at, updated_at
 	`
 	o.ID = uuid.New()
@@ -48,25 +57,29 @@ func (r *OfferRepo) Create(ctx context.Context, o *domain.Offer) error {
 		o.Status = domain.OfferSubmitted
 	}
 	return r.db.QueryRow(ctx, q,
-		o.ID, o.ListingID, o.ContactID, o.AgentID, o.ParentOfferID,
+		o.ID, cid, o.ListingID, o.ContactID, o.AgentID, o.ParentOfferID,
 		o.OfferAmount, o.Currency, o.Status, o.Terms, o.Notes, o.ValidUntil,
 	).Scan(&o.CreatedAt, &o.UpdatedAt)
 }
 
 // GetByID returns a single offer with contact info joined.
 func (r *OfferRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.Offer, error) {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return nil, err
+	}
 	const q = `
 		SELECT ` + offerCols + `,
-		       c.id, c.phone_wa, c.full_name, c.email, c.language, c.lead_score,
+		       c.id, c.phone_wa, c.full_name, COALESCE(c.email,''), c.language, c.lead_score,
 		       l.title
 		FROM offers o
-		JOIN contacts c ON c.id = o.contact_id
-		JOIN listings l ON l.id = o.listing_id
-		WHERE o.id = $1
+		JOIN contacts c ON c.id = o.contact_id AND c.company_id = o.company_id
+		JOIN listings l ON l.id = o.listing_id AND l.company_id = o.company_id
+		WHERE o.id = $1 AND o.company_id = $2
 	`
 	var o domain.Offer
 	var c domain.Contact
-	err := r.db.QueryRow(ctx, q, id).Scan(
+	err = r.db.QueryRow(ctx, q, id, cid).Scan(
 		&o.ID, &o.ListingID, &o.ContactID, &o.AgentID, &o.ParentOfferID,
 		&o.OfferAmount, &o.Currency, &o.Status, &o.Terms, &o.Notes,
 		&o.ValidUntil, &o.DealID, &o.CreatedAt, &o.UpdatedAt,
@@ -82,6 +95,10 @@ func (r *OfferRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.Offer, e
 
 // ListByListing returns all offers for a listing, newest first.
 func (r *OfferRepo) ListByListing(ctx context.Context, listingID uuid.UUID, page, limit int) ([]domain.Offer, int, error) {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return nil, 0, err
+	}
 	if limit == 0 {
 		limit = 50
 	}
@@ -92,23 +109,23 @@ func (r *OfferRepo) ListByListing(ctx context.Context, listingID uuid.UUID, page
 
 	var total int
 	if err := r.db.QueryRow(ctx,
-		`SELECT COUNT(*) FROM offers WHERE listing_id = $1`, listingID,
+		`SELECT COUNT(*) FROM offers WHERE listing_id = $1 AND company_id = $2`, listingID, cid,
 	).Scan(&total); err != nil {
 		return nil, 0, err
 	}
 
 	const q = `
 		SELECT ` + offerCols + `,
-		       c.id, c.phone_wa, c.full_name, c.email, c.language, c.lead_score,
+		       c.id, c.phone_wa, c.full_name, COALESCE(c.email,''), c.language, c.lead_score,
 		       l.title
 		FROM offers o
-		JOIN contacts c ON c.id = o.contact_id
-		JOIN listings l ON l.id = o.listing_id
-		WHERE o.listing_id = $1
+		JOIN contacts c ON c.id = o.contact_id AND c.company_id = o.company_id
+		JOIN listings l ON l.id = o.listing_id AND l.company_id = o.company_id
+		WHERE o.listing_id = $1 AND o.company_id = $4
 		ORDER BY o.created_at DESC
 		LIMIT $2 OFFSET $3
 	`
-	rows, err := r.db.Query(ctx, q, listingID, limit, offset)
+	rows, err := r.db.Query(ctx, q, listingID, limit, offset, cid)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -135,6 +152,10 @@ func (r *OfferRepo) ListByListing(ctx context.Context, listingID uuid.UUID, page
 
 // List returns all offers with optional filters.
 func (r *OfferRepo) List(ctx context.Context, listingID, contactID *uuid.UUID, status string, page, limit int) ([]domain.Offer, int, error) {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return nil, 0, err
+	}
 	if limit == 0 {
 		limit = 50
 	}
@@ -143,9 +164,9 @@ func (r *OfferRepo) List(ctx context.Context, listingID, contactID *uuid.UUID, s
 		offset = 0
 	}
 
-	args := []any{}
-	conds := []string{"1=1"}
-	n := 1
+	args := []any{cid}
+	conds := []string{"o.company_id = $1"}
+	n := 2
 
 	if listingID != nil {
 		conds = append(conds, fmt.Sprintf("o.listing_id = $%d", n))
@@ -176,11 +197,11 @@ func (r *OfferRepo) List(ctx context.Context, listingID, contactID *uuid.UUID, s
 	args = append(args, limit, offset)
 	q := fmt.Sprintf(`
 		SELECT `+offerCols+`,
-		       c.id, c.phone_wa, c.full_name, c.email, c.language, c.lead_score,
+		       c.id, c.phone_wa, c.full_name, COALESCE(c.email,''), c.language, c.lead_score,
 		       l.title
 		FROM offers o
-		JOIN contacts c ON c.id = o.contact_id
-		JOIN listings l ON l.id = o.listing_id
+		JOIN contacts c ON c.id = o.contact_id AND c.company_id = o.company_id
+		JOIN listings l ON l.id = o.listing_id AND l.company_id = o.company_id
 		%s
 		ORDER BY o.created_at DESC
 		LIMIT $%d OFFSET $%d
@@ -213,18 +234,28 @@ func (r *OfferRepo) List(ctx context.Context, listingID, contactID *uuid.UUID, s
 
 // UpdateStatus changes an offer's status.
 func (r *OfferRepo) UpdateStatus(ctx context.Context, id uuid.UUID, status domain.OfferStatus) error {
-	_, err := r.db.Exec(ctx,
-		`UPDATE offers SET status=$1, updated_at=NOW() WHERE id=$2`,
-		status, id,
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return err
+	}
+	_, err = r.db.Exec(ctx,
+		`UPDATE offers SET status=$1, updated_at=NOW() WHERE id=$2 AND company_id=$3`,
+		status, id, cid,
 	)
 	return err
 }
 
 // SetDeal links an accepted offer to its created deal.
 func (r *OfferRepo) SetDeal(ctx context.Context, offerID, dealID uuid.UUID) error {
-	_, err := r.db.Exec(ctx,
-		`UPDATE offers SET deal_id=$1, status='accepted', updated_at=NOW() WHERE id=$2`,
-		dealID, offerID,
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return err
+	}
+	_, err = r.db.Exec(ctx,
+		`UPDATE offers SET deal_id=$1, status='accepted', updated_at=NOW()
+		 WHERE id=$2 AND company_id=$3
+		   AND EXISTS (SELECT 1 FROM deals WHERE id=$1 AND company_id=$3)`,
+		dealID, offerID, cid,
 	)
 	return err
 }
@@ -232,6 +263,10 @@ func (r *OfferRepo) SetDeal(ctx context.Context, offerID, dealID uuid.UUID) erro
 // Counter creates a counter-offer linked to the parent.
 // The parent offer's status is set to 'countered'.
 func (r *OfferRepo) Counter(ctx context.Context, parentID uuid.UUID, o *domain.Offer) error {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return err
+	}
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
 		return err
@@ -239,10 +274,14 @@ func (r *OfferRepo) Counter(ctx context.Context, parentID uuid.UUID, o *domain.O
 	defer tx.Rollback(ctx) //nolint:errcheck
 
 	// Mark parent as countered
-	if _, err = tx.Exec(ctx,
-		`UPDATE offers SET status='countered', updated_at=NOW() WHERE id=$1`, parentID,
-	); err != nil {
+	tag, err := tx.Exec(ctx,
+		`UPDATE offers SET status='countered', updated_at=NOW() WHERE id=$1 AND company_id=$2`, parentID, cid,
+	)
+	if err != nil {
 		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("offer not found")
 	}
 
 	// Create counter offer
@@ -254,12 +293,15 @@ func (r *OfferRepo) Counter(ctx context.Context, parentID uuid.UUID, o *domain.O
 	}
 	if err = tx.QueryRow(ctx, `
 		INSERT INTO offers
-			(id, listing_id, contact_id, agent_id, parent_offer_id,
+			(id, company_id, listing_id, contact_id, agent_id, parent_offer_id,
 			 offer_amount, currency, status, terms, notes, valid_until)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+		SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12
+		WHERE EXISTS (SELECT 1 FROM contacts WHERE id = $4 AND company_id = $2)
+		  AND EXISTS (SELECT 1 FROM listings WHERE id = $3 AND company_id = $2)
+		  AND ($5::uuid IS NULL OR EXISTS (SELECT 1 FROM users WHERE id = $5 AND company_id = $2))
 		RETURNING created_at, updated_at
 	`,
-		o.ID, o.ListingID, o.ContactID, o.AgentID, o.ParentOfferID,
+		o.ID, cid, o.ListingID, o.ContactID, o.AgentID, o.ParentOfferID,
 		o.OfferAmount, o.Currency, o.Status, o.Terms, o.Notes, o.ValidUntil,
 	).Scan(&o.CreatedAt, &o.UpdatedAt); err != nil {
 		return err
@@ -270,12 +312,17 @@ func (r *OfferRepo) Counter(ctx context.Context, parentID uuid.UUID, o *domain.O
 
 // Delete hard-deletes an offer.
 func (r *OfferRepo) Delete(ctx context.Context, id uuid.UUID) error {
-	_, err := r.db.Exec(ctx, `DELETE FROM offers WHERE id=$1`, id)
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return err
+	}
+	_, err = r.db.Exec(ctx, `DELETE FROM offers WHERE id=$1 AND company_id=$2`, id, cid)
 	return err
 }
 
 // ExpireOlderThan marks submitted/under_review offers whose valid_until has passed.
-// Called by a background job.
+// Called by a background job. Intentionally NOT company-scoped: it is a system-wide
+// sweep that only flips overdue offers to 'expired' and returns no tenant data.
 func (r *OfferRepo) ExpireOlderThan(ctx context.Context, before time.Time) (int64, error) {
 	tag, err := r.db.Exec(ctx, `
 		UPDATE offers SET status='expired', updated_at=NOW()

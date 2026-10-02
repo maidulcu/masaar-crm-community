@@ -146,7 +146,7 @@ func (h *OfferHandler) Create(c *fiber.Ctx) error {
 	}
 
 	// Notify via WebSocket
-	h.hub.Broadcast(ws.Event{
+	h.hub.BroadcastToCompany(localsCompanyID(c), ws.Event{
 		Type: "offer.created",
 		Payload: fiber.Map{
 			"offer_id":   offer.ID,
@@ -314,7 +314,7 @@ func (h *OfferHandler) Accept(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	h.hub.Broadcast(ws.Event{
+	h.hub.BroadcastToCompany(localsCompanyID(c), ws.Event{
 		Type: "offer.accepted",
 		Payload: fiber.Map{
 			"offer_id": id,

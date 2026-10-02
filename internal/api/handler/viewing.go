@@ -302,7 +302,7 @@ func (h *ViewingHandler) UpdateStatus(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	h.hub.Broadcast(ws.Event{
+	h.hub.BroadcastToCompany(localsCompanyID(c), ws.Event{
 		Type:    "viewing.status_changed",
 		Payload: fiber.Map{"viewing_id": id, "status": body.Status},
 	})

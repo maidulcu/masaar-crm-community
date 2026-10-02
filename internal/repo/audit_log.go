@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/maidulcu/masaar-crm/internal/domain"
+	"github.com/maidulcu/masaar-crm/internal/tenant"
 )
 
 type AuditLogFilter struct {
@@ -28,12 +29,16 @@ func NewAuditLogRepo(db *pgxpool.Pool) *AuditLogRepo {
 }
 
 func (r *AuditLogRepo) List(ctx context.Context, f AuditLogFilter) (*domain.PaginatedResult[domain.AuditLog], error) {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return nil, err
+	}
 	if f.Limit == 0 {
 		f.Limit = 50
 	}
-	args := []any{}
-	conds := []string{}
-	n := 1
+	args := []any{cid}
+	conds := []string{"a.company_id = $1"}
+	n := 2
 
 	if f.EntityType != "" {
 		conds = append(conds, fmt.Sprintf("a.entity_type = $%d", n))
@@ -56,10 +61,7 @@ func (r *AuditLogRepo) List(ctx context.Context, f AuditLogFilter) (*domain.Pagi
 		n++
 	}
 
-	where := ""
-	if len(conds) > 0 {
-		where = "WHERE " + joinStrings(conds, " AND ")
-	}
+	where := "WHERE " + joinStrings(conds, " AND ")
 
 	var total int
 	countQ := "SELECT COUNT(*) FROM audit_logs a " + where
@@ -117,9 +119,11 @@ func (r *AuditLogRepo) Log(ctx context.Context, actorID uuid.UUID, action, entit
 	if diff != nil {
 		diffJSON, _ = json.Marshal(diff)
 	}
+	// The actor's own company is authoritative (login events are logged before a
+	// request is authenticated, so the request context carries no company yet).
 	const q = `
-		INSERT INTO audit_logs (entity_type, entity_id, action, actor_id, diff)
-		VALUES ($1, $2, $3, $4, $5)
+		INSERT INTO audit_logs (entity_type, entity_id, action, actor_id, diff, company_id)
+		SELECT $1, $2, $3, $4, $5, u.company_id FROM users u WHERE u.id = $4
 	`
 	r.db.Exec(ctx, q, entityType, entityID, action, actorID, diffJSON)
 }
@@ -133,10 +137,10 @@ const (
 	AuditLogout         = "logout"
 	AuditPasswordChange = "password_change"
 
-	AuditContact = domain.AuditEntityContact
-	AuditLead    = domain.AuditEntityLead
-	AuditDeal    = domain.AuditEntityDeal
-	AuditInvoice = domain.AuditEntityInvoice
+	AuditContact  = domain.AuditEntityContact
+	AuditLead     = domain.AuditEntityLead
+	AuditDeal     = domain.AuditEntityDeal
+	AuditInvoice  = domain.AuditEntityInvoice
 	AuditUser     = "user"
 	AuditDocument = "document"
 )

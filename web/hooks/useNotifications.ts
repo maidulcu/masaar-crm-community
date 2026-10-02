@@ -23,7 +23,7 @@ export function useNotifications(userId: string | null) {
   useEffect(() => {
     if (!userId) return
 
-    const close = createNotificationSocket(userId, (event: WSEvent) => {
+    const close = createNotificationSocket((event: WSEvent) => {
       if (event.type === 'notification') {
         const n = event.payload as Notification
         setNotifications((prev) => [n, ...prev])

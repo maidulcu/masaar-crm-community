@@ -107,6 +107,27 @@ var smsOTPLimiter = limiter.New(limiter.Config{
 	},
 })
 
+// authVerifyLimiter throttles credential-redeeming endpoints (OTP / magic-link
+// verify, password reset) so tokens cannot be brute-forced. It is a separate
+// instance so it does not share a counter with loginLimiter.
+var authVerifyLimiter = limiter.New(limiter.Config{
+	Max:        10,
+	Expiration: 1 * time.Minute,
+	LimitReached: func(c *fiber.Ctx) error {
+		return c.Status(fiber.StatusTooManyRequests).JSON(fiber.Map{"error": "too many attempts, please try again later"})
+	},
+})
+
+// refreshLimiter is looser than authVerifyLimiter: the SPA refreshes silently,
+// and several users may share one office IP.
+var refreshLimiter = limiter.New(limiter.Config{
+	Max:        60,
+	Expiration: 1 * time.Minute,
+	LimitReached: func(c *fiber.Ctx) error {
+		return c.Status(fiber.StatusTooManyRequests).JSON(fiber.Map{"error": "rate limit exceeded"})
+	},
+})
+
 // registrationLimiter caps new company signups to 3 per minute per IP.
 // Tighter than loginLimiter because registration creates DB rows and sends emails.
 var registrationLimiter = limiter.New(limiter.Config{
@@ -136,12 +157,12 @@ func RegisterRoutes(app *fiber.App, h *Handlers, hub *ws.Hub, cfg *config.Config
 	app.Post("/api/v1/auth/login", loginLimiter, h.Auth.Login)
 	app.Post("/api/v1/auth/register", registrationLimiter, h.Auth.Register)
 	app.Post("/api/v1/auth/magic-link/request", magicLinkLimiter, h.Auth.RequestMagicLink)
-	app.Post("/api/v1/auth/magic-link/verify", h.Auth.VerifyMagicLink)
+	app.Post("/api/v1/auth/magic-link/verify", authVerifyLimiter, h.Auth.VerifyMagicLink)
 	app.Post("/api/v1/auth/sms/request", smsOTPLimiter, h.Auth.RequestSMSOTP)
-	app.Post("/api/v1/auth/sms/verify", h.Auth.VerifySMSOTP)
-	app.Post("/api/v1/auth/refresh", h.Auth.Refresh)
+	app.Post("/api/v1/auth/sms/verify", authVerifyLimiter, h.Auth.VerifySMSOTP)
+	app.Post("/api/v1/auth/refresh", refreshLimiter, h.Auth.Refresh)
 	app.Post("/api/v1/auth/forgot-password", loginLimiter, h.Auth.ForgotPassword)
-	app.Post("/api/v1/auth/reset-password", h.Auth.ResetPassword)
+	app.Post("/api/v1/auth/reset-password", authVerifyLimiter, h.Auth.ResetPassword)
 
 	// WhatsApp webhook — Meta calls this publicly
 	app.Get("/webhooks/whatsapp", h.WhatsApp.Verify)
@@ -186,7 +207,7 @@ func RegisterRoutes(app *fiber.App, h *Handlers, hub *ws.Hub, cfg *config.Config
 	// Personal notifications
 	trialCheck := middleware.TrialCheck(companyRepo)
 	app.Get("/ws/notifications",
-		middleware.JWT(cfg.JWTSecret),
+		middleware.JWTFromQuery(cfg.JWTSecret),
 		middleware.CheckBlacklist(rdb),
 		trialCheck,
 		middleware.ExtractClaims(),
@@ -1119,16 +1140,17 @@ func RegisterRoutes(app *fiber.App, h *Handlers, hub *ws.Hub, cfg *config.Config
 		return c.JSON(fiber.Map{"status": "ok"})
 	})
 
-	// Swagger UI — gated behind BasicAuth in production
+	// Swagger UI — in production it is served only behind HTTP basic auth with a
+	// dedicated DOCS_PASSWORD (never derived from JWT_SECRET), and disabled when unset.
 	if cfg.AppEnv == "production" {
-		app.Get("/docs/*",
-			basicauth.New(basicauth.Config{
-				Users: map[string]string{
-					"admin": cfg.JWTSecret[:16], // use first 16 chars of JWT secret as password
-				},
-			}),
-			fiberswagger.WrapHandler,
-		)
+		if cfg.DocsPassword != "" {
+			app.Get("/docs/*",
+				basicauth.New(basicauth.Config{
+					Users: map[string]string{"admin": cfg.DocsPassword},
+				}),
+				fiberswagger.WrapHandler,
+			)
+		}
 	} else {
 		app.Get("/docs/*", fiberswagger.WrapHandler)
 	}

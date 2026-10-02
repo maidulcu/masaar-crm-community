@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/maidulcu/masaar-crm/internal/domain"
+	"github.com/maidulcu/masaar-crm/internal/tenant"
 )
 
 type LeaseRenewalRepo struct {
@@ -20,22 +21,33 @@ func NewLeaseRenewalRepo(conn *pgxpool.Pool) *LeaseRenewalRepo {
 }
 
 func (r *LeaseRenewalRepo) Create(ctx context.Context, workflow *domain.LeaseRenewalWorkflow) error {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return err
+	}
+	workflow.CompanyID = cid // never trust a company id supplied by the client
 	termsJSON, _ := json.Marshal(workflow.ProposedTerms)
+	// The lease must belong to the caller's company.
 	return r.conn.QueryRow(ctx, `
 		INSERT INTO lease_renewal_workflows (id, company_id, lease_id, renewal_date, renewal_status, days_before_expiry, proposed_rent_amount, proposed_terms, tenant_response)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9
+		WHERE EXISTS (SELECT 1 FROM leases WHERE id = $3 AND company_id = $2)
 		RETURNING id, created_at, updated_at
 	`, workflow.ID, workflow.CompanyID, workflow.LeaseID, workflow.RenewalDate, workflow.RenewalStatus, workflow.DaysBeforeExpiry, workflow.ProposedRentAmount, termsJSON, workflow.TenantResponse).Scan(&workflow.ID, &workflow.CreatedAt, &workflow.UpdatedAt)
 }
 
 func (r *LeaseRenewalRepo) Get(ctx context.Context, id uuid.UUID) (*domain.LeaseRenewalWorkflow, error) {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return nil, err
+	}
 	var workflow domain.LeaseRenewalWorkflow
 	var termsJSON []byte
-	err := r.conn.QueryRow(ctx, `
+	err = r.conn.QueryRow(ctx, `
 		SELECT id, company_id, lease_id, renewal_date, renewal_status, days_before_expiry, proposed_rent_amount, proposed_terms, tenant_response, tenant_counter_offer, counter_offer_date, created_at, updated_at
 		FROM lease_renewal_workflows
-		WHERE id = $1
-	`, id).Scan(
+		WHERE id = $1 AND company_id = $2
+	`, id, cid).Scan(
 		&workflow.ID, &workflow.CompanyID, &workflow.LeaseID, &workflow.RenewalDate, &workflow.RenewalStatus, &workflow.DaysBeforeExpiry, &workflow.ProposedRentAmount, &termsJSON, &workflow.TenantResponse, &workflow.TenantCounterOffer, &workflow.CounterOfferDate, &workflow.CreatedAt, &workflow.UpdatedAt,
 	)
 	if err != nil {
@@ -48,13 +60,17 @@ func (r *LeaseRenewalRepo) Get(ctx context.Context, id uuid.UUID) (*domain.Lease
 }
 
 func (r *LeaseRenewalRepo) GetByLeaseID(ctx context.Context, leaseID uuid.UUID) (*domain.LeaseRenewalWorkflow, error) {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return nil, err
+	}
 	var workflow domain.LeaseRenewalWorkflow
 	var termsJSON []byte
-	err := r.conn.QueryRow(ctx, `
+	err = r.conn.QueryRow(ctx, `
 		SELECT id, company_id, lease_id, renewal_date, renewal_status, days_before_expiry, proposed_rent_amount, proposed_terms, tenant_response, tenant_counter_offer, counter_offer_date, created_at, updated_at
 		FROM lease_renewal_workflows
-		WHERE lease_id = $1
-	`, leaseID).Scan(
+		WHERE lease_id = $1 AND company_id = $2
+	`, leaseID, cid).Scan(
 		&workflow.ID, &workflow.CompanyID, &workflow.LeaseID, &workflow.RenewalDate, &workflow.RenewalStatus, &workflow.DaysBeforeExpiry, &workflow.ProposedRentAmount, &termsJSON, &workflow.TenantResponse, &workflow.TenantCounterOffer, &workflow.CounterOfferDate, &workflow.CreatedAt, &workflow.UpdatedAt,
 	)
 	if err != nil {
@@ -135,14 +151,18 @@ func (r *LeaseRenewalRepo) ListByStatus(ctx context.Context, companyID uuid.UUID
 }
 
 func (r *LeaseRenewalRepo) Update(ctx context.Context, workflow *domain.LeaseRenewalWorkflow) error {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return err
+	}
 	workflow.UpdatedAt = time.Now()
 	termsJSON, _ := json.Marshal(workflow.ProposedTerms)
 	return r.conn.QueryRow(ctx, `
 		UPDATE lease_renewal_workflows
 		SET renewal_status = $2, proposed_rent_amount = $3, proposed_terms = $4, tenant_response = $5, tenant_counter_offer = $6, counter_offer_date = $7, updated_at = $8
-		WHERE id = $1
+		WHERE id = $1 AND company_id = $9
 		RETURNING updated_at
-	`, workflow.ID, workflow.RenewalStatus, workflow.ProposedRentAmount, termsJSON, workflow.TenantResponse, workflow.TenantCounterOffer, workflow.CounterOfferDate, workflow.UpdatedAt).Scan(&workflow.UpdatedAt)
+	`, workflow.ID, workflow.RenewalStatus, workflow.ProposedRentAmount, termsJSON, workflow.TenantResponse, workflow.TenantCounterOffer, workflow.CounterOfferDate, workflow.UpdatedAt, cid).Scan(&workflow.UpdatedAt)
 }
 
 type RenewalTemplateRepo struct {
@@ -154,6 +174,11 @@ func NewRenewalTemplateRepo(conn *pgxpool.Pool) *RenewalTemplateRepo {
 }
 
 func (r *RenewalTemplateRepo) Create(ctx context.Context, template *domain.RenewalCommunicationTemplate) error {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return err
+	}
+	template.CompanyID = cid // never trust a company id supplied by the client
 	return r.conn.QueryRow(ctx, `
 		INSERT INTO renewal_communication_templates (id, company_id, template_name, email_subject, email_body, whatsapp_message, language)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -185,12 +210,16 @@ func (r *RenewalTemplateRepo) List(ctx context.Context, companyID uuid.UUID) ([]
 }
 
 func (r *RenewalTemplateRepo) Get(ctx context.Context, id uuid.UUID) (*domain.RenewalCommunicationTemplate, error) {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return nil, err
+	}
 	var t domain.RenewalCommunicationTemplate
-	err := r.conn.QueryRow(ctx, `
+	err = r.conn.QueryRow(ctx, `
 		SELECT id, company_id, template_name, email_subject, email_body, whatsapp_message, language, created_at
 		FROM renewal_communication_templates
-		WHERE id = $1
-	`, id).Scan(&t.ID, &t.CompanyID, &t.TemplateName, &t.EmailSubject, &t.EmailBody, &t.WhatsAppMsg, &t.Language, &t.CreatedAt)
+		WHERE id = $1 AND company_id = $2
+	`, id, cid).Scan(&t.ID, &t.CompanyID, &t.TemplateName, &t.EmailSubject, &t.EmailBody, &t.WhatsAppMsg, &t.Language, &t.CreatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -198,16 +227,24 @@ func (r *RenewalTemplateRepo) Get(ctx context.Context, id uuid.UUID) (*domain.Re
 }
 
 func (r *RenewalTemplateRepo) Update(ctx context.Context, t *domain.RenewalCommunicationTemplate) error {
-	_, err := r.conn.Exec(ctx, `
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return err
+	}
+	_, err = r.conn.Exec(ctx, `
 		UPDATE renewal_communication_templates
 		SET template_name=$1, email_subject=$2, email_body=$3, whatsapp_message=$4, language=$5
-		WHERE id=$6
-	`, t.TemplateName, t.EmailSubject, t.EmailBody, t.WhatsAppMsg, t.Language, t.ID)
+		WHERE id=$6 AND company_id=$7
+	`, t.TemplateName, t.EmailSubject, t.EmailBody, t.WhatsAppMsg, t.Language, t.ID, cid)
 	return err
 }
 
 func (r *RenewalTemplateRepo) Delete(ctx context.Context, id uuid.UUID) error {
-	_, err := r.conn.Exec(ctx, `DELETE FROM renewal_communication_templates WHERE id=$1`, id)
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return err
+	}
+	_, err = r.conn.Exec(ctx, `DELETE FROM renewal_communication_templates WHERE id=$1 AND company_id=$2`, id, cid)
 	return err
 }
 
@@ -220,20 +257,30 @@ func NewRenewalCommunicationLogRepo(conn *pgxpool.Pool) *RenewalCommunicationLog
 }
 
 func (r *RenewalCommunicationLogRepo) Create(ctx context.Context, log *domain.RenewalCommunicationLog) error {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return err
+	}
+	// The renewal workflow must belong to the caller's company.
 	return r.conn.QueryRow(ctx, `
 		INSERT INTO renewal_communication_log (id, renewal_id, communication_type, template_id, sent_date, delivery_status, response_text)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		SELECT $1, $2, $3, $4, $5, $6, $7
+		WHERE EXISTS (SELECT 1 FROM lease_renewal_workflows WHERE id = $2 AND company_id = $8)
 		RETURNING id, created_at
-	`, log.ID, log.RenewalID, log.CommunicationType, log.TemplateID, log.SentDate, log.DeliveryStatus, log.ResponseText).Scan(&log.ID, &log.CreatedAt)
+	`, log.ID, log.RenewalID, log.CommunicationType, log.TemplateID, log.SentDate, log.DeliveryStatus, log.ResponseText, cid).Scan(&log.ID, &log.CreatedAt)
 }
 
 func (r *RenewalCommunicationLogRepo) GetByRenewalID(ctx context.Context, renewalID uuid.UUID) ([]domain.RenewalCommunicationLog, error) {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return nil, err
+	}
 	rows, err := r.conn.Query(ctx, `
-		SELECT id, renewal_id, communication_type, template_id, sent_date, delivery_status, tenant_response_date, response_text, created_at
-		FROM renewal_communication_log
-		WHERE renewal_id = $1
-		ORDER BY created_at DESC
-	`, renewalID)
+		SELECT l.id, l.renewal_id, l.communication_type, l.template_id, l.sent_date, l.delivery_status, l.tenant_response_date, l.response_text, l.created_at
+		FROM renewal_communication_log l JOIN lease_renewal_workflows w ON w.id = l.renewal_id
+		WHERE l.renewal_id = $1 AND w.company_id = $2
+		ORDER BY l.created_at DESC
+	`, renewalID, cid)
 	if err != nil {
 		return nil, err
 	}

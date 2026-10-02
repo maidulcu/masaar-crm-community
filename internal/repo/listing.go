@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/maidulcu/masaar-crm/internal/domain"
+	"github.com/maidulcu/masaar-crm/internal/tenant"
 )
 
 type ListingRepo struct {
@@ -45,8 +46,24 @@ func (r *ListingRepo) List(ctx context.Context, companyID uuid.UUID, page, limit
 	}, nil
 }
 
+// GetByID returns a listing in the caller's company. (It previously reused listQuery with
+// mismatched arguments and failed on every call.)
 func (r *ListingRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.Listing, error) {
-	rows, err := r.db.Query(ctx, listQuery+` AND l.id = $2`, id)
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return r.getOne(ctx, listSelect+` WHERE l.id = $1 AND l.company_id = $2`, id, cid)
+}
+
+// GetPublicByID returns a PUBLISHED listing regardless of company, for the unauthenticated
+// share page where the listing id is the credential. Unpublished listings are never returned.
+func (r *ListingRepo) GetPublicByID(ctx context.Context, id uuid.UUID) (*domain.Listing, error) {
+	return r.getOne(ctx, listSelect+` WHERE l.id = $1 AND l.status = $2`, id, domain.ListingStatusPublished)
+}
+
+func (r *ListingRepo) getOne(ctx context.Context, q string, args ...any) (*domain.Listing, error) {
+	rows, err := r.db.Query(ctx, q, args...)
 	if err != nil {
 		return nil, fmt.Errorf("get listing: %w", err)
 	}
@@ -63,8 +80,16 @@ func (r *ListingRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.Listin
 }
 
 func (r *ListingRepo) Create(ctx context.Context, l *domain.Listing) error {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return err
+	}
+	l.CompanyID = cid // never trust a company id supplied by the client
+	if err := r.assertAgent(ctx, cid, l.AssignedTo); err != nil {
+		return err
+	}
 	l.ID = uuid.New()
-	_, err := r.db.Exec(ctx, `
+	_, err = r.db.Exec(ctx, `
 		INSERT INTO listings (
 			id, company_id, title, description, property_type, listing_type,
 			price, currency, rent_period,
@@ -92,7 +117,14 @@ func (r *ListingRepo) Create(ctx context.Context, l *domain.Listing) error {
 }
 
 func (r *ListingRepo) Update(ctx context.Context, l *domain.Listing) error {
-	_, err := r.db.Exec(ctx, `
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return err
+	}
+	if err := r.assertAgent(ctx, cid, l.AssignedTo); err != nil {
+		return err
+	}
+	_, err = r.db.Exec(ctx, `
 		UPDATE listings SET
 			title=$1, description=$2, property_type=$3, listing_type=$4,
 			price=$5, currency=$6, rent_period=$7,
@@ -102,7 +134,7 @@ func (r *ListingRepo) Update(ctx context.Context, l *domain.Listing) error {
 			status=$27, featured=$28, reference_number=$29, available_from=$30,
 			assigned_to=$31, owner_name=$32, owner_phone=$33, owner_email=$34,
 			updated_by=$35, updated_at=NOW()
-		WHERE id=$36
+		WHERE id=$36 AND company_id=$37
 	`, l.Title, l.Description, l.PropertyType, l.ListingType,
 		l.Price, l.Currency, l.RentPeriod,
 		l.Area, l.Community, l.Subcommunity, l.City, l.Emirate, l.Latitude, l.Longitude,
@@ -110,22 +142,46 @@ func (r *ListingRepo) Update(ctx context.Context, l *domain.Listing) error {
 		l.CoverImageURL, l.ImageURLs, l.VirtualTourURL, l.VideoURL,
 		l.Status, l.Featured, l.ReferenceNumber, l.AvailableFrom,
 		l.AssignedTo, l.OwnerName, l.OwnerPhone, l.OwnerEmail,
-		l.UpdatedBy, l.ID,
+		l.UpdatedBy, l.ID, cid,
 	)
 	return err
 }
 
 func (r *ListingRepo) UpdateStatus(ctx context.Context, id uuid.UUID, status domain.ListingStatus) error {
-	_, err := r.db.Exec(ctx, `UPDATE listings SET status=$1, updated_at=NOW() WHERE id=$2`, status, id)
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return err
+	}
+	_, err = r.db.Exec(ctx, `UPDATE listings SET status=$1, updated_at=NOW() WHERE id=$2 AND company_id=$3`, status, id, cid)
 	return err
 }
 
 func (r *ListingRepo) Delete(ctx context.Context, id uuid.UUID) error {
-	_, err := r.db.Exec(ctx, `DELETE FROM listings WHERE id=$1`, id)
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return err
+	}
+	_, err = r.db.Exec(ctx, `DELETE FROM listings WHERE id=$1 AND company_id=$2`, id, cid)
 	return err
 }
 
-const listQuery = `
+// assertAgent verifies an optional assignee belongs to the company.
+func (r *ListingRepo) assertAgent(ctx context.Context, cid uuid.UUID, assignedTo *uuid.UUID) error {
+	if assignedTo == nil {
+		return nil
+	}
+	var ok bool
+	if err := r.db.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM users WHERE id = $1 AND company_id = $2)`, *assignedTo, cid).Scan(&ok); err != nil {
+		return err
+	}
+	if !ok {
+		return ErrForeignReference
+	}
+	return nil
+}
+
+// listSelect is the shared column list; listQuery/getQuery add their own predicates.
+const listSelect = `
 	SELECT l.id, l.company_id,
 	       l.title, l.description, l.property_type, l.listing_type,
 	       l.price, l.currency, l.rent_period,
@@ -137,6 +193,9 @@ const listQuery = `
 	       l.portal_sync_status,
 	       l.published_at, l.created_at, l.updated_at, l.created_by, l.updated_by
 	FROM listings l
+`
+
+const listQuery = listSelect + `
 	WHERE l.company_id = $1
 	ORDER BY l.featured DESC, l.created_at DESC
 	LIMIT $2 OFFSET $3

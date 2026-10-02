@@ -7,6 +7,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/maidulcu/masaar-crm/internal/domain"
+	"github.com/maidulcu/masaar-crm/internal/tenant"
 )
 
 type LeaseTemplateRepo struct {
@@ -67,16 +68,20 @@ func (r *LeaseTemplateRepo) List(ctx context.Context, companyID uuid.UUID, page,
 }
 
 func (r *LeaseTemplateRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.LeaseTemplate, error) {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return nil, err
+	}
 	const q = `
 		SELECT id, company_id, name, description, is_default, payment_frequency, payment_day_of_month,
 		       auto_generate_payments, default_security_deposit_percent, default_utility_charges,
 		       default_late_fee_percent, default_lease_duration_months, default_notice_period_days,
 		       default_renewal_duration_months, template_document_url, terms_conditions, status,
 		       created_at, updated_at, created_by, updated_by
-		FROM lease_templates WHERE id = $1
+		FROM lease_templates WHERE id = $1 AND company_id = $2
 	`
 	t := &domain.LeaseTemplate{}
-	err := r.db.QueryRow(ctx, q, id).Scan(
+	err = r.db.QueryRow(ctx, q, id, cid).Scan(
 		&t.ID, &t.CompanyID, &t.Name, &t.Description, &t.IsDefault, &t.PaymentFrequency, &t.PaymentDayOfMonth,
 		&t.AutoGeneratePayments, &t.DefaultSecurityDepositPct, &t.DefaultUtilityCharges,
 		&t.DefaultLateFeePercent, &t.DefaultLeaseDurationMonths, &t.DefaultNoticePeriodDays,
@@ -90,6 +95,11 @@ func (r *LeaseTemplateRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.
 }
 
 func (r *LeaseTemplateRepo) Create(ctx context.Context, t *domain.LeaseTemplate) error {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return err
+	}
+	t.CompanyID = cid // never trust a company id supplied by the client
 	const q = `
 		INSERT INTO lease_templates (
 			id, company_id, name, description, is_default, payment_frequency, payment_day_of_month,
@@ -113,6 +123,10 @@ func (r *LeaseTemplateRepo) Create(ctx context.Context, t *domain.LeaseTemplate)
 }
 
 func (r *LeaseTemplateRepo) Update(ctx context.Context, t *domain.LeaseTemplate) error {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return err
+	}
 	const q = `
 		UPDATE lease_templates
 		SET name=$1, description=$2, is_default=$3, payment_frequency=$4, payment_day_of_month=$5,
@@ -120,7 +134,7 @@ func (r *LeaseTemplateRepo) Update(ctx context.Context, t *domain.LeaseTemplate)
 		    default_late_fee_percent=$9, default_lease_duration_months=$10, default_notice_period_days=$11,
 		    default_renewal_duration_months=$12, template_document_url=$13, terms_conditions=$14,
 		    status=$15, updated_by=$16, updated_at=NOW()
-		WHERE id=$17
+		WHERE id=$17 AND company_id=$18
 		RETURNING updated_at
 	`
 	return r.db.QueryRow(ctx, q,
@@ -128,12 +142,16 @@ func (r *LeaseTemplateRepo) Update(ctx context.Context, t *domain.LeaseTemplate)
 		t.AutoGeneratePayments, t.DefaultSecurityDepositPct, t.DefaultUtilityCharges,
 		t.DefaultLateFeePercent, t.DefaultLeaseDurationMonths, t.DefaultNoticePeriodDays,
 		t.DefaultRenewalDurationMonths, t.TemplateDocumentURL, t.TermsConditions,
-		t.Status, t.UpdatedBy, t.ID,
+		t.Status, t.UpdatedBy, t.ID, cid,
 	).Scan(&t.UpdatedAt)
 }
 
 func (r *LeaseTemplateRepo) Delete(ctx context.Context, id uuid.UUID) error {
-	_, err := r.db.Exec(ctx, `DELETE FROM lease_templates WHERE id=$1`, id)
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return err
+	}
+	_, err = r.db.Exec(ctx, `DELETE FROM lease_templates WHERE id=$1 AND company_id=$2`, id, cid)
 	return err
 }
 

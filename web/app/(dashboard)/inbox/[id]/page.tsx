@@ -85,7 +85,7 @@ export default function ThreadPage() {
 
   useEffect(() => {
     if (!user?.id || !id) return
-    const close = createNotificationSocket(user.id, (event: WSEvent) => {
+    const close = createNotificationSocket((event: WSEvent) => {
       if (event.type === 'whatsapp.message') {
         const p = event.payload as Record<string, unknown>
         if (p.thread_id === id) {

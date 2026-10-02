@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/maidulcu/masaar-crm/internal/domain"
 	"github.com/maidulcu/masaar-crm/internal/repo"
+	"github.com/maidulcu/masaar-crm/internal/tenant"
 	"github.com/maidulcu/masaar-crm/internal/ws"
 )
 
@@ -123,7 +124,7 @@ func (h *LeadRotationHandler) AutoAssign(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	h.hub.Broadcast(ws.Event{
+	h.hub.BroadcastToCompany(localsCompanyID(c), ws.Event{
 		Type: "lead.assigned",
 		Payload: fiber.Map{"lead_id": leadID, "agent_id": agentID},
 	})
@@ -134,7 +135,7 @@ func (h *LeadRotationHandler) AutoAssign(c *fiber.Ctx) error {
 // AssignNewLead is called internally (e.g. from webhook/public lead intake) to auto-assign
 // a freshly created lead when rotation is enabled. Safe to call from goroutines.
 func (h *LeadRotationHandler) AssignNewLead(companyID, leadID uuid.UUID) {
-	ctx := context.Background()
+	ctx := tenant.With(context.Background(), companyID)
 	settings, err := h.rotationRepo.GetSettings(ctx, companyID)
 	if err != nil || !settings.Enabled || settings.Mode == "manual" {
 		return

@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -389,8 +390,12 @@ func (h *UserHandler) UpdateUser(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid role"})
 	}
 
-	if err := h.users.UpdateUser(c.Context(), targetID, body.Name, body.Role); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to update user"})
+	companyID, ok := callerCompanyID(c)
+	if !ok {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "unauthorized"})
+	}
+	if err := h.users.UpdateUser(c.Context(), companyID, targetID, body.Name, body.Role); err != nil {
+		return userMutationError(c, err, "failed to update user")
 	}
 
 	h.audit.Log(c.Context(), callerID, repo.AuditUpdate, repo.AuditUser, targetID,
@@ -428,8 +433,12 @@ func (h *UserHandler) SetActive(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid request"})
 	}
 
-	if err := h.users.SetActive(c.Context(), targetID, body.Active); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to update status"})
+	companyID, ok := callerCompanyID(c)
+	if !ok {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "unauthorized"})
+	}
+	if err := h.users.SetActive(c.Context(), companyID, targetID, body.Active); err != nil {
+		return userMutationError(c, err, "failed to update status")
 	}
 
 	h.audit.Log(c.Context(), callerID, repo.AuditUpdate, repo.AuditUser, targetID,
@@ -458,10 +467,39 @@ func (h *UserHandler) DeleteUser(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "cannot delete yourself"})
 	}
 
-	if err := h.users.Delete(c.Context(), targetID); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to delete user"})
+	companyID, ok := callerCompanyID(c)
+	if !ok {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "unauthorized"})
+	}
+	if err := h.users.Delete(c.Context(), companyID, targetID); err != nil {
+		return userMutationError(c, err, "failed to delete user")
 	}
 
 	h.audit.Log(c.Context(), callerID, repo.AuditDelete, repo.AuditUser, targetID, nil)
 	return c.SendStatus(fiber.StatusNoContent)
+}
+
+// callerCompanyID returns the authenticated caller's company from the JWT claims.
+func callerCompanyID(c *fiber.Ctx) (uuid.UUID, bool) {
+	claims := middleware.ClaimsFromCtx(c)
+	if claims == nil {
+		return uuid.Nil, false
+	}
+	s, _ := claims["company_id"].(string)
+	id, err := uuid.Parse(s)
+	return id, err == nil
+}
+
+// userMutationError maps a repo error from a company-scoped user mutation to an HTTP response.
+func userMutationError(c *fiber.Ctx, err error, fallback string) error {
+	if errors.Is(err, repo.ErrUserNotFound) {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "user not found"})
+	}
+	return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": fallback})
+}
+
+// localsCompanyID returns the company_id placed in Fiber locals by ExtractClaims.
+func localsCompanyID(c *fiber.Ctx) string {
+	s, _ := c.Locals("company_id").(string)
+	return s
 }

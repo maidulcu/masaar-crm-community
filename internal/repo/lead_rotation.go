@@ -2,6 +2,7 @@ package repo
 
 import (
 	"context"
+	"github.com/maidulcu/masaar-crm/internal/tenant"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -106,14 +107,19 @@ func (r *LeadRotationRepo) LeadCountByAgent(ctx context.Context, agentIDs []uuid
 	if len(agentIDs) == 0 {
 		return result, nil
 	}
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return result, err
+	}
 	rows, err := r.db.Query(ctx, `
 		SELECT assigned_to, COUNT(*)::int
 		FROM leads
 		WHERE assigned_to = ANY($1::uuid[])
+		  AND company_id = $2
 		  AND deleted_at IS NULL
 		  AND stage NOT IN ('won','lost')
 		GROUP BY assigned_to
-	`, agentIDs)
+	`, agentIDs, cid)
 	if err != nil {
 		return result, err
 	}

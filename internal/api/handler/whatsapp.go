@@ -16,6 +16,7 @@ import (
 	"github.com/maidulcu/masaar-crm/internal/config"
 	"github.com/maidulcu/masaar-crm/internal/domain"
 	"github.com/maidulcu/masaar-crm/internal/repo"
+	"github.com/maidulcu/masaar-crm/internal/tenant"
 	"github.com/maidulcu/masaar-crm/internal/ws"
 )
 
@@ -164,7 +165,13 @@ func (h *WhatsAppHandler) GetThread(c *fiber.Ctx) error {
 
 // POST /webhooks/whatsapp — receive inbound messages
 func (h *WhatsAppHandler) Receive(c *fiber.Ctx) error {
-	// Validate Meta's HMAC-SHA256 signature when WA_APP_SECRET is configured.
+	// Validate Meta's HMAC-SHA256 signature. Without WA_APP_SECRET anyone who finds
+	// this URL could inject messages, so production refuses to process unsigned
+	// payloads; development may skip verification for local testing.
+	if h.config.WAAppSecret == "" && h.config.IsProduction() {
+		log.Printf("whatsapp: rejecting webhook — WA_APP_SECRET is not set")
+		return c.SendStatus(fiber.StatusServiceUnavailable)
+	}
 	if h.config.WAAppSecret != "" {
 		sig := c.Get("X-Hub-Signature-256")
 		if !strings.HasPrefix(sig, "sha256=") {
@@ -177,6 +184,14 @@ func (h *WhatsAppHandler) Receive(c *fiber.Ctx) error {
 			return c.SendStatus(fiber.StatusUnauthorized)
 		}
 	}
+	// Inbound webhooks carry no user session; they belong to this deployment's company.
+	companyID, err := uuid.Parse(h.config.AppCompanyID)
+	if err != nil {
+		log.Printf("whatsapp: invalid APP_COMPANY_ID: %v", err)
+		return c.SendStatus(fiber.StatusInternalServerError)
+	}
+	ctx := tenant.With(c.Context(), companyID)
+
 	var payload struct {
 		Object string `json:"object"`
 		Entry  []struct {
@@ -277,13 +292,13 @@ func (h *WhatsAppHandler) Receive(c *fiber.Ctx) error {
 					}
 				}
 
-				contact, err := h.contacts.Upsert(c.Context(), msg.From, senderName)
+				contact, err := h.contacts.Upsert(ctx, msg.From, senderName)
 				if err != nil {
 					log.Printf("whatsapp: upsert contact error for msg %s: %v", msg.ID, err)
 					return c.Status(fiber.StatusInternalServerError).SendString("contact upsert failed")
 				}
 
-				thread, err := h.wa.UpsertThread(c.Context(), contact.ID, val.Metadata.PhoneNumberID)
+				thread, err := h.wa.UpsertThread(ctx, contact.ID, val.Metadata.PhoneNumberID)
 				if err != nil {
 					log.Printf("whatsapp: upsert thread error for msg %s: %v", msg.ID, err)
 					return c.Status(fiber.StatusInternalServerError).SendString("thread upsert failed")
@@ -296,12 +311,12 @@ func (h *WhatsAppHandler) Receive(c *fiber.Ctx) error {
 					MediaURL:    mediaURL,
 					WAMessageID: msg.ID,
 				}
-				if err := h.wa.SaveMessage(c.Context(), waMsg); err != nil {
+				if err := h.wa.SaveMessage(ctx, waMsg); err != nil {
 					log.Printf("whatsapp: save message error for msg %s: %v", msg.ID, err)
 					return c.Status(fiber.StatusInternalServerError).SendString("message save failed")
 				}
 
-				_ = h.wa.UpdateThreadMeta(c.Context(), thread.ID)
+				_ = h.wa.UpdateThreadMeta(ctx, thread.ID)
 
 				// Auto-tag leads based on message content
 				if h.taggingService != nil && msg.Type == "text" {
@@ -312,7 +327,7 @@ func (h *WhatsAppHandler) Receive(c *fiber.Ctx) error {
 					}()
 				}
 
-				h.hub.Broadcast(ws.Event{
+				h.hub.BroadcastToCompany(h.config.AppCompanyID, ws.Event{
 					Type: "whatsapp.message",
 					Payload: fiber.Map{
 						"thread_id": thread.ID,

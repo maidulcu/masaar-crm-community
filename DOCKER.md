@@ -8,7 +8,7 @@
 
 ```bash
 git clone https://github.com/maidulcu/masaar-crm.git
-cd masaar-crm
+cd masaar-crm-community
 cp .env.example .env
 ```
 
@@ -46,7 +46,7 @@ docker-compose logs -f masaar
 - Dashboard: http://localhost:3000
 - API: http://localhost:8080
 - Swagger API Docs: http://localhost:8080/docs
-- Default login: `admin@masaar.local` / `changeme`
+- First run: open http://localhost:3000/signup and create your admin account (signup closes once the first user exists)
 
 ---
 
