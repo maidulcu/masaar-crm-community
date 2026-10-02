@@ -6,6 +6,16 @@ updates:
   - package-ecosystem: npm
     directory: /web
     schedule: { interval: weekly }
+    # Major bumps that must move together with a migration (React 19 needs react + react-dom +
+    # their types; Tailwind 4 and TypeScript 7 need config/tsconfig changes). Take them
+    # deliberately, not one dependency at a time.
+    ignore:
+      - { dependency-name: react, update-types: ["version-update:semver-major"] }
+      - { dependency-name: react-dom, update-types: ["version-update:semver-major"] }
+      - { dependency-name: "@types/react", update-types: ["version-update:semver-major"] }
+      - { dependency-name: "@types/react-dom", update-types: ["version-update:semver-major"] }
+      - { dependency-name: tailwindcss, update-types: ["version-update:semver-major"] }
+      - { dependency-name: typescript, update-types: ["version-update:semver-major"] }
   - package-ecosystem: docker
     directory: /
     schedule: { interval: weekly }
