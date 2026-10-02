@@ -80,10 +80,10 @@ export default function DeveloperDocsPage() {
             <Badge color="blue">Developer Docs</Badge>
           </div>
           <div className="flex items-center gap-4">
-            <a href="/docs" target="_blank" className="text-sm text-gray-500 hover:text-gray-900">
+            <a href="/docs" target="_blank" rel="noopener noreferrer" className="text-sm text-gray-500 hover:text-gray-900">
               Swagger UI ↗
             </a>
-            <a href="https://github.com/maidulcu/masaar-crm" target="_blank"
+            <a href="https://github.com/maidulcu/masaar-crm" target="_blank" rel="noopener noreferrer"
               className="text-sm bg-gray-900 text-white px-4 py-1.5 rounded-lg hover:bg-gray-700">
               GitHub ↗
             </a>
@@ -325,7 +325,7 @@ GEMINI_API_KEY=your_key
 GEMINI_MODEL=gemini-2.0-flash`}</Pre>
                 <p className="text-sm text-gray-500">
                   Get key at{' '}
-                  <a href="https://aistudio.google.com/app/apikey" target="_blank"
+                  <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer"
                     className="text-blue-600 hover:underline">aistudio.google.com</a>
                 </p>
               </div>
@@ -559,7 +559,7 @@ POST /api/v1/leads
               </p>
               <div className="flex gap-4">
                 <a href="/docs" className="hover:text-gray-900">Swagger UI</a>
-                <a href="https://github.com/maidulcu/masaar-crm" target="_blank" className="hover:text-gray-900">GitHub</a>
+                <a href="https://github.com/maidulcu/masaar-crm" target="_blank" rel="noopener noreferrer" className="hover:text-gray-900">GitHub</a>
               </div>
             </div>
           </footer>

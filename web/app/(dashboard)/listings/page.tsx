@@ -1,4 +1,5 @@
 'use client'
+import { safeUrl } from '@/lib/safeUrl'
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { Header } from '@/components/layout/Header'
@@ -133,7 +134,7 @@ export default function ListingsPage() {
               >
                 <div className="h-40 bg-gradient-to-br from-gray-100 to-gray-200 relative">
                   {l.cover_image_url ? (
-                    <img src={l.cover_image_url} alt={l.title} className="w-full h-full object-cover" />
+                    <img src={safeUrl(l.cover_image_url)} alt={l.title} className="w-full h-full object-cover" />
                   ) : (
                     <div className="flex items-center justify-center h-full text-gray-300">
                       <svg className="w-10 h-10" fill="none" viewBox="0 0 24 24" stroke="currentColor">

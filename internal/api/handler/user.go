@@ -3,6 +3,7 @@ package handler
 import (
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 
 	"github.com/gofiber/fiber/v2"
@@ -12,6 +13,8 @@ import (
 	"github.com/maidulcu/masaar-crm/internal/domain"
 	"github.com/maidulcu/masaar-crm/internal/email"
 	"github.com/maidulcu/masaar-crm/internal/repo"
+	"github.com/maidulcu/masaar-crm/internal/session"
+	"github.com/redis/go-redis/v9"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -20,10 +23,11 @@ type UserHandler struct {
 	audit  *repo.AuditLogRepo
 	email  *email.Service
 	config *config.Config
+	redis  *redis.Client
 }
 
-func NewUserHandler(users *repo.UserRepo, audit *repo.AuditLogRepo, emailSvc *email.Service, cfg *config.Config) *UserHandler {
-	return &UserHandler{users: users, audit: audit, email: emailSvc, config: cfg}
+func NewUserHandler(users *repo.UserRepo, audit *repo.AuditLogRepo, emailSvc *email.Service, cfg *config.Config, rdb *redis.Client) *UserHandler {
+	return &UserHandler{users: users, audit: audit, email: emailSvc, config: cfg, redis: rdb}
 }
 
 // GetMe godoc
@@ -106,6 +110,9 @@ func (h *UserHandler) ChangePassword(c *fiber.Ctx) error {
 	if err := h.users.UpdatePassword(c.Context(), userID, string(hash)); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to update password"})
 	}
+
+	// Other devices/sessions must log in again with the new password.
+	h.revokeSessions(c, userID)
 
 	h.audit.Log(c.Context(), userID, repo.AuditPasswordChange, repo.AuditUser, userID, nil)
 	return c.SendStatus(fiber.StatusNoContent)
@@ -398,6 +405,8 @@ func (h *UserHandler) UpdateUser(c *fiber.Ctx) error {
 		return userMutationError(c, err, "failed to update user")
 	}
 
+	h.revokeSessions(c, targetID) // role is embedded in tokens: apply the change immediately
+
 	h.audit.Log(c.Context(), callerID, repo.AuditUpdate, repo.AuditUser, targetID,
 		fiber.Map{"name": body.Name, "role": body.Role})
 	return c.SendStatus(fiber.StatusNoContent)
@@ -441,6 +450,10 @@ func (h *UserHandler) SetActive(c *fiber.Ctx) error {
 		return userMutationError(c, err, "failed to update status")
 	}
 
+	if !body.Active {
+		h.revokeSessions(c, targetID)
+	}
+
 	h.audit.Log(c.Context(), callerID, repo.AuditUpdate, repo.AuditUser, targetID,
 		fiber.Map{"is_active": body.Active})
 	return c.JSON(fiber.Map{"is_active": body.Active})
@@ -475,6 +488,8 @@ func (h *UserHandler) DeleteUser(c *fiber.Ctx) error {
 		return userMutationError(c, err, "failed to delete user")
 	}
 
+	h.revokeSessions(c, targetID)
+
 	h.audit.Log(c.Context(), callerID, repo.AuditDelete, repo.AuditUser, targetID, nil)
 	return c.SendStatus(fiber.StatusNoContent)
 }
@@ -502,4 +517,16 @@ func userMutationError(c *fiber.Ctx, err error, fallback string) error {
 func localsCompanyID(c *fiber.Ctx) string {
 	s, _ := c.Locals("company_id").(string)
 	return s
+}
+
+// revokeSessions ends every existing login of userID. A Redis failure is logged rather than
+// failing the already-applied change; refresh also re-checks the user's active flag, so a
+// deactivated account still cannot renew its session.
+func (h *UserHandler) revokeSessions(c *fiber.Ctx, userID uuid.UUID) {
+	if h.redis == nil {
+		return
+	}
+	if err := session.RevokeAll(c.Context(), h.redis, userID); err != nil {
+		log.Printf("revoke sessions for %s: %v", userID, err)
+	}
 }

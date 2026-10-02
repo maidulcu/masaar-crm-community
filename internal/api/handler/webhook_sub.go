@@ -26,15 +26,15 @@ type WebhookSubCreateRequest struct {
 }
 
 type WebhookSubResponse struct {
-	ID           uuid.UUID  `json:"id"`
-	Name         string     `json:"name"`
-	URL          string     `json:"url"`
-	Events       []string   `json:"events"`
-	Active       bool       `json:"active"`
-	Secret       string     `json:"secret,omitempty"` // only on creation
-	FailureCount int        `json:"failure_count"`
-	CreatedAt    string     `json:"created_at"`
-	LastFiredAt  *string    `json:"last_fired_at"`
+	ID           uuid.UUID `json:"id"`
+	Name         string    `json:"name"`
+	URL          string    `json:"url"`
+	Events       []string  `json:"events"`
+	Active       bool      `json:"active"`
+	Secret       string    `json:"secret,omitempty"` // only on creation
+	FailureCount int       `json:"failure_count"`
+	CreatedAt    string    `json:"created_at"`
+	LastFiredAt  *string   `json:"last_fired_at"`
 }
 
 // ListWebhooks lists webhook subscriptions for the company
@@ -53,7 +53,7 @@ func (h *WebhookSubHandler) List(c *fiber.Ctx) error {
 
 	subs, err := h.webhooks.List(c.Context(), compID)
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 
 	var out []WebhookSubResponse
@@ -117,7 +117,7 @@ func (h *WebhookSubHandler) Create(c *fiber.Ctx) error {
 
 	sub, err := h.webhooks.Create(c.Context(), compID, req.Name, req.URL, req.Events, secret)
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 
 	return c.Status(fiber.StatusCreated).JSON(WebhookSubResponse{
@@ -149,7 +149,7 @@ func (h *WebhookSubHandler) Delete(c *fiber.Ctx) error {
 	}
 
 	if err := h.webhooks.Delete(c.Context(), id); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 	return c.SendStatus(fiber.StatusNoContent)
 }

@@ -33,7 +33,7 @@ func (h *PipelineStageHandler) List(c *fiber.Ctx) error {
 	entityType := c.Query("entity_type", "lead")
 	stages, err := h.repo.ListByCompany(c.Context(), companyID, entityType)
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 	return c.JSON(stages)
 }
@@ -51,7 +51,7 @@ func (h *PipelineStageHandler) List(c *fiber.Ctx) error {
 func (h *PipelineStageHandler) Create(c *fiber.Ctx) error {
 	var s domain.PipelineStage
 	if err := c.BodyParser(&s); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+		return badRequest(c, err)
 	}
 	if s.Name == "" {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "name is required"})
@@ -70,7 +70,7 @@ func (h *PipelineStageHandler) Create(c *fiber.Ctx) error {
 	s.CompanyID = companyID
 
 	if err := h.repo.Create(c.Context(), &s); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 	return c.Status(fiber.StatusCreated).JSON(s)
 }
@@ -105,7 +105,7 @@ func (h *PipelineStageHandler) Update(c *fiber.Ctx) error {
 		IsLost    *bool   `json:"is_lost"`
 	}
 	if err := c.BodyParser(&body); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+		return badRequest(c, err)
 	}
 
 	if body.Name != nil {
@@ -125,7 +125,7 @@ func (h *PipelineStageHandler) Update(c *fiber.Ctx) error {
 	}
 
 	if err := h.repo.Update(c.Context(), s); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 	return c.JSON(s)
 }
@@ -144,7 +144,7 @@ func (h *PipelineStageHandler) Delete(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid id"})
 	}
 	if err := h.repo.Delete(c.Context(), id); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 	return c.SendStatus(fiber.StatusNoContent)
 }
@@ -168,7 +168,7 @@ func (h *PipelineStageHandler) Reorder(c *fiber.Ctx) error {
 	}
 
 	if err := h.repo.Reorder(c.Context(), body.IDs); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 	return c.JSON(fiber.Map{"ok": true})
 }
@@ -190,7 +190,7 @@ func (h *PipelineStageHandler) ResetDefault(c *fiber.Ctx) error {
 
 	entityType := c.Query("entity_type", "lead")
 	if err := h.repo.SetDefaults(c.Context(), companyID, entityType); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 	return c.JSON(fiber.Map{"ok": true})
 }

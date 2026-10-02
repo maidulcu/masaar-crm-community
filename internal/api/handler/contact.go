@@ -47,7 +47,7 @@ func (h *ContactHandler) List(c *fiber.Ctx) error {
 
 	result, err := h.contacts.List(c.Context(), search, page, limit)
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 	return c.JSON(result)
 }
@@ -102,7 +102,7 @@ func (h *ContactHandler) Create(c *fiber.Ctx) error {
 	}
 
 	if err := h.contacts.Create(c.Context(), &contact); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 	actorID := c.Locals("user_id").(uuid.UUID)
 	h.audit.Log(c.Context(), actorID, repo.AuditCreate, repo.AuditContact, contact.ID, contact)
@@ -163,7 +163,7 @@ func (h *ContactHandler) Update(c *fiber.Ctx) error {
 	}
 
 	if err := h.contacts.Update(c.Context(), existing); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 	actorID := c.Locals("user_id").(uuid.UUID)
 	h.audit.Log(c.Context(), actorID, repo.AuditUpdate, repo.AuditContact, existing.ID, existing)
@@ -185,7 +185,7 @@ func (h *ContactHandler) Delete(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid id"})
 	}
 	if err := h.contacts.Delete(c.Context(), id); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 	actorID := c.Locals("user_id").(uuid.UUID)
 	h.audit.Log(c.Context(), actorID, repo.AuditDelete, repo.AuditContact, id, nil)

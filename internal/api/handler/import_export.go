@@ -5,6 +5,7 @@ import (
 	"encoding/csv"
 	"fmt"
 	"io"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -86,7 +87,7 @@ func (h *ImportExportHandler) ImportContacts(c *fiber.Ctx) error {
 
 	records, err := parseCSV(f)
 	if err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid CSV: " + err.Error()})
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": safeMsg("invalid CSV", err)})
 	}
 	if len(records) < 2 {
 		return c.Status(fiber.StatusUnprocessableEntity).JSON(fiber.Map{"error": "CSV must have a header row and at least one data row"})
@@ -113,7 +114,7 @@ func (h *ImportExportHandler) ImportContacts(c *fiber.Ctx) error {
 
 		contact, err := h.contactRepo.Upsert(c.Context(), phone, name)
 		if err != nil {
-			errors = append(errors, fiber.Map{"row": rowNum, "error": err.Error()})
+			errors = append(errors, fiber.Map{"row": rowNum, "error": rowError(err)})
 			skipped++
 			continue
 		}
@@ -149,7 +150,7 @@ func (h *ImportExportHandler) ImportLeads(c *fiber.Ctx) error {
 
 	records, err := parseCSV(f)
 	if err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid CSV: " + err.Error()})
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": safeMsg("invalid CSV", err)})
 	}
 	if len(records) < 2 {
 		return c.Status(fiber.StatusUnprocessableEntity).JSON(fiber.Map{"error": "CSV must have header + data rows"})
@@ -179,7 +180,7 @@ func (h *ImportExportHandler) ImportLeads(c *fiber.Ctx) error {
 		// Upsert contact
 		contact, err := h.contactRepo.Upsert(c.Context(), phone, phone) // name = phone as fallback
 		if err != nil {
-			errors = append(errors, fiber.Map{"row": rowNum, "error": "contact lookup failed: " + err.Error()})
+			errors = append(errors, fiber.Map{"row": rowNum, "error": safeMsg("contact lookup failed", err)})
 			skipped++
 			continue
 		}
@@ -217,7 +218,7 @@ func (h *ImportExportHandler) ImportLeads(c *fiber.Ctx) error {
 			Notes:     strings.TrimSpace(m["notes"]),
 		}
 		if err := h.leadRepo.Create(c.Context(), lead); err != nil {
-			errors = append(errors, fiber.Map{"row": rowNum, "error": err.Error()})
+			errors = append(errors, fiber.Map{"row": rowNum, "error": rowError(err)})
 			skipped++
 			continue
 		}
@@ -239,17 +240,17 @@ func (h *ImportExportHandler) ExportContacts(c *fiber.Ctx) error {
 	search := c.Query("search", "")
 	result, err := h.contactRepo.List(c.Context(), search, 1, 10000)
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 
 	var buf bytes.Buffer
 	w := csv.NewWriter(&buf)
 	_ = w.Write([]string{"id", "full_name", "phone_wa", "email", "language", "lead_score", "created_at"})
 	for _, ct := range result.Data {
-		_ = w.Write([]string{
+		_ = w.Write(csvSafeRow([]string{
 			ct.ID.String(), ct.FullName, ct.PhoneWA, ct.Email,
 			ct.Language, strconv.Itoa(ct.LeadScore), ct.CreatedAt.Format(time.RFC3339),
-		})
+		}))
 	}
 	w.Flush()
 
@@ -269,7 +270,7 @@ func (h *ImportExportHandler) ExportLeads(c *fiber.Ctx) error {
 		Limit:  10000,
 	})
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 
 	var buf bytes.Buffer
@@ -281,12 +282,12 @@ func (h *ImportExportHandler) ExportLeads(c *fiber.Ctx) error {
 			contactName = l.Contact.FullName
 			contactPhone = l.Contact.PhoneWA
 		}
-		_ = w.Write([]string{
+		_ = w.Write(csvSafeRow([]string{
 			l.ID.String(), contactName, contactPhone,
 			string(l.Stage), string(l.Source),
 			strconv.FormatFloat(l.DealValue, 'f', 2, 64),
 			l.Currency, l.Notes, l.CreatedAt.Format(time.RFC3339),
-		})
+		}))
 	}
 	w.Flush()
 
@@ -304,7 +305,7 @@ func (h *ImportExportHandler) ExportListings(c *fiber.Ctx) error {
 
 	result, err := h.listingRepo.List(c.Context(), companyID, 1, 10000)
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 
 	var buf bytes.Buffer
@@ -316,14 +317,14 @@ func (h *ImportExportHandler) ExportListings(c *fiber.Ctx) error {
 		"cover_image_url", "created_at",
 	})
 	for _, l := range result.Data {
-		_ = w.Write([]string{
+		_ = w.Write(csvSafeRow([]string{
 			l.ID.String(), l.Title, string(l.PropertyType), string(l.ListingType), string(l.Status),
 			strconv.FormatFloat(l.Price, 'f', 2, 64), l.Currency,
 			strconv.Itoa(l.Bedrooms), strconv.Itoa(l.Bathrooms),
 			strconv.FormatFloat(l.TotalSqft, 'f', 0, 64),
 			l.Area, l.Community, l.City, l.Emirate, l.ReferenceNumber,
 			l.CoverImageURL, l.CreatedAt.Format(time.RFC3339),
-		})
+		}))
 	}
 	w.Flush()
 
@@ -333,6 +334,35 @@ func (h *ImportExportHandler) ExportListings(c *fiber.Ctx) error {
 }
 
 // ── CSV helpers ───────────────────────────────────────────────────────────────
+
+// numericLike matches plain numbers and phone numbers ("+971 50 123 4567", "-5.00"), which are
+// safe to leave untouched.
+var numericLike = regexp.MustCompile(`^[+-]?[0-9][0-9 ().-]*$`)
+
+// csvSafeCell neutralises spreadsheet formula injection ("CSV injection"): a cell that starts
+// with = + - @ (or tab/CR) is executed as a formula by Excel/Sheets, so user-supplied text like
+// `=HYPERLINK("http://evil",...)` in a contact name could run when an admin opens an export.
+// Such cells are prefixed with a single quote, which spreadsheets render as plain text.
+func csvSafeCell(v string) string {
+	if v == "" {
+		return v
+	}
+	switch v[0] {
+	case '=', '+', '-', '@', '\t', '\r':
+		if !numericLike.MatchString(v) {
+			return "'" + v
+		}
+	}
+	return v
+}
+
+func csvSafeRow(row []string) []string {
+	out := make([]string, len(row))
+	for i, v := range row {
+		out[i] = csvSafeCell(v)
+	}
+	return out
+}
 
 func parseCSV(r io.Reader) ([][]string, error) {
 	cr := csv.NewReader(r)

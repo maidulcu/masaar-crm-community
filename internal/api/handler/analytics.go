@@ -81,10 +81,10 @@ func (h *AnalyticsHandler) ListPropertiesAnalytics(c *fiber.Ctx) error {
 	return c.Status(fiber.StatusOK).JSON(fiber.Map{
 		"data": properties,
 		"meta": fiber.Map{
-			"total":   total,
-			"limit":   limit,
-			"offset":  offset,
-			"count":   len(properties),
+			"total":  total,
+			"limit":  limit,
+			"offset": offset,
+			"count":  len(properties),
 		},
 	})
 }
@@ -164,10 +164,10 @@ func (h *AnalyticsHandler) ListTenantsPerformance(c *fiber.Ctx) error {
 	return c.Status(fiber.StatusOK).JSON(fiber.Map{
 		"data": tenants,
 		"meta": fiber.Map{
-			"total":   total,
-			"limit":   limit,
-			"offset":  offset,
-			"count":   len(tenants),
+			"total":  total,
+			"limit":  limit,
+			"offset": offset,
+			"count":  len(tenants),
 		},
 	})
 }

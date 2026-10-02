@@ -29,11 +29,12 @@ func NewAuditHandler(repo *repo.AuditLogRepo) *AuditHandler {
 // @Security     BearerAuth
 // @Router       /audit-logs [get]
 func (h *AuditHandler) List(c *fiber.Ctx) error {
+	auditPage, auditLimit := pageParams(c, 50, 200)
 	f := repo.AuditLogFilter{
 		EntityType: c.Query("entity_type"),
 		Action:     c.Query("action"),
-		Limit:      c.QueryInt("limit", 50),
-		Offset:     (c.QueryInt("page", 1) - 1) * c.QueryInt("limit", 50),
+		Limit:      auditLimit,
+		Offset:     (auditPage - 1) * auditLimit,
 	}
 
 	if eid := c.Query("entity_id"); eid != "" {
@@ -53,7 +54,7 @@ func (h *AuditHandler) List(c *fiber.Ctx) error {
 
 	result, err := h.repo.List(c.Context(), f)
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 
 	return c.JSON(result)

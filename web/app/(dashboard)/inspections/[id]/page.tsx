@@ -1,4 +1,5 @@
 'use client'
+import { safeUrl } from '@/lib/safeUrl'
 import { useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
@@ -129,7 +130,7 @@ export default function InspectionDetailPage() {
             <h3 className="text-sm font-semibold text-gray-700 mb-3">{t('الصور', 'Photos')}</h3>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
               {inspection.photos_urls.map((url, i) => (
-                <a key={i} href={url} target="_blank" rel="noopener noreferrer" className="aspect-video bg-gray-100 rounded-lg flex items-center justify-center text-xs text-gray-500 hover:bg-gray-200 border border-gray-200">
+                <a key={i} href={safeUrl(url)} target="_blank" rel="noopener noreferrer" className="aspect-video bg-gray-100 rounded-lg flex items-center justify-center text-xs text-gray-500 hover:bg-gray-200 border border-gray-200">
                   {t('صورة', 'Photo')} {i + 1}
                 </a>
               ))}

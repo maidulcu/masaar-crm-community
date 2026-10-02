@@ -1,5 +1,6 @@
 'use client'
 
+import { safeUrl } from '@/lib/safeUrl'
 import { useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
 import { api } from '@/lib/api'
@@ -158,7 +159,7 @@ export default function PublicSignPage() {
           {data?.document.file_url && (
             <div className="border-t border-gray-100 pt-4 mt-4">
               <a
-                href={data.document.file_url}
+                href={safeUrl(data.document.file_url)}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex items-center gap-2 text-sm text-blue-600 hover:underline font-medium"

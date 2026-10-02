@@ -1,3 +1,4 @@
+import { safeUrl } from '@/lib/safeUrl'
 import type { Metadata } from 'next'
 
 const BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080'
@@ -96,7 +97,7 @@ export default async function PublicListingPage({ params }: { params: Promise<{ 
       {/* Nav */}
       <header style={{ backgroundColor: primaryColor }} className="text-white px-6 py-4 flex items-center justify-between">
         {company.logo_url
-          ? <img src={company.logo_url} alt={company.name} className="h-8 object-contain" />
+          ? <img src={safeUrl(company.logo_url)} alt={company.name} className="h-8 object-contain" />
           : <span className="text-lg font-bold">{company.name}</span>
         }
         <a href={`tel:${company.phone}`} className="text-sm opacity-90 hover:opacity-100">{company.phone}</a>
@@ -105,7 +106,7 @@ export default async function PublicListingPage({ params }: { params: Promise<{ 
       {/* Cover image */}
       {listing.cover_image_url && (
         <div className="w-full h-72 md:h-96 overflow-hidden">
-          <img src={listing.cover_image_url} alt={listing.title} className="w-full h-full object-cover" />
+          <img src={safeUrl(listing.cover_image_url)} alt={listing.title} className="w-full h-full object-cover" />
         </div>
       )}
 
@@ -169,7 +170,7 @@ export default async function PublicListingPage({ params }: { params: Promise<{ 
             <h2 className="text-lg font-semibold text-gray-800 mb-3">Gallery</h2>
             <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
               {listing.image_urls.slice(0, 6).map((url, i) => (
-                <img key={i} src={url} alt={`Photo ${i+1}`}
+                <img key={i} src={safeUrl(url)} alt={`Photo ${i+1}`}
                   className="w-full h-40 object-cover rounded-xl border border-gray-200" />
               ))}
             </div>

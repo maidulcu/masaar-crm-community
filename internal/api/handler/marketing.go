@@ -268,10 +268,10 @@ func (h *MarketingHandler) EmailCampaign(c *fiber.Ctx) error {
 			continue
 		}
 		emailRecord := &domain.EmailHistory{
-			ToEmail:  contact.Email,
-			Subject:  subject,
-			HTMLBody: htmlBody,
-			Body:     fmt.Sprintf("Listing: %s\nPrice: %s\nLocation: %s", listing.Title, priceStr, location),
+			ToEmail:   contact.Email,
+			Subject:   subject,
+			HTMLBody:  htmlBody,
+			Body:      fmt.Sprintf("Listing: %s\nPrice: %s\nLocation: %s", listing.Title, priceStr, location),
 			RelatedTo: "listing",
 		}
 		if err := h.emailService.Send(emailRecord); err != nil {

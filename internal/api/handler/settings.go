@@ -8,13 +8,13 @@ import (
 )
 
 type SettingsHandler struct {
-	apiSettingsRepo    *repo.SettingsRepo
+	apiSettingsRepo     *repo.SettingsRepo
 	companySettingsRepo *repo.CompanySettingsRepo
 }
 
 func NewSettingsHandler(apiSettingsRepo *repo.SettingsRepo, companySettingsRepo *repo.CompanySettingsRepo) *SettingsHandler {
 	return &SettingsHandler{
-		apiSettingsRepo: apiSettingsRepo,
+		apiSettingsRepo:     apiSettingsRepo,
 		companySettingsRepo: companySettingsRepo,
 	}
 }

@@ -12,11 +12,11 @@ func NewAIHandler(sensitive, cloud *ai.Client, contacts *repo.ContactRepo, leads
 	return &AIHandler{}
 }
 
-func (h *AIHandler) ScoreLead(c *fiber.Ctx) error        { return proOnly(c) }
-func (h *AIHandler) ScoreContact(c *fiber.Ctx) error     { return proOnly(c) }
-func (h *AIHandler) DraftReply(c *fiber.Ctx) error       { return proOnly(c) }
-func (h *AIHandler) ExtractBuyerProfile(c *fiber.Ctx) error { return proOnly(c) }
-func (h *AIHandler) SummarizeThread(c *fiber.Ctx) error  { return proOnly(c) }
+func (h *AIHandler) ScoreLead(c *fiber.Ctx) error               { return proOnly(c) }
+func (h *AIHandler) ScoreContact(c *fiber.Ctx) error            { return proOnly(c) }
+func (h *AIHandler) DraftReply(c *fiber.Ctx) error              { return proOnly(c) }
+func (h *AIHandler) ExtractBuyerProfile(c *fiber.Ctx) error     { return proOnly(c) }
+func (h *AIHandler) SummarizeThread(c *fiber.Ctx) error         { return proOnly(c) }
 func (h *AIHandler) DescribePropertyListing(c *fiber.Ctx) error { return proOnly(c) }
 
 func proOnly(c *fiber.Ctx) error {
