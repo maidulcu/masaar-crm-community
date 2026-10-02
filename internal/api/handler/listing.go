@@ -45,7 +45,7 @@ func (h *ListingHandler) List(c *fiber.Ctx) error {
 
 	result, err := h.repo.List(c.Context(), companyID, page, limit)
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 	return c.JSON(result)
 }
@@ -86,7 +86,7 @@ func (h *ListingHandler) Get(c *fiber.Ctx) error {
 func (h *ListingHandler) Create(c *fiber.Ctx) error {
 	var l domain.Listing
 	if err := c.BodyParser(&l); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+		return badRequest(c, err)
 	}
 
 	if l.Title == "" || l.PropertyType == "" || l.Price == 0 {
@@ -113,7 +113,7 @@ func (h *ListingHandler) Create(c *fiber.Ctx) error {
 	l.CompanyID = companyID
 
 	if err := h.repo.Create(c.Context(), &l); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 	return c.Status(fiber.StatusCreated).JSON(l)
 }
@@ -142,14 +142,14 @@ func (h *ListingHandler) Update(c *fiber.Ctx) error {
 	}
 
 	if err := c.BodyParser(l); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+		return badRequest(c, err)
 	}
 
 	userID := c.Locals("user_id").(uuid.UUID)
 	l.UpdatedBy = &userID
 
 	if err := h.repo.Update(c.Context(), l); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 	return c.JSON(l)
 }
@@ -207,7 +207,7 @@ func (h *ListingHandler) UpdateStatus(c *fiber.Ctx) error {
 	}
 
 	if err := h.repo.UpdateStatus(c.Context(), id, domain.ListingStatus(body.Status)); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 
 	return c.JSON(fiber.Map{"status": body.Status})
@@ -228,7 +228,7 @@ func (h *ListingHandler) Delete(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid id"})
 	}
 	if err := h.repo.Delete(c.Context(), id); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 	return c.SendStatus(fiber.StatusNoContent)
 }

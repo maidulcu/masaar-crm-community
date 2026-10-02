@@ -65,12 +65,12 @@ func (h *WhatsAppOutboundHandler) SendMessage(c *fiber.Ctx) error {
 	// Create outbound record
 	userID := c.Locals("user_id").(uuid.UUID)
 	outbound := &domain.WhatsAppOutbound{
-		ThreadID:      threadID,
-		ToNumber:      thread.Contact.PhoneWA,
-		MessageBody:   req.Message,
-		Status:        domain.OutboundPending,
-		CreatedBy:     &userID,
-		Metadata:      req.Metadata,
+		ThreadID:    threadID,
+		ToNumber:    thread.Contact.PhoneWA,
+		MessageBody: req.Message,
+		Status:      domain.OutboundPending,
+		CreatedBy:   &userID,
+		Metadata:    req.Metadata,
 	}
 
 	if err := h.outboundRepo.Create(c.Context(), outbound); err != nil {
@@ -85,7 +85,7 @@ func (h *WhatsAppOutboundHandler) SendMessage(c *fiber.Ctx) error {
 		// Update status to failed
 		h.outboundRepo.UpdateStatus(c.Context(), outbound.ID, domain.OutboundFailed, "", err.Error())
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"error": "failed to send message: " + err.Error(),
+			"error": safeMsg("failed to send message", err),
 		})
 	}
 
@@ -168,7 +168,7 @@ func (h *WhatsAppOutboundHandler) SendTemplate(c *fiber.Ctx) error {
 	if err != nil {
 		h.outboundRepo.UpdateStatus(c.Context(), outbound.ID, domain.OutboundFailed, "", err.Error())
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"error": "failed to send template: " + err.Error(),
+			"error": safeMsg("failed to send template", err),
 		})
 	}
 
@@ -276,7 +276,7 @@ func (h *WhatsAppOutboundHandler) SendMedia(c *fiber.Ctx) error {
 	if err != nil {
 		h.outboundRepo.UpdateStatus(c.Context(), outbound.ID, domain.OutboundFailed, "", err.Error())
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"error": "failed to send media: " + err.Error(),
+			"error": safeMsg("failed to send media", err),
 		})
 	}
 

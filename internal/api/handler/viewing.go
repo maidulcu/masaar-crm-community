@@ -39,10 +39,11 @@ func NewViewingHandler(
 
 // List handles GET /api/v1/viewings
 func (h *ViewingHandler) List(c *fiber.Ctx) error {
+	vwPage, vwLimit := pageParams(c, 200, 500)
 	f := repo.ViewingFilter{
 		Status: c.Query("status"),
-		Page:   c.QueryInt("page", 1),
-		Limit:  c.QueryInt("limit", 200),
+		Page:   vwPage,
+		Limit:  vwLimit,
 	}
 	if v := c.Query("agent_id"); v != "" {
 		id, err := uuid.Parse(v)
@@ -86,7 +87,7 @@ func (h *ViewingHandler) List(c *fiber.Ctx) error {
 
 	viewings, total, err := h.viewingRepo.List(c.Context(), f)
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 	return c.JSON(fiber.Map{
 		"data": viewings,
@@ -181,7 +182,7 @@ func (h *ViewingHandler) Create(c *fiber.Ctx) error {
 	}
 
 	if err := h.viewingRepo.Create(c.Context(), v); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 
 	// Notify the assigned agent via WebSocket
@@ -270,7 +271,7 @@ func (h *ViewingHandler) Update(c *fiber.Ctx) error {
 	}
 
 	if err := h.viewingRepo.Update(c.Context(), existing); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 	return c.JSON(existing)
 }
@@ -299,7 +300,7 @@ func (h *ViewingHandler) UpdateStatus(c *fiber.Ctx) error {
 	}
 
 	if err := h.viewingRepo.UpdateStatus(c.Context(), id, domain.ViewingStatus(body.Status)); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 
 	h.hub.BroadcastToCompany(localsCompanyID(c), ws.Event{
@@ -317,7 +318,7 @@ func (h *ViewingHandler) Delete(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid id"})
 	}
 	if err := h.viewingRepo.Delete(c.Context(), id); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 	return c.SendStatus(fiber.StatusNoContent)
 }

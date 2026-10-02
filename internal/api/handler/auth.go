@@ -24,10 +24,14 @@ import (
 	"github.com/maidulcu/masaar-crm/internal/domain"
 	"github.com/maidulcu/masaar-crm/internal/email"
 	"github.com/maidulcu/masaar-crm/internal/repo"
+	"github.com/maidulcu/masaar-crm/internal/session"
 	"github.com/maidulcu/masaar-crm/internal/sms"
 	"github.com/redis/go-redis/v9"
 	"golang.org/x/crypto/bcrypt"
 )
+
+// dummyPasswordHash is compared against when a login names an unknown email (timing parity).
+var dummyPasswordHash, _ = bcrypt.GenerateFromPassword([]byte("not-a-real-password"), bcrypt.DefaultCost)
 
 func validatePasswordStrength(p string) string {
 	if len(p) < 8 {
@@ -86,6 +90,9 @@ func (h *AuthHandler) Login(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid request"})
 	}
 
+	// One canonical form so lockout counters cannot be sidestepped by changing case/whitespace.
+	body.Email = strings.ToLower(strings.TrimSpace(body.Email))
+
 	// Check lockout before touching the database
 	lockKey := fmt.Sprintf("lockout:%s", body.Email)
 	failKey := fmt.Sprintf("loginfail:%s", body.Email)
@@ -99,7 +106,9 @@ func (h *AuthHandler) Login(c *fiber.Ctx) error {
 
 	user, err := h.users.FindByEmail(c.Context(), body.Email)
 	if err != nil {
-		// Increment failure counter even on unknown email to prevent enumeration timing
+		// Burn the same bcrypt time as a real check so response time does not reveal whether
+		// the email is registered, and count the failure like any other.
+		_ = bcrypt.CompareHashAndPassword(dummyPasswordHash, []byte(body.Password))
 		h.redis.Incr(ctx, failKey)
 		h.redis.Expire(ctx, failKey, 15*time.Minute)
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "invalid credentials"})
@@ -224,10 +233,22 @@ func (h *AuthHandler) Refresh(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "invalid session"})
 	}
 
-	// Verify user still exists and is active (admin may have deleted the account)
+	// Verify the user still exists AND is active (an admin may have deactivated or deleted the
+	// account), and that the refresh token predates no revocation (password/role change).
 	user, err := h.users.FindByID(c.Context(), userID)
-	if err != nil {
+	if err != nil || !user.IsActive {
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "account not found or deactivated"})
+	}
+	if iat, ok := h.refreshIssuedAt(body.RefreshToken); ok {
+		revoked, rerr := session.IssuedBeforeCutoff(ctx, h.redis, userID, iat)
+		if rerr != nil || revoked {
+			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "session expired, please login again"})
+		}
+	}
+	if h.companyRepo != nil {
+		if comp, cerr := h.companyRepo.GetByID(c.Context(), user.CompanyID); cerr != nil || !comp.IsActive {
+			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "account not found or deactivated"})
+		}
 	}
 
 	// Issue a new token pair (rotated refresh token)
@@ -247,6 +268,26 @@ func (h *AuthHandler) Refresh(c *fiber.Ctx) error {
 		"refresh_token": newRefresh,
 		"expires_in":    h.config.JWTAccessExpiryMin * 60,
 	})
+}
+
+// refreshIssuedAt reads the iat of one of our own refresh tokens (HS256, signed with the JWT
+// secret). Tokens that fail verification are reported as not-ok; they would not be in Redis anyway.
+func (h *AuthHandler) refreshIssuedAt(token string) (time.Time, bool) {
+	parsed, err := jwt.Parse(token, func(t *jwt.Token) (interface{}, error) {
+		return []byte(h.config.JWTSecret), nil
+	}, jwt.WithValidMethods([]string{"HS256"}))
+	if err != nil || !parsed.Valid {
+		return time.Time{}, false
+	}
+	claims, ok := parsed.Claims.(jwt.MapClaims)
+	if !ok {
+		return time.Time{}, false
+	}
+	iat, ok := claims["iat"].(float64)
+	if !ok {
+		return time.Time{}, false
+	}
+	return time.Unix(int64(iat), 0), true
 }
 
 // Logout godoc
@@ -337,8 +378,10 @@ func (h *AuthHandler) ForgotPassword(c *fiber.Ctx) error {
 			RelatedTo: "password_reset",
 		})
 	} else {
-		// Development fallback: log the token so it can be tested without SMTP
-		fmt.Printf("[DEV] password reset token for %s: %s\n", user.Email, token)
+		// Development fallback only: never print a reset credential in production logs.
+		if !h.config.IsProduction() {
+			fmt.Printf("[DEV] password reset token for %s: %s\n", user.Email, token)
+		}
 	}
 
 	return c.JSON(fiber.Map{"message": successMsg})
@@ -378,6 +421,11 @@ func (h *AuthHandler) ResetPassword(c *fiber.Ctx) error {
 	}
 	if err := h.users.UpdatePassword(c.Context(), userID, string(hash)); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to update password"})
+	}
+
+	// A reset usually means the old password is compromised: end every existing session.
+	if err := session.RevokeAll(c.Context(), h.redis, userID); err != nil {
+		log.Printf("password reset: revoke sessions for %s: %v", userID, err)
 	}
 
 	h.audit.Log(c.Context(), userID, repo.AuditPasswordChange, repo.AuditUser, userID, fiber.Map{
@@ -422,11 +470,11 @@ func (h *AuthHandler) Register(c *fiber.Ctx) error {
 	}
 
 	var body struct {
-		Name          string `json:"name"`
-		Email         string `json:"email"`
-		Password      string `json:"password"`
-		CompanyName   string `json:"company_name"`
-		Subdomain     string `json:"subdomain"`
+		Name           string `json:"name"`
+		Email          string `json:"email"`
+		Password       string `json:"password"`
+		CompanyName    string `json:"company_name"`
+		Subdomain      string `json:"subdomain"`
 		TurnstileToken string `json:"turnstile_token"`
 	}
 	if err := c.BodyParser(&body); err != nil {
@@ -496,8 +544,8 @@ func (h *AuthHandler) Register(c *fiber.Ctx) error {
 
 	// Audit log
 	h.audit.Log(c.Context(), user.ID, repo.AuditCreate, repo.AuditUser, user.ID, fiber.Map{
-		"action":      "registration",
-		"company_id":  company.ID.String(),
+		"action":       "registration",
+		"company_id":   company.ID.String(),
 		"company_name": company.Name,
 	})
 
@@ -607,11 +655,15 @@ func (h *AuthHandler) RequestMagicLink(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid request"})
 	}
 
+	body.Email = strings.ToLower(strings.TrimSpace(body.Email))
 	if body.Email == "" {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "email required"})
 	}
+	if _, err := mail.ParseAddress(body.Email); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid email format"})
+	}
 
-	if body.LangPref == "" {
+	if body.LangPref != "ar" {
 		body.LangPref = "en"
 	}
 
@@ -633,6 +685,13 @@ func (h *AuthHandler) RequestMagicLink(c *fiber.Ctx) error {
 	h.redis.Incr(ctx, rateKey)
 	if count == 0 {
 		h.redis.Expire(ctx, rateKey, 1*time.Hour)
+	}
+
+	// Only registered, active accounts get a link. Anything else gets the same generic response
+	// (no enumeration) but no email — otherwise this endpoint is a free way to send unsolicited
+	// mail to arbitrary addresses.
+	if u, uerr := h.users.FindByEmail(c.Context(), body.Email); uerr != nil || !u.IsActive {
+		return c.JSON(fiber.Map{"message": "if the email exists, a magic link has been sent"})
 	}
 
 	// Generate magic token

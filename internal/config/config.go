@@ -85,6 +85,10 @@ type Config struct {
 	AllowedOrigins string
 	// TrustedProxies lists reverse-proxy IPs/CIDRs whose X-Forwarded-For header is honoured
 	// (needed for correct per-client rate limiting behind nginx).
+	// ProxyHeader names the single-valued request header (set/overwritten by the trusted
+	// reverse proxy) that carries the real client IP. Never an append-style header such as
+	// X-Forwarded-For: its first entry is client-controlled and would defeat IP rate limits.
+	ProxyHeader    string
 	TrustedProxies string
 	// DocsPassword protects the Swagger UI in production. Empty disables the UI there.
 	DocsPassword string
@@ -154,6 +158,7 @@ func Load() *Config {
 		TrialDurationDays:      getEnvInt("TRIAL_DURATION_DAYS", 90),
 		TrialPlanID:            getEnv("TRIAL_PLAN_ID", "starter"),
 		TurnstileSecretKey:     getEnv("TURNSTILE_SECRET_KEY", ""),
+		ProxyHeader:            getEnv("PROXY_HEADER", "X-Real-IP"),
 		TrustedProxies:         getEnv("TRUSTED_PROXIES", "127.0.0.1,::1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"),
 		DocsPassword:           getEnv("DOCS_PASSWORD", ""),
 		AllowedOrigins:         getEnv("ALLOWED_ORIGINS", "*"),

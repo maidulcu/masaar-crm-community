@@ -2,12 +2,14 @@ package middleware
 
 import (
 	"strings"
+	"time"
 
 	jwtware "github.com/gofiber/contrib/jwt"
 	"github.com/gofiber/fiber/v2"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/maidulcu/masaar-crm/internal/domain"
+	"github.com/maidulcu/masaar-crm/internal/session"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -173,6 +175,19 @@ func CheckBlacklist(rdb *redis.Client) fiber.Handler {
 				return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
 					"error": "token revoked",
 				})
+			}
+		}
+
+		// Tokens issued before the user's session cutoff (deactivation, role or password
+		// change) are rejected. Fail closed if Redis cannot answer.
+		if claims := ClaimsFromCtx(c); claims != nil {
+			sub, _ := claims["sub"].(string)
+			iat, hasIat := claims["iat"].(float64)
+			if userID, perr := uuid.Parse(sub); perr == nil && hasIat {
+				revoked, serr := session.IssuedBeforeCutoff(c.Context(), rdb, userID, time.Unix(int64(iat), 0))
+				if serr != nil || revoked {
+					return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "session expired, please login again"})
+				}
 			}
 		}
 		return c.Next()

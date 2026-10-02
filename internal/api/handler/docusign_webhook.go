@@ -40,8 +40,8 @@ func (h *DocusignWebhookHandler) Handle(c *fiber.Ctx) error {
 	}
 
 	var event struct {
-		Event       string `json:"event"`
-		Data        struct {
+		Event string `json:"event"`
+		Data  struct {
 			EnvelopeID string `json:"envelopeId"`
 			Status     string `json:"status"`
 			Recipients []struct {

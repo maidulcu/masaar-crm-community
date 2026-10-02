@@ -102,7 +102,7 @@ func (h *WhatsAppHandler) GetMessages(c *fiber.Ctx) error {
 
 	msgs, err := h.wa.GetMessages(c.Context(), id, limit)
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 	return c.JSON(msgs)
 }
@@ -115,7 +115,7 @@ func (h *WhatsAppHandler) ReopenThread(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid id"})
 	}
 	if err := h.wa.ReopenThread(c.Context(), id); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 	return c.SendStatus(fiber.StatusNoContent)
 }
@@ -135,7 +135,7 @@ func (h *WhatsAppHandler) CloseThread(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid id"})
 	}
 	if err := h.wa.CloseThread(c.Context(), id); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 	return c.SendStatus(fiber.StatusNoContent)
 }

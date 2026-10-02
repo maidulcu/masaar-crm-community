@@ -45,7 +45,7 @@ func (h *BankIntegrationHandler) List(c *fiber.Ctx) error {
 
 	result, err := h.integrations.List(c.Context(), companyID, page, limit)
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 	return c.JSON(result)
 }
@@ -87,7 +87,7 @@ func (h *BankIntegrationHandler) Get(c *fiber.Ctx) error {
 func (h *BankIntegrationHandler) Create(c *fiber.Ctx) error {
 	var bi domain.BankIntegration
 	if err := c.BodyParser(&bi); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+		return badRequest(c, err)
 	}
 
 	if bi.BankName == "" || bi.AccountNumber == "" || bi.IntegrationType == "" {
@@ -105,7 +105,7 @@ func (h *BankIntegrationHandler) Create(c *fiber.Ctx) error {
 	bi.CompanyID = companyID
 
 	if err := h.integrations.Create(c.Context(), &bi); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 	return c.Status(fiber.StatusCreated).JSON(bi)
 }
@@ -135,14 +135,14 @@ func (h *BankIntegrationHandler) Update(c *fiber.Ctx) error {
 	}
 
 	if err := c.BodyParser(bi); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+		return badRequest(c, err)
 	}
 
 	userID := c.Locals("user_id").(uuid.UUID)
 	bi.UpdatedBy = &userID
 
 	if err := h.integrations.Update(c.Context(), bi); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 	return c.JSON(bi)
 }
@@ -164,7 +164,7 @@ func (h *BankIntegrationHandler) Delete(c *fiber.Ctx) error {
 	}
 
 	if err := h.integrations.Delete(c.Context(), id); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 	return c.SendStatus(fiber.StatusNoContent)
 }

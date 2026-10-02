@@ -179,7 +179,7 @@ func main() {
 	// ── Handlers ─────────────────────────────────────────────────────────────
 	h := &api.Handlers{
 		Auth:                handler.NewAuthHandler(userRepo, companyRepo, rdb, cfg, auditRepo, emailSvc, smsClient),
-		User:                handler.NewUserHandler(userRepo, auditRepo, emailSvc, cfg),
+		User:                handler.NewUserHandler(userRepo, auditRepo, emailSvc, cfg, rdb),
 		Stats:               handler.NewStatsHandler(statsRepo),
 		Contact:             handler.NewContactHandler(contactRepo, auditRepo),
 		Lead:                handler.NewLeadHandler(leadRepo, contactRepo, commHistRepo, scoringSvc, leadTagRepo, hub, auditRepo, dispatcher, pipelineStageRepo),
@@ -239,7 +239,8 @@ func main() {
 		WriteTimeout:            30 * time.Second,
 		IdleTimeout:             120 * time.Second,
 		ErrorHandler:            errorHandler,
-		ProxyHeader:             fiber.HeaderXForwardedFor,
+		ProxyHeader:             cfg.ProxyHeader,
+		EnableIPValidation:      true,
 		EnableTrustedProxyCheck: true,
 		TrustedProxies:          splitList(cfg.TrustedProxies),
 	})

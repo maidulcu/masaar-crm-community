@@ -55,7 +55,7 @@ func (h *DealHandler) List(c *fiber.Ctx) error {
 
 	result, err := h.deals.List(c.Context(), ownerID, stage, page, limit)
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 	return c.JSON(result)
 }
@@ -81,7 +81,7 @@ func (h *DealHandler) Get(c *fiber.Ctx) error {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "deal not found"})
 		}
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 	return c.JSON(deal)
 }
@@ -124,7 +124,7 @@ func (h *DealHandler) Create(c *fiber.Ctx) error {
 	deal.OwnerID = c.Locals("user_id").(uuid.UUID)
 
 	if err := h.deals.Create(c.Context(), &deal); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 	h.audit.Log(c.Context(), deal.OwnerID, repo.AuditCreate, repo.AuditDeal, deal.ID, deal)
 	return c.Status(fiber.StatusCreated).JSON(deal)
@@ -163,7 +163,7 @@ func (h *DealHandler) Update(c *fiber.Ctx) error {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "deal not found"})
 		}
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 
 	if updates.Title != nil {
@@ -193,7 +193,7 @@ func (h *DealHandler) Update(c *fiber.Ctx) error {
 	}
 
 	if err := h.deals.Update(c.Context(), deal); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 	h.audit.Log(c.Context(), c.Locals("user_id").(uuid.UUID), repo.AuditUpdate, repo.AuditDeal, deal.ID, deal)
 	return c.JSON(deal)
@@ -233,7 +233,7 @@ func (h *DealHandler) UpdateStage(c *fiber.Ctx) error {
 	}
 
 	if err := h.deals.UpdateStage(c.Context(), id, body.Stage); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 	h.audit.Log(c.Context(), c.Locals("user_id").(uuid.UUID), repo.AuditUpdate, repo.AuditDeal, id, fiber.Map{"stage": body.Stage})
 	return c.JSON(fiber.Map{"id": id, "stage": body.Stage})
@@ -256,7 +256,7 @@ func (h *DealHandler) ListInvoices(c *fiber.Ctx) error {
 	}
 	invoices, err := h.invoices.ListByDeal(c.Context(), id)
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 	return c.JSON(invoices)
 }
@@ -276,7 +276,7 @@ func (h *DealHandler) Delete(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid id"})
 	}
 	if err := h.deals.Delete(c.Context(), id); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 	h.audit.Log(c.Context(), c.Locals("user_id").(uuid.UUID), repo.AuditDelete, repo.AuditDeal, id, nil)
 	return c.SendStatus(fiber.StatusNoContent)

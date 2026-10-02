@@ -45,7 +45,7 @@ func (h *LeaseTemplateHandler) List(c *fiber.Ctx) error {
 
 	result, err := h.templates.List(c.Context(), companyID, page, limit)
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 	return c.JSON(result)
 }
@@ -87,7 +87,7 @@ func (h *LeaseTemplateHandler) Get(c *fiber.Ctx) error {
 func (h *LeaseTemplateHandler) Create(c *fiber.Ctx) error {
 	var t domain.LeaseTemplate
 	if err := c.BodyParser(&t); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+		return badRequest(c, err)
 	}
 
 	if t.Name == "" || t.PaymentFrequency == "" {
@@ -105,7 +105,7 @@ func (h *LeaseTemplateHandler) Create(c *fiber.Ctx) error {
 	t.CompanyID = companyID
 
 	if err := h.templates.Create(c.Context(), &t); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 	return c.Status(fiber.StatusCreated).JSON(t)
 }
@@ -135,14 +135,14 @@ func (h *LeaseTemplateHandler) Update(c *fiber.Ctx) error {
 	}
 
 	if err := c.BodyParser(t); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+		return badRequest(c, err)
 	}
 
 	userID := c.Locals("user_id").(uuid.UUID)
 	t.UpdatedBy = &userID
 
 	if err := h.templates.Update(c.Context(), t); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 	return c.JSON(t)
 }
@@ -164,7 +164,7 @@ func (h *LeaseTemplateHandler) Delete(c *fiber.Ctx) error {
 	}
 
 	if err := h.templates.Delete(c.Context(), id); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 	return c.SendStatus(fiber.StatusNoContent)
 }

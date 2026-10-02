@@ -24,7 +24,7 @@ func NewStatsHandler(stats *repo.StatsRepo) *StatsHandler {
 func (h *StatsHandler) Overview(c *fiber.Ctx) error {
 	s, err := h.stats.Overview(c.Context())
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 	return c.JSON(s)
 }

@@ -1,4 +1,5 @@
 'use client'
+import { safeUrl } from '@/lib/safeUrl'
 import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
@@ -174,7 +175,7 @@ export default function RentalPropertyDetailPage() {
             </div>
           </div>
           {property.property_deed_url && (
-            <a href={property.property_deed_url} target="_blank" rel="noopener noreferrer"
+            <a href={safeUrl(property.property_deed_url)} target="_blank" rel="noopener noreferrer"
               className="inline-block mt-3 text-xs text-brand-600 hover:underline font-medium">
               {t('عرض صك الملكية', 'View Deed Document →')}
             </a>

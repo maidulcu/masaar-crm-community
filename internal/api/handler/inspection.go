@@ -13,7 +13,7 @@ import (
 )
 
 type InspectionHandler struct {
-	templateRepo  *repo.InspectionTemplateRepo
+	templateRepo   *repo.InspectionTemplateRepo
 	inspectionRepo *repo.InspectionRepo
 }
 
@@ -145,12 +145,12 @@ func (h *InspectionHandler) CreateInspection(c *fiber.Ctx) error {
 	userID := c.Locals("user_id").(uuid.UUID)
 
 	var req struct {
-		PropertyID     uuid.UUID             `json:"property_id"`
-		TemplateID     *uuid.UUID            `json:"template_id"`
-		InspectionType string                `json:"inspection_type"`
-		ScheduledDate  time.Time             `json:"scheduled_date"`
-		InspectorID    *uuid.UUID            `json:"inspector_id"`
-		TenantID       *uuid.UUID            `json:"tenant_id"`
+		PropertyID     uuid.UUID  `json:"property_id"`
+		TemplateID     *uuid.UUID `json:"template_id"`
+		InspectionType string     `json:"inspection_type"`
+		ScheduledDate  time.Time  `json:"scheduled_date"`
+		InspectorID    *uuid.UUID `json:"inspector_id"`
+		TenantID       *uuid.UUID `json:"tenant_id"`
 	}
 	if err := c.BodyParser(&req); err != nil {
 		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": "Invalid request"})
@@ -196,12 +196,12 @@ func (h *InspectionHandler) UpdateInspection(c *fiber.Ctx) error {
 	}
 
 	var req struct {
-		Status           *string                          `json:"status"`
-		Findings         *string                          `json:"findings"`
-		SeverityLevel    *string                          `json:"severity_level"`
-		PhotosURLs       []string                         `json:"photos_urls"`
+		Status           *string                            `json:"status"`
+		Findings         *string                            `json:"findings"`
+		SeverityLevel    *string                            `json:"severity_level"`
+		PhotosURLs       []string                           `json:"photos_urls"`
 		ChecklistResults *map[string]domain.ChecklistResult `json:"checklist_results"`
-		CompletedDate    *time.Time                       `json:"completed_date"`
+		CompletedDate    *time.Time                         `json:"completed_date"`
 	}
 	if err := c.BodyParser(&req); err != nil {
 		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": "Invalid request"})

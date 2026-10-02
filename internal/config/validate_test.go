@@ -10,6 +10,7 @@ func validProd() *Config {
 		AppEnv:         "production",
 		JWTSecret:      strings.Repeat("a", 40),
 		AllowedOrigins: "https://crm.example.com",
+		DatabaseURL:    "postgres://masaar:s3cure-Db-passw0rd@postgres:5432/masaar?sslmode=disable",
 	}
 }
 
@@ -24,6 +25,11 @@ func TestValidate(t *testing.T) {
 		{"default secret", func(c *Config) { c.JWTSecret = defaultJWTSecret }, "JWT_SECRET is a placeholder"},
 		{"env.example placeholder", func(c *Config) { c.JWTSecret = "change-me-to-random-string-at-least-32-chars" }, "JWT_SECRET is a placeholder"},
 		{"short secret", func(c *Config) { c.JWTSecret = "short" }, "at least 32"},
+		{"default db password", func(c *Config) { c.DatabaseURL = "postgres://masaar:masaar@postgres:5432/masaar" }, "database password"},
+		{"placeholder db password", func(c *Config) {
+			c.DatabaseURL = "postgres://masaar:change-me-to-strong-password@postgres:5432/masaar"
+		}, "database password"},
+		{"empty db password", func(c *Config) { c.DatabaseURL = "postgres://masaar@postgres:5432/masaar" }, "database password"},
 		{"wildcard cors", func(c *Config) { c.AllowedOrigins = "*" }, "ALLOWED_ORIGINS"},
 		{"empty cors", func(c *Config) { c.AllowedOrigins = "" }, "ALLOWED_ORIGINS"},
 		{"whatsapp without app secret", func(c *Config) {

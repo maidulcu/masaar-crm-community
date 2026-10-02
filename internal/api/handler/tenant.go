@@ -45,7 +45,7 @@ func (h *TenantHandler) List(c *fiber.Ctx) error {
 
 	result, err := h.tenants.List(c.Context(), companyID, page, limit)
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 	return c.JSON(result)
 }
@@ -87,7 +87,7 @@ func (h *TenantHandler) Get(c *fiber.Ctx) error {
 func (h *TenantHandler) Create(c *fiber.Ctx) error {
 	var t domain.Tenant
 	if err := c.BodyParser(&t); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+		return badRequest(c, err)
 	}
 
 	if t.FullNameEN == "" || t.IDType == "" {
@@ -105,7 +105,7 @@ func (h *TenantHandler) Create(c *fiber.Ctx) error {
 	t.CompanyID = companyID
 
 	if err := h.tenants.Create(c.Context(), &t); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 	return c.Status(fiber.StatusCreated).JSON(t)
 }
@@ -135,14 +135,14 @@ func (h *TenantHandler) Update(c *fiber.Ctx) error {
 	}
 
 	if err := c.BodyParser(t); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+		return badRequest(c, err)
 	}
 
 	userID := c.Locals("user_id").(uuid.UUID)
 	t.UpdatedBy = &userID
 
 	if err := h.tenants.Update(c.Context(), t); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 	return c.JSON(t)
 }
@@ -164,7 +164,7 @@ func (h *TenantHandler) Delete(c *fiber.Ctx) error {
 	}
 
 	if err := h.tenants.Delete(c.Context(), id); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 	return c.SendStatus(fiber.StatusNoContent)
 }
@@ -197,7 +197,7 @@ func (h *TenantHandler) Verify(c *fiber.Ctx) error {
 		VerificationNotes string `json:"verification_notes"`
 	}
 	if err := c.BodyParser(&body); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+		return badRequest(c, err)
 	}
 
 	userID := c.Locals("user_id").(uuid.UUID)
@@ -208,7 +208,7 @@ func (h *TenantHandler) Verify(c *fiber.Ctx) error {
 	t.UpdatedBy = &userID
 
 	if err := h.tenants.Update(c.Context(), t); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 	return c.JSON(t)
 }
