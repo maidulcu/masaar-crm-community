@@ -20,6 +20,7 @@ SHARED_SERVICES.md
 
 # AI tool internal notes (security findings, vulnerability logs)
 .jules/
+.Jules/
 
 # Environment & secrets
 .env
@@ -40,7 +41,7 @@ backups/
 *.out
 vendor/
 go.sum.bak
-masaar
+/masaar
 /server
 
 # Air (Go live-reload)
@@ -82,10 +83,15 @@ logs/
 # Test coverage
 coverage.out
 coverage.html
-server
 
 # Claude Code worktrees
 .claude/
 
 # Next.js build output (root level)
 .next/
+
+# Compiled seed binary at the repo root (anchored: scripts/seed/ and cmd/server/ are source and MUST be tracked)
+/seed
+
+# TypeScript incremental build cache
+*.tsbuildinfo

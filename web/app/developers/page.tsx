@@ -141,7 +141,7 @@ export default function DeveloperDocsPage() {
 Content-Type: application/json
 
 {
-  "email": "admin@masaar.local",
+  "email": "you@example.com",
   "password": "yourpassword"
 }
 

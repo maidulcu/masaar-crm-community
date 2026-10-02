@@ -32,8 +32,10 @@ async function getData(id: string): Promise<PublicListingData | null> {
 }
 
 // ── Open Graph / SEO metadata ─────────────────────────────────────────────────
-export async function generateMetadata({ params }: { params: { id: string } }): Promise<Metadata> {
-  const data = await getData(params.id)
+// Next 15: dynamic route params are a Promise and must be awaited.
+export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
+  const { id } = await params
+  const data = await getData(id)
   if (!data) return { title: 'Listing Not Found' }
 
   const { listing, company } = data
@@ -60,8 +62,9 @@ export async function generateMetadata({ params }: { params: { id: string } }): 
 }
 
 // ── Page component ────────────────────────────────────────────────────────────
-export default async function PublicListingPage({ params }: { params: { id: string } }) {
-  const data = await getData(params.id)
+export default async function PublicListingPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params
+  const data = await getData(id)
 
   if (!data) {
     return (
