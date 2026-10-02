@@ -61,7 +61,7 @@ export default function PipelinePage() {
   const [threadId, setThreadId] = useState<string>('')
   const [threadConversation, setThreadConversation] = useState('')
 
-  const handleOpenLead = async (lead: Lead) => {
+  const handleOpenLead = useCallback(async (lead: Lead) => {
     setSelectedLead(lead)
     setNotes(lead.notes ?? '')
     setNotesSaved(false)
@@ -112,7 +112,7 @@ export default function PipelinePage() {
       const usersData = await api.users.list() as User[]
       setUsers(Array.isArray(usersData) ? usersData : [])
     } catch { setUsers([]) }
-  }
+  }, [])
 
   const handleSaveNotes = async () => {
     if (!selectedLead) return
