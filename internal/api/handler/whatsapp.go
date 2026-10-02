@@ -164,7 +164,13 @@ func (h *WhatsAppHandler) GetThread(c *fiber.Ctx) error {
 
 // POST /webhooks/whatsapp — receive inbound messages
 func (h *WhatsAppHandler) Receive(c *fiber.Ctx) error {
-	// Validate Meta's HMAC-SHA256 signature when WA_APP_SECRET is configured.
+	// Validate Meta's HMAC-SHA256 signature. Without WA_APP_SECRET anyone who finds
+	// this URL could inject messages, so production refuses to process unsigned
+	// payloads; development may skip verification for local testing.
+	if h.config.WAAppSecret == "" && h.config.IsProduction() {
+		log.Printf("whatsapp: rejecting webhook — WA_APP_SECRET is not set")
+		return c.SendStatus(fiber.StatusServiceUnavailable)
+	}
 	if h.config.WAAppSecret != "" {
 		sig := c.Get("X-Hub-Signature-256")
 		if !strings.HasPrefix(sig, "sha256=") {
@@ -312,7 +318,7 @@ func (h *WhatsAppHandler) Receive(c *fiber.Ctx) error {
 					}()
 				}
 
-				h.hub.Broadcast(ws.Event{
+				h.hub.BroadcastToCompany(h.config.AppCompanyID, ws.Event{
 					Type: "whatsapp.message",
 					Payload: fiber.Map{
 						"thread_id": thread.ID,

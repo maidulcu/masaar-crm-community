@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	fiberws "github.com/gofiber/websocket/v2"
+	"github.com/google/uuid"
 )
 
 type Event struct {
@@ -14,9 +15,10 @@ type Event struct {
 }
 
 type client struct {
-	conn   *fiberws.Conn
-	send   chan []byte
-	userID string
+	conn      *fiberws.Conn
+	send      chan []byte
+	userID    string
+	companyID string
 }
 
 type Hub struct {
@@ -32,7 +34,13 @@ func NewHub() *Hub {
 	}
 }
 
-func (h *Hub) Broadcast(e Event) {
+// BroadcastToCompany delivers an event to every connection that belongs to the
+// given company. Events must never cross company boundaries, so there is
+// deliberately no unscoped broadcast.
+func (h *Hub) BroadcastToCompany(companyID string, e Event) {
+	if companyID == "" {
+		return
+	}
 	data, err := json.Marshal(e)
 	if err != nil {
 		log.Printf("ws hub: marshal: %v", err)
@@ -41,6 +49,9 @@ func (h *Hub) Broadcast(e Event) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	for c := range h.clients {
+		if c.companyID != companyID {
+			continue
+		}
 		select {
 		case c.send <- data:
 		default:
@@ -89,14 +100,23 @@ func (h *Hub) unregister(c *client) {
 	}
 }
 
+// Handler serves an upgraded WebSocket connection. The user and company are
+// taken from the verified JWT (set in Fiber locals by the auth middleware
+// before the upgrade) — never from client-supplied query parameters.
 func (h *Hub) Handler() func(*fiberws.Conn) {
 	return func(conn *fiberws.Conn) {
-		userID := conn.Query("user")
+		userID, ok := conn.Locals("user_id").(uuid.UUID)
+		companyID, _ := conn.Locals("company_id").(string)
+		if !ok || companyID == "" {
+			conn.Close()
+			return
+		}
 
 		c := &client{
-			conn:   conn,
-			send:   make(chan []byte, 64),
-			userID: userID,
+			conn:      conn,
+			send:      make(chan []byte, 64),
+			userID:    userID.String(),
+			companyID: companyID,
 		}
 
 		h.register(c)

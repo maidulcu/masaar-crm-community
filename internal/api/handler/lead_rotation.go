@@ -123,7 +123,7 @@ func (h *LeadRotationHandler) AutoAssign(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	h.hub.Broadcast(ws.Event{
+	h.hub.BroadcastToCompany(localsCompanyID(c), ws.Event{
 		Type: "lead.assigned",
 		Payload: fiber.Map{"lead_id": leadID, "agent_id": agentID},
 	})

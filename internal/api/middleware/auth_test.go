@@ -5,9 +5,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/go-redis/redismock/v9"
 	"github.com/gofiber/fiber/v2"
+	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 )
 
 func TestCheckBlacklist_TokenNotBlacklisted(t *testing.T) {
@@ -241,5 +244,116 @@ func TestBearerToken_CaseInsensitive(t *testing.T) {
 
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+}
+
+func signedToken(t *testing.T, secret string, claims jwt.MapClaims) string {
+	t.Helper()
+	tok, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(secret))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return tok
+}
+
+// authChain mirrors the real /api/v1 middleware order: JWT then ExtractClaims.
+func authChain(secret string) *fiber.App {
+	app := fiber.New()
+	app.Get("/h", JWT(secret), ExtractClaims(), func(c *fiber.Ctx) error { return c.SendString("OK") })
+	app.Get("/q", JWTFromQuery(secret), ExtractClaims(), func(c *fiber.Ctx) error { return c.SendString("OK") })
+	return app
+}
+
+func TestExtractClaims_RequiresAccessAudience(t *testing.T) {
+	const secret = "test-secret-test-secret-test-secret"
+	base := func() jwt.MapClaims {
+		return jwt.MapClaims{
+			"sub":        uuid.NewString(),
+			"company_id": uuid.NewString(),
+			"role":       "admin",
+			"exp":        time.Now().Add(time.Minute).Unix(),
+		}
+	}
+	tests := []struct {
+		name string
+		aud  interface{}
+		want int
+	}{
+		{"correct audience", AccessTokenAudience, http.StatusOK},
+		{"audience in list", []string{"other", AccessTokenAudience}, http.StatusOK},
+		{"missing audience", nil, http.StatusUnauthorized},
+		{"wrong audience", "someone-else", http.StatusUnauthorized},
+	}
+	app := authChain(secret)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			claims := base()
+			if tt.aud != nil {
+				claims["aud"] = tt.aud
+			}
+			req := httptest.NewRequest(http.MethodGet, "/h", nil)
+			req.Header.Set("Authorization", "Bearer "+signedToken(t, secret, claims))
+			resp, err := app.Test(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer resp.Body.Close()
+			if resp.StatusCode != tt.want {
+				t.Fatalf("want %d, got %d", tt.want, resp.StatusCode)
+			}
+		})
+	}
+}
+
+func TestJWT_RejectsNonHS256(t *testing.T) {
+	const secret = "test-secret-test-secret-test-secret"
+	claims := jwt.MapClaims{"sub": uuid.NewString(), "aud": AccessTokenAudience, "company_id": uuid.NewString()}
+	tok, err := jwt.NewWithClaims(jwt.SigningMethodHS512, claims).SignedString([]byte(secret))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/h", nil)
+	req.Header.Set("Authorization", "Bearer "+tok)
+	resp, _ := authChain(secret).Test(req)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("HS512 token should be rejected, got %d", resp.StatusCode)
+	}
+}
+
+func TestJWTFromQuery_OnlyAcceptsQueryToken(t *testing.T) {
+	const secret = "test-secret-test-secret-test-secret"
+	tok := signedToken(t, secret, jwt.MapClaims{
+		"sub": uuid.NewString(), "aud": AccessTokenAudience, "company_id": uuid.NewString(),
+		"exp": time.Now().Add(time.Minute).Unix(),
+	})
+	app := authChain(secret)
+
+	req := httptest.NewRequest(http.MethodGet, "/q?token="+tok, nil)
+	resp, _ := app.Test(req)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("query token on /q: want 200, got %d", resp.StatusCode)
+	}
+
+	// A query token must NOT authenticate a normal header-based route.
+	req = httptest.NewRequest(http.MethodGet, "/h?token="+tok, nil)
+	resp, _ = app.Test(req)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("query token on /h: want 401, got %d", resp.StatusCode)
+	}
+}
+
+func TestCheckBlacklist_QueryTokenRevoked(t *testing.T) {
+	app := fiber.New()
+	mockRedis, mock := redismock.NewClientMock()
+	mock.ExpectExists("blacklist:revoked-tok").SetVal(1)
+	app.Get("/ws", CheckBlacklist(mockRedis), func(c *fiber.Ctx) error { return c.SendString("OK") })
+
+	resp, _ := app.Test(httptest.NewRequest(http.MethodGet, "/ws?token=revoked-tok", nil))
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("revoked query token: want 401, got %d", resp.StatusCode)
 	}
 }

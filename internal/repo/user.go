@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -20,6 +21,17 @@ type UserRepo struct {
 
 func NewUserRepo(db *pgxpool.Pool) *UserRepo {
 	return &UserRepo{db: db}
+}
+
+// Count returns the total number of users across all companies. It is used to
+// detect a fresh install so the very first account can be created even when
+// public registration is disabled.
+func (r *UserRepo) Count(ctx context.Context) (int, error) {
+	var n int
+	if err := r.db.QueryRow(ctx, `SELECT COUNT(*) FROM users`).Scan(&n); err != nil {
+		return 0, fmt.Errorf("count users: %w", err)
+	}
+	return n, nil
 }
 
 func (r *UserRepo) FindByEmail(ctx context.Context, email string) (*domain.User, error) {
@@ -93,22 +105,46 @@ func (r *UserRepo) List(ctx context.Context) ([]domain.User, error) {
 	return users, nil
 }
 
-func (r *UserRepo) UpdateUser(ctx context.Context, id uuid.UUID, name string, role domain.Role) error {
-	const q = `UPDATE users SET name = $1, role = $2 WHERE id = $3`
-	_, err := r.db.Exec(ctx, q, strings.TrimSpace(name), role, id)
-	return err
+// ErrUserNotFound is returned when a user does not exist inside the caller's company.
+var ErrUserNotFound = errors.New("user not found")
+
+// The three mutations below are scoped by company_id so an admin can only
+// touch users that belong to their own company.
+
+func (r *UserRepo) UpdateUser(ctx context.Context, companyID, id uuid.UUID, name string, role domain.Role) error {
+	const q = `UPDATE users SET name = $1, role = $2 WHERE id = $3 AND company_id = $4`
+	tag, err := r.db.Exec(ctx, q, strings.TrimSpace(name), role, id, companyID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrUserNotFound
+	}
+	return nil
 }
 
-func (r *UserRepo) SetActive(ctx context.Context, id uuid.UUID, active bool) error {
-	const q = `UPDATE users SET is_active = $1 WHERE id = $2`
-	_, err := r.db.Exec(ctx, q, active, id)
-	return err
+func (r *UserRepo) SetActive(ctx context.Context, companyID, id uuid.UUID, active bool) error {
+	const q = `UPDATE users SET is_active = $1 WHERE id = $2 AND company_id = $3`
+	tag, err := r.db.Exec(ctx, q, active, id, companyID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrUserNotFound
+	}
+	return nil
 }
 
-func (r *UserRepo) Delete(ctx context.Context, id uuid.UUID) error {
-	const q = `DELETE FROM users WHERE id = $1`
-	_, err := r.db.Exec(ctx, q, id)
-	return err
+func (r *UserRepo) Delete(ctx context.Context, companyID, id uuid.UUID) error {
+	const q = `DELETE FROM users WHERE id = $1 AND company_id = $2`
+	tag, err := r.db.Exec(ctx, q, id, companyID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrUserNotFound
+	}
+	return nil
 }
 
 func (r *UserRepo) UpdatePassword(ctx context.Context, id uuid.UUID, passwordHash string) error {

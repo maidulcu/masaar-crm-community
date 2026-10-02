@@ -11,11 +11,43 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
+// AccessTokenAudience is the `aud` claim stamped on every access token and
+// required by ExtractClaims. It prevents other JWTs signed with the same
+// secret (e.g. refresh tokens) from being accepted as access tokens.
+const AccessTokenAudience = "masaar-crm"
+
 func JWT(secret string) fiber.Handler {
 	return jwtware.New(jwtware.Config{
-		SigningKey:   jwtware.SigningKey{Key: []byte(secret)},
+		SigningKey:   jwtware.SigningKey{Key: []byte(secret), JWTAlg: "HS256"},
 		ErrorHandler: jwtError,
 	})
+}
+
+// JWTFromQuery authenticates from a `token` query parameter. It exists only for
+// the WebSocket upgrade, because browsers cannot set an Authorization header on
+// WebSocket connections. Do not use it for regular HTTP routes.
+func JWTFromQuery(secret string) fiber.Handler {
+	return jwtware.New(jwtware.Config{
+		SigningKey:   jwtware.SigningKey{Key: []byte(secret), JWTAlg: "HS256"},
+		TokenLookup:  "query:token",
+		ErrorHandler: jwtError,
+	})
+}
+
+// hasAudience reports whether the claims' `aud` matches want. The claim may be
+// a single string or a list of strings.
+func hasAudience(claims jwt.MapClaims, want string) bool {
+	switch aud := claims["aud"].(type) {
+	case string:
+		return aud == want
+	case []interface{}:
+		for _, a := range aud {
+			if s, ok := a.(string); ok && s == want {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func jwtError(c *fiber.Ctx, err error) error {
@@ -94,6 +126,9 @@ func ExtractClaims() fiber.Handler {
 		if claims == nil {
 			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "unauthorized"})
 		}
+		if !hasAudience(claims, AccessTokenAudience) {
+			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "unauthorized"})
+		}
 		sub, _ := claims["sub"].(string)
 		userID, err := uuid.Parse(sub)
 		if err != nil {
@@ -122,6 +157,11 @@ func ExtractClaims() fiber.Handler {
 func CheckBlacklist(rdb *redis.Client) fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		token := BearerToken(c)
+		if token == "" {
+			// WebSocket upgrades carry the token in the query string (see JWTFromQuery);
+			// the JWT middleware has already verified it, so only revocation remains.
+			token = c.Query("token")
+		}
 		if token != "" {
 			exists, err := rdb.Exists(c.Context(), "blacklist:"+token).Result()
 			if err != nil {
