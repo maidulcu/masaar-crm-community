@@ -221,7 +221,7 @@ func RegisterRoutes(app *fiber.App, h *Handlers, hub *ws.Hub, cfg *config.Config
 		middleware.CheckBlacklist(rdb),
 		trialCheck,
 		middleware.ExtractClaims(),
-		middleware.DemoGuard(), // blocks writes on demo accounts; reads is_demo from JWT
+		middleware.DemoGuard(),         // blocks writes on demo accounts; reads is_demo from JWT
 		middleware.ValidateURLFields(), // reject javascript:/data: etc. in *_url fields (stored XSS)
 	)
 

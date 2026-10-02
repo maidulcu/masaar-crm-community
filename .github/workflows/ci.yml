@@ -34,6 +34,10 @@ jobs:
       - name: Entry point must be tracked
         # Guards against .gitignore patterns silently excluding cmd/server/.
         run: test -f cmd/server/main.go
+      - name: gofmt
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then echo "Run gofmt -w on:"; echo "$unformatted"; exit 1; fi
       - run: go vet ./...
       - run: go build ./...
       - name: Build server binary
