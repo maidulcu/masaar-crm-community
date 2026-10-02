@@ -27,14 +27,25 @@ func jwtError(c *fiber.Ctx, err error) error {
 // RequireRole returns 403 if the authenticated user doesn't have one of the given roles.
 func RequireRole(roles ...domain.Role) fiber.Handler {
 	return func(c *fiber.Ctx) error {
-		claims := c.Locals("user").(*jwt.Token).Claims.(jwt.MapClaims)
+		claims := ClaimsFromCtx(c)
+		if claims == nil {
+			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+				"error": "unauthorized",
+			})
+		}
 		roleVal, ok := claims["role"]
 		if !ok {
 			return c.Status(fiber.StatusForbidden).JSON(fiber.Map{
 				"error": "role claim missing",
 			})
 		}
-		role := domain.Role(roleVal.(string))
+		roleStr, ok := roleVal.(string)
+		if !ok {
+			return c.Status(fiber.StatusForbidden).JSON(fiber.Map{
+				"error": "invalid role claim format",
+			})
+		}
+		role := domain.Role(roleStr)
 		for _, r := range roles {
 			if r == role {
 				return c.Next()
@@ -46,9 +57,22 @@ func RequireRole(roles ...domain.Role) fiber.Handler {
 	}
 }
 
-// ClaimsFromCtx extracts JWT claims from Fiber context.
+// ClaimsFromCtx extracts JWT claims from Fiber context safely.
+// Returns nil if user token is missing or malformed.
 func ClaimsFromCtx(c *fiber.Ctx) jwt.MapClaims {
-	return c.Locals("user").(*jwt.Token).Claims.(jwt.MapClaims)
+	u := c.Locals("user")
+	if u == nil {
+		return nil
+	}
+	token, ok := u.(*jwt.Token)
+	if !ok || token == nil {
+		return nil
+	}
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok {
+		return nil
+	}
+	return claims
 }
 
 // BearerToken extracts the raw token string from Authorization header.
@@ -67,6 +91,9 @@ func BearerToken(c *fiber.Ctx) string {
 func ExtractClaims() fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		claims := ClaimsFromCtx(c)
+		if claims == nil {
+			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "unauthorized"})
+		}
 		sub, _ := claims["sub"].(string)
 		userID, err := uuid.Parse(sub)
 		if err != nil {

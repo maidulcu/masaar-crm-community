@@ -113,6 +113,73 @@ func TestCheckBlacklist_NoToken(t *testing.T) {
 	}
 }
 
+func TestClaimsFromCtx_NilOrInvalid(t *testing.T) {
+	app := fiber.New()
+
+	app.Get("/test-nil", func(c *fiber.Ctx) error {
+		claims := ClaimsFromCtx(c)
+		if claims != nil {
+			return c.Status(500).SendString("expected nil")
+		}
+		return c.SendString("OK")
+	})
+
+	app.Get("/test-wrong-type", func(c *fiber.Ctx) error {
+		c.Locals("user", "not-a-token")
+		claims := ClaimsFromCtx(c)
+		if claims != nil {
+			return c.Status(500).SendString("expected nil")
+		}
+		return c.SendString("OK")
+	})
+
+	req1 := httptest.NewRequest(http.MethodGet, "/test-nil", nil)
+	resp1, _ := app.Test(req1)
+	defer resp1.Body.Close()
+	if resp1.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 for nil user context, got %d", resp1.StatusCode)
+	}
+
+	req2 := httptest.NewRequest(http.MethodGet, "/test-wrong-type", nil)
+	resp2, _ := app.Test(req2)
+	defer resp2.Body.Close()
+	if resp2.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 for wrong type in user context, got %d", resp2.StatusCode)
+	}
+}
+
+func TestRequireRole_MissingUserOrRole(t *testing.T) {
+	app := fiber.New()
+
+	handler := RequireRole("admin")
+	app.Get("/test", handler, func(c *fiber.Ctx) error {
+		return c.SendString("OK")
+	})
+
+	// Case 1: missing user context
+	req1 := httptest.NewRequest(http.MethodGet, "/test", nil)
+	resp1, _ := app.Test(req1)
+	defer resp1.Body.Close()
+	if resp1.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected 401 when user is missing, got %d", resp1.StatusCode)
+	}
+}
+
+func TestExtractClaims_MissingUser(t *testing.T) {
+	app := fiber.New()
+
+	app.Get("/test", ExtractClaims(), func(c *fiber.Ctx) error {
+		return c.SendString("OK")
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	resp, _ := app.Test(req)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected 401 when user context is missing, got %d", resp.StatusCode)
+	}
+}
+
 func TestCheckBlacklist_MalformedAuthHeader(t *testing.T) {
 	app := fiber.New()
 	mockRedis, _ := redismock.NewClientMock()
