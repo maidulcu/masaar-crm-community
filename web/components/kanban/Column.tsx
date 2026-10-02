@@ -1,4 +1,5 @@
 'use client'
+import { memo, useMemo } from 'react'
 import { useDroppable } from '@dnd-kit/core'
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import type { Lead, LeadStage } from '@/types'
@@ -23,13 +24,17 @@ interface Props {
   stageColor?: string
 }
 
-export function KanbanColumn({ stage, leads, onOpenLead, stageName, stageColor }: Props) {
+// Memoized column to prevent unnecessary re-renders when other columns on the board update
+export const KanbanColumn = memo(function KanbanColumn({ stage, leads, onOpenLead, stageName, stageColor }: Props) {
   const { setNodeRef, isOver } = useDroppable({ id: stage })
   const { lang, t } = useLang()
   const config = stageConfig[stage as LeadStage]
 
   const totalValue = leads.reduce((sum, l) => sum + l.deal_value, 0)
   const currency = leads[0]?.currency ?? 'AED'
+
+  // Memoize lead ID array to prevent recreating array references on every render cycle
+  const leadIds = useMemo(() => leads.map((l) => l.id), [leads])
 
   return (
     <div className="flex flex-col w-72 shrink-0">
@@ -69,7 +74,7 @@ export function KanbanColumn({ stage, leads, onOpenLead, stageName, stageColor }
             : 'bg-surface-100/70 border-surface-200/50'
         )}
       >
-        <SortableContext items={leads.map((l) => l.id)} strategy={verticalListSortingStrategy}>
+        <SortableContext items={leadIds} strategy={verticalListSortingStrategy}>
           {leads.map((lead) => (
             <KanbanCard key={lead.id} lead={lead} onOpen={onOpenLead} />
           ))}
@@ -83,4 +88,4 @@ export function KanbanColumn({ stage, leads, onOpenLead, stageName, stageColor }
       </div>
     </div>
   )
-}
+})

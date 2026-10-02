@@ -1,4 +1,5 @@
 'use client'
+import { memo } from 'react'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import type { Lead } from '@/types'
@@ -17,7 +18,8 @@ interface Props {
   onOpen?: (lead: Lead) => void
 }
 
-export function KanbanCard({ lead, onOpen }: Props) {
+// Memoized to prevent redundant card re-renders when other columns or cards change on the board
+export const KanbanCard = memo(function KanbanCard({ lead, onOpen }: Props) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: lead.id })
   const { t } = useLang()
@@ -118,4 +120,4 @@ export function KanbanCard({ lead, onOpen }: Props) {
       </div>
     </div>
   )
-}
+})
