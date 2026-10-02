@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [v0.3.0] - Unreleased
+
+First release prepared for public use. Contains security hardening, build fixes and **behaviour changes** (see "Upgrade notes").
+
+### Security
+- **WebSocket** — connections are now bound to the identity in the verified access token (the client-supplied `user` query parameter is ignored) and events are delivered only within the sender's company. The browser connects with `?token=<access token>`; revoked tokens are rejected on this path too.
+- **JWT** — access tokens are now required to carry the `masaar-crm` audience (the claim was previously issued but not checked) and only HS256 is accepted.
+- **Users API** — updating, deactivating and deleting a user is now restricted to the caller's own company.
+- **SMS OTP** — verification is capped at 5 attempts per phone number per 15 minutes, compared in constant time and consumed atomically. Magic-link tokens are consumed atomically.
+- **Rate limiting** — added limiters to OTP/magic-link verification, password reset and token refresh.
+- **WhatsApp webhook** — in production, inbound webhooks are rejected unless `WA_APP_SECRET` is configured so signatures can be verified.
+- **Startup validation** — `config.Validate()` refuses placeholder/short `JWT_SECRET`, wildcard `ALLOWED_ORIGINS` and an unsigned/default-token WhatsApp setup when `APP_ENV=production`.
+- **Containers** — the root `Dockerfile` and `web/Dockerfile` now run as a non-root user; base images pinned (`alpine:3.22`).
+- **Dependencies** — Next.js 15.5.15 → 15.5.27 (clears the critical advisories) and transitive `nanoid`/`sharp` fixes. Removed the unused `react-leaflet` dependency (it required React 19 and broke `npm install`).
+- Added `SECURITY.md`, Dependabot and CI (vet, build, test, `govulncheck`, `npm audit`, secret scan).
+
+### Fixed
+- **Repository** — `cmd/server/` was silently excluded by a `.gitignore` pattern; the pattern is now anchored so the entry point can be tracked. A 13 MB compiled `seed` binary and `tsconfig.tsbuildinfo` were removed from version control.
+- **Frontend build** — Next.js 15 `params` typing on the public listing page and the missing `back` prop on `Header`; `next build` now succeeds.
+- **Docker** — healthchecks used `curl`, which the images do not ship; the web healthcheck pointed at a missing `/api/health` route (added); `NEXT_PUBLIC_*` values are now passed as build args (they are inlined at build time, so runtime env had no effect); `BOS24_TOKEN` → `BOS24_API_TOKEN`; default `WA_BASE_URL` pointed at the wrong host; `WA_APP_SECRET`, `ALLOWED_ORIGINS`, `APP_URL` and `ALLOW_REGISTRATION` were never passed through to the container.
+- **Real-time notifications** — the browser WebSocket could not authenticate (the API required an `Authorization` header that browsers cannot send on WebSocket connections).
+- **Docs** — corrected the clone path and removed a default login (`admin@masaar.local` / `changeme`) that no migration or seed created.
+
+### Upgrade notes
+- `ALLOW_REGISTRATION` now defaults to **`false`**. On a fresh install signup stays open until the first user is created, then closes. Set it to `true` only if you accept the single-company limitation below.
+- Existing sessions must sign in again once (older access tokens lack the audience claim).
+- With `APP_ENV=production` the server will not start with placeholder secrets — set `JWT_SECRET` and `ALLOWED_ORIGINS`, plus `WA_APP_SECRET` / a unique `WA_VERIFY_TOKEN` if WhatsApp is enabled.
+- `NEXT_PUBLIC_*` variables are build-time: rebuild the web image after changing them.
+
+### Known limitations
+- Community Edition is designed for **one company per deployment**. Core CRM tables (contacts, leads, deals, invoices, WhatsApp, …) are not yet company-scoped, so multi-company hosting is not supported.
+- Build-time PostCSS advisories remain until Next.js 16 (a major upgrade).
+
+---
+
 ## [v0.2.1] - 2026-09-11
 
 ### Security Fixes

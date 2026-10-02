@@ -44,7 +44,7 @@ docker compose up
 # Dashboard:   http://localhost:3000
 # API:         http://localhost:8080/api/v1
 # Swagger UI:  http://localhost:8080/docs
-# Default:     admin@masaar.local / changeme
+# First run:   create your admin at http://localhost:3000/signup
 ```
 
 ---
@@ -60,8 +60,8 @@ POST /api/v1/auth/login
 Content-Type: application/json
 
 {
-  "email": "admin@masaar.local",
-  "password": "changeme"
+  "email": "you@example.com",
+  "password": "<your password>"
 }
 ```
 

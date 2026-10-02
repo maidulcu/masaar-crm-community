@@ -21,7 +21,7 @@ The community edition includes: WhatsApp pipeline, lead and contact management, 
 
 ```bash
 git clone https://github.com/maidulcu/masaar-crm-community.git
-cd masaar-crm
+cd masaar-crm-community
 cp .env.example .env        # fill in your values
 docker compose up -d postgres redis
 go run ./cmd/server          # backend on :8080
@@ -29,7 +29,7 @@ cd web && npm install && npm run dev   # frontend on :3000
 ```
 
 Swagger docs: http://localhost:8080/docs  
-Default login: `admin@masaar.local` / `changeme`
+First run: create your admin account at http://localhost:3000/signup. For demo data, run `go run ./scripts/seed` (see `scripts/seed/README.md` for the demo logins).
 
 ## Submitting a pull request
 
