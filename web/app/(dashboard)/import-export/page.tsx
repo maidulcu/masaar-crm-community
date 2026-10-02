@@ -8,18 +8,10 @@ import { useAuthStore } from '@/store/auth'
 type Entity = 'contacts' | 'leads' | 'listings'
 type ImportResult = { imported: number; skipped: number; errors: { row: number; error: string }[] }
 
-const BASE = process.env.NEXT_PUBLIC_API_URL || ''
-
-function getToken() {
-  if (typeof window === 'undefined') return ''
-  return localStorage.getItem('access_token') || ''
-}
-
-function downloadUrl(url: string) {
-  const token = getToken()
-  // Append token as query param for direct download links
-  const sep = url.includes('?') ? '&' : '?'
-  window.open(`${url}${sep}token=${token}`, '_blank')
+// Downloads go through api.importExport.* (Authorization header + Blob); the JWT must never be
+// placed in a URL.
+async function runDownload(fn: () => Promise<void>, onError: (m: string) => void) {
+  try { await fn() } catch (e: any) { onError(e?.message || 'Download failed') }
 }
 
 export default function ImportExportPage() {
@@ -31,6 +23,7 @@ export default function ImportExportPage() {
   const [importing, setImporting] = useState(false)
   const [importResult, setImportResult] = useState<ImportResult | null>(null)
   const [importError, setImportError] = useState('')
+  const [exportError, setExportError] = useState('')
   const [dragOver, setDragOver] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
 
@@ -69,11 +62,12 @@ export default function ImportExportPage() {
           <div className="bg-white rounded-xl border border-gray-200 p-6">
             <h2 className="text-sm font-semibold text-gray-700 mb-1">{t('تصدير البيانات', 'Export Data')}</h2>
             <p className="text-xs text-gray-500 mb-4">Download your CRM data as a CSV file.</p>
+            {exportError && <p role="alert" className="text-xs text-red-600 mb-3">{exportError}</p>}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               {[
-                { label: 'Contacts', desc: 'All contacts with phone, email, language', action: () => downloadUrl(api.importExport.exportContacts()) },
-                { label: 'Leads', desc: 'All leads with stage, value, contact info', action: () => downloadUrl(api.importExport.exportLeads()) },
-                { label: 'Listings', desc: 'All property listings with specs & prices', action: () => downloadUrl(api.importExport.exportListings()) },
+                { label: 'Contacts', desc: 'All contacts with phone, email, language', action: () => runDownload(() => api.importExport.exportContacts(), setExportError) },
+                { label: 'Leads', desc: 'All leads with stage, value, contact info', action: () => runDownload(() => api.importExport.exportLeads(), setExportError) },
+                { label: 'Listings', desc: 'All property listings with specs & prices', action: () => runDownload(() => api.importExport.exportListings(), setExportError) },
               ].map(item => (
                 <div key={item.label} className="border border-gray-200 rounded-xl p-4">
                   <div className="flex items-start gap-3 mb-3">
@@ -114,14 +108,14 @@ export default function ImportExportPage() {
                     {e}
                   </button>
                 ))}
-                <a href={`${BASE}/api/v1/import/template/${importEntity}?authorization=Bearer ${getToken()}`}
-                  onClick={e => { e.preventDefault(); downloadUrl(api.importExport.template(importEntity)) }}
+                <button type="button"
+                  onClick={() => runDownload(() => api.importExport.downloadTemplate(importEntity), setImportError)}
                   className="ml-auto text-xs text-brand-600 hover:underline flex items-center gap-1 font-medium">
                   <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                   </svg>
                   Download template
-                </a>
+                </button>
               </div>
 
               {/* Drop zone */}

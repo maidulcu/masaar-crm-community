@@ -82,6 +82,8 @@ services:
       ALLOW_REGISTRATION: ${ALLOW_REGISTRATION:-false}
       # Required in production: set to your frontend origin, e.g. https://crm.example.com
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:3000}
+      AUTH_COOKIE_SAMESITE: ${AUTH_COOKIE_SAMESITE:-lax}
+      AUTH_COOKIE_DOMAIN: ${AUTH_COOKIE_DOMAIN:-}
       DOCS_PASSWORD: ${DOCS_PASSWORD:-}
       PROXY_HEADER: ${PROXY_HEADER:-X-Real-IP}
       TRUSTED_PROXIES: ${TRUSTED_PROXIES:-127.0.0.1,::1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16}

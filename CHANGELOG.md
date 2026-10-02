@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [v0.3.2] - Unreleased
+
+Third hardening pass: session storage and horizontal scaling. No schema changes.
+
+### Security
+- **Tokens out of `localStorage`** — the web app no longer keeps credentials where injected script can read them. The access token is held in memory only and the refresh token is an `HttpOnly` cookie (`masaar_rt`, path `/api/v1/auth`, `Secure` in production, `SameSite=Lax`). A reload restores the session from the cookie. Cookie mode is opt-in per request (`X-Auth-Mode: cookie`), so API, mobile and script clients keep using the refresh token in the JSON body exactly as before. Cookie-authenticated endpoints require the custom header (forces a CORS preflight) and an `Origin` in `ALLOWED_ORIGINS`; CORS now allows credentials for the configured origins. Tokens written to `localStorage` by earlier versions are deleted on first load.
+- **Shared rate limiting** — IP rate limits (login, OTP, registration, refresh, webhooks, API) were counted per process, so running several API replicas multiplied every limit. Counters now live in Redis (fail-open if Redis is unreachable; authentication itself still depends on Redis and fails closed).
+- **Content-Security-Policy** — now a full policy: `default-src 'self'`, scripts only from this site (plus Cloudflare Turnstile), `connect-src` restricted to this site, the API and the WebSocket, and `frame-ancestors/base-uri/object-src/form-action` locks. `script-src` still allows `'unsafe-inline'` (Next.js bootstrap scripts); a nonce-based policy remains future work.
+
+### Fixed
+- **Import / export downloads** — the Import/Export page read the token from the wrong storage key and put it in the URL (`?token=`, `?authorization=`), which the API ignores — downloads failed with 401 and the credential leaked into history and logs. Downloads and the listing brochure/QR links now use authenticated fetches. Wrong-password responses on the login page no longer trigger a pointless refresh attempt and page reload.
+- `gofmt` is now enforced in CI.
+
+### Upgrade notes
+- **The web app and the API must be on the same site** (same registrable domain, e.g. `crm.example.com` and `api.example.com`, or `localhost:3000` and `localhost:8080`) for the refresh cookie to be sent. For different sites set `AUTH_COOKIE_SAMESITE=none` (HTTPS required).
+- `ALLOWED_ORIGINS` now defaults to `http://localhost:3000` instead of `*` outside production; credentialed CORS cannot be used with `*`, so the browser app needs explicit origins.
+- Everyone is signed out once on upgrade (tokens move from `localStorage` to the cookie).
+- Running more than one API replica? They now share limits through the same Redis automatically.
+
+### Known limitations
+- WhatsApp, SMTP and AI credentials are still configured per deployment, not per company.
+- `script-src` still permits inline scripts (see above).
+
+---
+
 ## [v0.3.1] - Unreleased
 
 Second security audit pass over the merged v0.3.0 code. No schema changes.
@@ -29,7 +54,7 @@ Second security audit pass over the merged v0.3.0 code. No schema changes.
 - Existing rows containing non-http(s) values in URL fields are not rewritten; the UI will render those links inert.
 
 ### Known limitations
-- Access and refresh tokens still live in browser `localStorage`; moving them to `HttpOnly` cookies and adding a nonce-based `script-src` CSP is future work.
+- Access and refresh tokens still live in browser `localStorage` (fixed in v0.3.2).
 
 ---
 

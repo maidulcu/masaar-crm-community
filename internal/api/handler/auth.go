@@ -174,9 +174,8 @@ func (h *AuthHandler) Login(c *fiber.Ctx) error {
 	})
 
 	resp := fiber.Map{
-		"access_token":  access,
-		"refresh_token": refresh,
-		"expires_in":    h.config.JWTAccessExpiryMin * 60,
+		"access_token": access,
+		"expires_in":   h.config.JWTAccessExpiryMin * 60,
 		"user": fiber.Map{
 			"id":        user.ID,
 			"name":      user.Name,
@@ -196,7 +195,7 @@ func (h *AuthHandler) Login(c *fiber.Ctx) error {
 			"is_demo":        company.IsDemo,
 		}
 	}
-	return c.JSON(resp)
+	return c.JSON(h.attachRefresh(c, resp, refresh))
 }
 
 // Refresh godoc
@@ -214,7 +213,16 @@ func (h *AuthHandler) Refresh(c *fiber.Ctx) error {
 	var body struct {
 		RefreshToken string `json:"refresh_token"`
 	}
-	if err := c.BodyParser(&body); err != nil || body.RefreshToken == "" {
+	asCookie := cookieMode(c)
+	if asCookie {
+		if !h.originAllowed(c) {
+			return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "origin not allowed"})
+		}
+		body.RefreshToken = c.Cookies(refreshCookieName)
+		if body.RefreshToken == "" {
+			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "no session"})
+		}
+	} else if err := c.BodyParser(&body); err != nil || body.RefreshToken == "" {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "refresh_token required"})
 	}
 
@@ -225,6 +233,8 @@ func (h *AuthHandler) Refresh(c *fiber.Ctx) error {
 	// If the same token is used twice (replay attack), the second call gets 401.
 	userIDStr, err := h.redis.GetDel(ctx, key).Result()
 	if err != nil {
+		// Deliberately do not clear the cookie here: with several tabs a lost refresh race would
+		// otherwise overwrite the winner's fresh cookie and log the user out.
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "invalid or expired refresh token"})
 	}
 
@@ -263,11 +273,19 @@ func (h *AuthHandler) Refresh(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "session error"})
 	}
 
-	return c.JSON(fiber.Map{
-		"access_token":  access,
-		"refresh_token": newRefresh,
-		"expires_in":    h.config.JWTAccessExpiryMin * 60,
-	})
+	// The profile is returned so a reloaded browser tab can rebuild its session from the cookie alone.
+	return c.JSON(h.attachRefresh(c, fiber.Map{
+		"access_token": access,
+		"expires_in":   h.config.JWTAccessExpiryMin * 60,
+		"user": fiber.Map{
+			"id":        user.ID,
+			"name":      user.Name,
+			"email":     user.Email,
+			"role":      user.Role,
+			"lang_pref": user.LangPref,
+			"phone":     user.Phone,
+		},
+	}, newRefresh))
 }
 
 // refreshIssuedAt reads the iat of one of our own refresh tokens (HS256, signed with the JWT
@@ -304,6 +322,15 @@ func (h *AuthHandler) Logout(c *fiber.Ctx) error {
 		RefreshToken string `json:"refresh_token"`
 	}
 	_ = c.BodyParser(&body)
+	if cookieMode(c) {
+		if !h.originAllowed(c) {
+			return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "origin not allowed"})
+		}
+		if cv := c.Cookies(refreshCookieName); cv != "" {
+			body.RefreshToken = cv
+		}
+		h.clearRefreshCookie(c)
+	}
 
 	// Fail-closed on session invalidation
 	if body.RefreshToken != "" {
@@ -564,10 +591,9 @@ func (h *AuthHandler) Register(c *fiber.Ctx) error {
 		daysRemaining = int(time.Until(*company.TrialEndsAt).Hours() / 24)
 	}
 
-	return c.Status(fiber.StatusCreated).JSON(fiber.Map{
-		"access_token":  access,
-		"refresh_token": refresh,
-		"expires_in":    h.config.JWTAccessExpiryMin * 60,
+	resp := fiber.Map{
+		"access_token": access,
+		"expires_in":   h.config.JWTAccessExpiryMin * 60,
 		"user": fiber.Map{
 			"id":        user.ID,
 			"name":      user.Name,
@@ -585,7 +611,8 @@ func (h *AuthHandler) Register(c *fiber.Ctx) error {
 			"days_remaining": daysRemaining,
 			"is_demo":        company.IsDemo,
 		},
-	})
+	}
+	return c.Status(fiber.StatusCreated).JSON(h.attachRefresh(c, resp, refresh))
 }
 
 func (h *AuthHandler) generateTokenPair(user *domain.User) (access, refresh string, err error) {
@@ -803,9 +830,8 @@ func (h *AuthHandler) VerifyMagicLink(c *fiber.Ctx) error {
 	}
 
 	resp := fiber.Map{
-		"access_token":  access,
-		"refresh_token": refresh,
-		"expires_in":    h.config.JWTAccessExpiryMin * 60,
+		"access_token": access,
+		"expires_in":   h.config.JWTAccessExpiryMin * 60,
 		"user": fiber.Map{
 			"id":        user.ID,
 			"name":      user.Name,
@@ -827,7 +853,7 @@ func (h *AuthHandler) VerifyMagicLink(c *fiber.Ctx) error {
 			}
 		}
 	}
-	return c.JSON(resp)
+	return c.JSON(h.attachRefresh(c, resp, refresh))
 }
 
 // verifyTurnstile validates a Cloudflare Turnstile token.
@@ -1071,9 +1097,8 @@ func (h *AuthHandler) VerifySMSOTP(c *fiber.Ctx) error {
 	}
 
 	resp := fiber.Map{
-		"access_token":  access,
-		"refresh_token": refresh,
-		"expires_in":    h.config.JWTAccessExpiryMin * 60,
+		"access_token": access,
+		"expires_in":   h.config.JWTAccessExpiryMin * 60,
 		"user": fiber.Map{
 			"id":        user.ID,
 			"name":      user.Name,
@@ -1096,5 +1121,5 @@ func (h *AuthHandler) VerifySMSOTP(c *fiber.Ctx) error {
 			}
 		}
 	}
-	return c.JSON(resp)
+	return c.JSON(h.attachRefresh(c, resp, refresh))
 }
