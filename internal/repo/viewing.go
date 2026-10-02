@@ -73,7 +73,7 @@ func (r *ViewingRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.Viewin
 	}
 	const q = `
 		SELECT ` + viewingCols + `,
-		       c.id, c.phone_wa, c.full_name, c.email, c.language, c.lead_score,
+		       c.id, c.phone_wa, c.full_name, COALESCE(c.email,''), c.language, c.lead_score,
 		       COALESCE(l.title,''), COALESCE(u.name,'')
 		FROM viewings v
 		JOIN contacts c ON c.id = v.contact_id AND c.company_id = v.company_id
@@ -171,7 +171,7 @@ func (r *ViewingRepo) List(ctx context.Context, f ViewingFilter) ([]domain.Viewi
 	args = append(args, f.Limit, offset)
 	q := fmt.Sprintf(`
 		SELECT `+viewingCols+`,
-		       c.id, c.phone_wa, c.full_name, c.email, c.language, c.lead_score,
+		       c.id, c.phone_wa, c.full_name, COALESCE(c.email,''), c.language, c.lead_score,
 		       COALESCE(l.title,''), COALESCE(u.name,'')
 		FROM viewings v
 		JOIN contacts  c ON c.id = v.contact_id AND c.company_id = v.company_id
@@ -299,7 +299,7 @@ func (r *ViewingRepo) DueForReminder(ctx context.Context, withinMinutes int) ([]
 	cutoff := time.Now().UTC().Add(time.Duration(withinMinutes) * time.Minute)
 	const q = `
 		SELECT ` + viewingCols + `,
-		       c.id, c.phone_wa, c.full_name, c.email, c.language, c.lead_score,
+		       c.id, c.phone_wa, c.full_name, COALESCE(c.email,''), c.language, c.lead_score,
 		       COALESCE(l.title,''), COALESCE(u.name,'')
 		FROM viewings v
 		JOIN contacts  c ON c.id = v.contact_id AND c.company_id = v.company_id

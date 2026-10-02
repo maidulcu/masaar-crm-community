@@ -36,7 +36,7 @@ func (r *ContactRepo) List(ctx context.Context, search string, page, limit int) 
 	}
 
 	const q = `
-		SELECT id, phone_wa, full_name, email, language, lead_score, assigned_to, created_at, updated_at
+		SELECT id, phone_wa, full_name, COALESCE(email,''), language, lead_score, assigned_to, created_at, updated_at
 		FROM contacts
 		WHERE company_id = $4 AND ($1 = '' OR full_name ILIKE $1 OR phone_wa ILIKE $1 OR email ILIKE $1)
 		ORDER BY created_at DESC
@@ -75,7 +75,7 @@ func (r *ContactRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.Contac
 		return nil, err
 	}
 	const q = `
-		SELECT id, phone_wa, full_name, email, language, lead_score, assigned_to, created_at, updated_at
+		SELECT id, phone_wa, full_name, COALESCE(email,''), language, lead_score, assigned_to, created_at, updated_at
 		FROM contacts WHERE id = $1 AND company_id = $2
 	`
 	c := &domain.Contact{}
@@ -96,7 +96,7 @@ func (r *ContactRepo) GetByPhone(ctx context.Context, phone string) (*domain.Con
 		return nil, err
 	}
 	const q = `
-		SELECT id, phone_wa, full_name, email, language, lead_score, assigned_to, created_at, updated_at
+		SELECT id, phone_wa, full_name, COALESCE(email,''), language, lead_score, assigned_to, created_at, updated_at
 		FROM contacts WHERE phone_wa = $1 AND company_id = $2
 	`
 	c := &domain.Contact{}
@@ -172,10 +172,10 @@ func (r *ContactRepo) Upsert(ctx context.Context, phone, name string) (*domain.C
 		return nil, err
 	}
 	const q = `
-		INSERT INTO contacts (id, company_id, phone_wa, full_name)
-		VALUES (uuid_generate_v4(), $1, $2, $3)
+		INSERT INTO contacts (id, company_id, phone_wa, full_name, email)
+		VALUES (uuid_generate_v4(), $1, $2, $3, '')
 		ON CONFLICT (company_id, phone_wa) DO UPDATE SET full_name = EXCLUDED.full_name
-		RETURNING id, phone_wa, full_name, email, language, lead_score, assigned_to, created_at, updated_at
+		RETURNING id, phone_wa, full_name, COALESCE(email,''), language, lead_score, assigned_to, created_at, updated_at
 	`
 	c := &domain.Contact{}
 	err = r.db.QueryRow(ctx, q, cid, phone, name).Scan(

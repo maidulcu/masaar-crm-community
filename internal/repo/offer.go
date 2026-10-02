@@ -70,7 +70,7 @@ func (r *OfferRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.Offer, e
 	}
 	const q = `
 		SELECT ` + offerCols + `,
-		       c.id, c.phone_wa, c.full_name, c.email, c.language, c.lead_score,
+		       c.id, c.phone_wa, c.full_name, COALESCE(c.email,''), c.language, c.lead_score,
 		       l.title
 		FROM offers o
 		JOIN contacts c ON c.id = o.contact_id AND c.company_id = o.company_id
@@ -116,7 +116,7 @@ func (r *OfferRepo) ListByListing(ctx context.Context, listingID uuid.UUID, page
 
 	const q = `
 		SELECT ` + offerCols + `,
-		       c.id, c.phone_wa, c.full_name, c.email, c.language, c.lead_score,
+		       c.id, c.phone_wa, c.full_name, COALESCE(c.email,''), c.language, c.lead_score,
 		       l.title
 		FROM offers o
 		JOIN contacts c ON c.id = o.contact_id AND c.company_id = o.company_id
@@ -197,7 +197,7 @@ func (r *OfferRepo) List(ctx context.Context, listingID, contactID *uuid.UUID, s
 	args = append(args, limit, offset)
 	q := fmt.Sprintf(`
 		SELECT `+offerCols+`,
-		       c.id, c.phone_wa, c.full_name, c.email, c.language, c.lead_score,
+		       c.id, c.phone_wa, c.full_name, COALESCE(c.email,''), c.language, c.lead_score,
 		       l.title
 		FROM offers o
 		JOIN contacts c ON c.id = o.contact_id AND c.company_id = o.company_id

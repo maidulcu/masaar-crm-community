@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 First release prepared for public use. Contains security hardening, build fixes and **behaviour changes** (see "Upgrade notes").
 
 ### Security
+- **Company isolation** — contacts, leads, deals, invoices, WhatsApp threads/messages, notifications, email history, viewings, offers, communication history, audit logs and integration settings are now scoped to the owning company (migration `0060`, `company_id` backfilled from each row's owner/parent). Every repository query filters by the caller's company, creates ignore any client-supplied company id and verify that referenced records (contact, lead, listing, property, tenant, …) belong to the same company, and company settings no longer return "the first row". The company travels in the request context (`internal/tenant`) and fails closed when absent. Covered by integration tests that run against Postgres in CI.
 - **WebSocket** — connections are now bound to the identity in the verified access token (the client-supplied `user` query parameter is ignored) and events are delivered only within the sender's company. The browser connects with `?token=<access token>`; revoked tokens are rejected on this path too.
 - **JWT** — access tokens are now required to carry the `masaar-crm` audience (the claim was previously issued but not checked) and only HS256 is accepted.
 - **Users API** — updating, deactivating and deleting a user is now restricted to the caller's own company.
@@ -24,6 +25,11 @@ First release prepared for public use. Contains security hardening, build fixes 
 - Added `SECURITY.md`, Dependabot and CI (vet, build, test, `govulncheck`, `npm audit`, secret scan).
 
 ### Fixed
+- **Server entry point** — `cmd/server/main.go` is restored (it was never committed because of the `.gitignore` pattern below), so the API can be built and the Docker image works.
+- **Fresh installs** — migration `0059` referenced a non-existent `audit_logs.created_at` and aborted every new database; the compose files used `postgres:16-alpine`, which lacks the `pgvector` extension that migration `0002` needs.
+- **Inbound WhatsApp & new companies** — contact upsert, thread upsert and company-settings reads failed on NULL columns; API-key lead intake panicked (company id was stored as a UUID but read as a string); `ListingRepo.GetByID` failed on every call; the commission lease query referenced columns that do not exist; dashboard stats counted soft-deleted leads.
+- **Swagger UI** — in production it was protected by the first 16 characters of `JWT_SECRET`; it now uses a dedicated `DOCS_PASSWORD` and is disabled when unset.
+- **Demo seed** — `scripts/seed` ran with several errors against the current schema; it now runs cleanly and idempotently.
 - **Repository** — `cmd/server/` was silently excluded by a `.gitignore` pattern; the pattern is now anchored so the entry point can be tracked. A 13 MB compiled `seed` binary and `tsconfig.tsbuildinfo` were removed from version control.
 - **Frontend build** — Next.js 15 `params` typing on the public listing page and the missing `back` prop on `Header`; `next build` now succeeds.
 - **Docker** — healthchecks used `curl`, which the images do not ship; the web healthcheck pointed at a missing `/api/health` route (added); `NEXT_PUBLIC_*` values are now passed as build args (they are inlined at build time, so runtime env had no effect); `BOS24_TOKEN` → `BOS24_API_TOKEN`; default `WA_BASE_URL` pointed at the wrong host; `WA_APP_SECRET`, `ALLOWED_ORIGINS`, `APP_URL` and `ALLOW_REGISTRATION` were never passed through to the container.
@@ -31,13 +37,15 @@ First release prepared for public use. Contains security hardening, build fixes 
 - **Docs** — corrected the clone path and removed a default login (`admin@masaar.local` / `changeme`) that no migration or seed created.
 
 ### Upgrade notes
-- `ALLOW_REGISTRATION` now defaults to **`false`**. On a fresh install signup stays open until the first user is created, then closes. Set it to `true` only if you accept the single-company limitation below.
+- `ALLOW_REGISTRATION` now defaults to **`false`**. On a fresh install signup stays open until the first user is created (that account adopts the company in `APP_COMPANY_ID`), then closes. Set it to `true` to host several companies.
+- Migration `0060` attributes existing rows to a company through their owner/parent, else to the only company that has users, else the seed company. If you previously ran with open signup and several companies, review the result — shared rows cannot be split retroactively.
+- Behind nginx, set `TRUSTED_PROXIES` so per-client rate limits see real client IPs.
 - Existing sessions must sign in again once (older access tokens lack the audience claim).
 - With `APP_ENV=production` the server will not start with placeholder secrets — set `JWT_SECRET` and `ALLOWED_ORIGINS`, plus `WA_APP_SECRET` / a unique `WA_VERIFY_TOKEN` if WhatsApp is enabled.
 - `NEXT_PUBLIC_*` variables are build-time: rebuild the web image after changing them.
 
 ### Known limitations
-- Community Edition is designed for **one company per deployment**. Core CRM tables (contacts, leads, deals, invoices, WhatsApp, …) are not yet company-scoped, so multi-company hosting is not supported.
+- Deployment-wide settings are shared by all companies: the WhatsApp Cloud API number, SMTP and AI configuration come from environment variables, and inbound WhatsApp messages are routed to `APP_COMPANY_ID`. Per-company messaging credentials are future work.
 - Build-time PostCSS advisories remain until Next.js 16 (a major upgrade).
 
 ---

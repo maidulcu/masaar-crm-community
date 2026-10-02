@@ -32,6 +32,6 @@ Out of scope: vulnerabilities in third-party services you connect (WhatsApp/Meta
 - Generate a strong `JWT_SECRET` (`openssl rand -hex 32`). With `APP_ENV=production` the server refuses placeholder or short secrets.
 - Set `ALLOWED_ORIGINS` to your frontend origin(s) — never `*`.
 - If you enable WhatsApp, set both `WA_APP_SECRET` (so inbound webhooks are signature-verified) and a unique `WA_VERIFY_TOKEN`.
-- Keep `ALLOW_REGISTRATION=false` (the default). Community Edition is designed for **one company per deployment**; do not expose open self-service signup.
+- Keep `ALLOW_REGISTRATION=false` (the default) unless you intend to host several companies. CRM data is isolated per company, but the WhatsApp number, SMTP and AI settings are deployment-wide.
 - Terminate TLS in front of the API and the web app, and do not expose Postgres or Redis publicly.
 - Run the provided containers as-is (they run as a non-root user) and keep images and dependencies up to date.

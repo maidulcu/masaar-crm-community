@@ -77,8 +77,8 @@ services:
       APP_ENV: ${APP_ENV:-production}
       APP_URL: ${APP_URL:-http://localhost:3000}
       APP_COMPANY_ID: ${APP_COMPANY_ID:-00000000-0000-0000-0000-000000000001}
-      # Community Edition is single-company: leave registration off unless you
-      # understand that all companies would share one dataset.
+      # Signup is open only until the first account exists. Set true to host several
+      # companies (data is isolated per company; WhatsApp/SMTP/AI settings are shared).
       ALLOW_REGISTRATION: ${ALLOW_REGISTRATION:-false}
       # Required in production: set to your frontend origin, e.g. https://crm.example.com
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:3000}

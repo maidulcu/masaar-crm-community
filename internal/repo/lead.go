@@ -46,7 +46,7 @@ func (r *LeadRepo) KanbanBoard(ctx context.Context) (map[domain.LeadStage][]doma
 	}
 	const q = `
 		SELECT` + leadCols + `,
-		       c.id, c.phone_wa, c.full_name, c.email, c.language, c.lead_score
+		       c.id, c.phone_wa, c.full_name, COALESCE(c.email,''), c.language, c.lead_score
 		FROM leads l
 		JOIN contacts c ON c.id = l.contact_id AND c.company_id = l.company_id
 		WHERE l.deleted_at IS NULL AND l.company_id = $1
@@ -137,7 +137,7 @@ func (r *LeadRepo) List(ctx context.Context, f LeadFilter) ([]domain.Lead, error
 
 	q := fmt.Sprintf(`
 		SELECT`+leadCols+`,
-		       c.id, c.phone_wa, c.full_name, c.email, c.language, c.lead_score
+		       c.id, c.phone_wa, c.full_name, COALESCE(c.email,''), c.language, c.lead_score
 		FROM leads l
 		JOIN contacts c ON c.id = l.contact_id AND c.company_id = l.company_id
 		%s

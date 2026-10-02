@@ -34,7 +34,7 @@ func (r *WhatsAppRepo) UpsertThread(ctx context.Context, contactID uuid.UUID, wa
 				WHEN whatsapp_threads.thread_status = 'closed' THEN 'open'
 				ELSE whatsapp_threads.thread_status
 			END
-		RETURNING id, contact_id, wa_account_id, thread_status, last_message_at, message_count, ai_summary, created_at
+		RETURNING id, contact_id, wa_account_id, thread_status, last_message_at, message_count, COALESCE(ai_summary,''), created_at
 	`
 	t := &domain.WhatsAppThread{}
 	err = r.db.QueryRow(ctx, q, contactID, waAccountID, cid).Scan(
@@ -94,7 +94,7 @@ func (r *WhatsAppRepo) ListThreads(ctx context.Context, status string, contactID
 	}
 	q := fmt.Sprintf(`
 		SELECT t.id, t.contact_id, t.wa_account_id, t.thread_status,
-		       t.last_message_at, t.message_count, t.ai_summary, t.created_at,
+		       t.last_message_at, t.message_count, COALESCE(t.ai_summary,''), t.created_at,
 		       c.id, c.phone_wa, c.full_name, c.language
 		FROM whatsapp_threads t
 		JOIN contacts c ON c.id = t.contact_id AND c.company_id = t.company_id
@@ -191,7 +191,7 @@ func (r *WhatsAppRepo) ReopenThread(ctx context.Context, threadID uuid.UUID) err
 func (r *WhatsAppRepo) GetThread(ctx context.Context, threadID uuid.UUID) (*domain.WhatsAppThread, error) {
 	const q = `
 		SELECT t.id, t.contact_id, t.wa_account_id, t.thread_status,
-		       t.last_message_at, t.message_count, t.ai_summary, t.created_at,
+		       t.last_message_at, t.message_count, COALESCE(t.ai_summary,''), t.created_at,
 		       c.id, c.phone_wa, c.full_name, c.language
 		FROM whatsapp_threads t
 		JOIN contacts c ON c.id = t.contact_id AND c.company_id = t.company_id

@@ -84,6 +84,10 @@ ALTER TABLE communication_history ALTER COLUMN company_id SET NOT NULL;
 ALTER TABLE audit_logs            ALTER COLUMN company_id SET NOT NULL;
 ALTER TABLE api_settings          ALTER COLUMN company_id SET NOT NULL;
 
+-- company_settings was scoped by 0045 but left nullable.
+UPDATE company_settings SET company_id = '00000000-0000-0000-0000-000000000001' WHERE company_id IS NULL;
+ALTER TABLE company_settings ALTER COLUMN company_id SET NOT NULL;
+
 -- A phone number / setting key is unique per company, not globally.
 ALTER TABLE contacts     DROP CONSTRAINT IF EXISTS contacts_phone_wa_key;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_contacts_company_phone ON contacts(company_id, phone_wa);
@@ -113,6 +117,7 @@ DROP INDEX IF EXISTS idx_audit_company_ts, idx_comm_history_company, idx_wa_outb
 ALTER TABLE contacts     ADD CONSTRAINT contacts_phone_wa_key UNIQUE (phone_wa);
 ALTER TABLE vat_invoices ADD CONSTRAINT vat_invoices_invoice_no_key UNIQUE (invoice_no);
 ALTER TABLE api_settings ADD CONSTRAINT api_settings_setting_key_key UNIQUE (setting_key);
+ALTER TABLE company_settings ALTER COLUMN company_id DROP NOT NULL;
 ALTER TABLE contacts DROP COLUMN IF EXISTS company_id;
 ALTER TABLE leads DROP COLUMN IF EXISTS company_id;
 ALTER TABLE deals DROP COLUMN IF EXISTS company_id;

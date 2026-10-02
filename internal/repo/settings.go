@@ -24,7 +24,7 @@ func (r *SettingsRepo) Get(ctx context.Context, key string) (*domain.APISetting,
 		return nil, err
 	}
 	query := `
-		SELECT id, setting_key, setting_value, description, updated_at, updated_by
+		SELECT id, setting_key, setting_value, COALESCE(description,''), updated_at, updated_by
 		FROM api_settings
 		WHERE setting_key = $1 AND company_id = $2
 	`

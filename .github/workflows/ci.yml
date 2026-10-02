@@ -12,6 +12,20 @@ jobs:
   api:
     name: API (Go)
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: masaar
+          POSTGRES_PASSWORD: masaar
+          POSTGRES_DB: masaar_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U masaar -d masaar_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      # Enables the multi-company isolation tests in internal/repo (skipped when unset).
+      TEST_DATABASE_URL: postgres://masaar:masaar@localhost:5432/masaar_test?sslmode=disable
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5

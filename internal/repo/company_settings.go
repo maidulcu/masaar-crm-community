@@ -25,8 +25,8 @@ func (r *CompanySettingsRepo) Get(ctx context.Context) (*domain.CompanySettings,
 	if err != nil {
 		return nil, err
 	}
-	query := `SELECT id, name, vat_number, business_address, business_phone, business_email,
-		bank_name, bank_account, bank_iban,
+	query := `SELECT id, name, vat_number, business_address, COALESCE(business_phone,''), COALESCE(business_email,''),
+		COALESCE(bank_name,''), COALESCE(bank_account,''), COALESCE(bank_iban,''),
 		COALESCE(logo_url,''), COALESCE(disclaimer,''), COALESCE(primary_color,'#1a3a5c'),
 		updated_at, updated_by
 	FROM company_settings WHERE company_id = $1`
