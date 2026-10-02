@@ -1,4 +1,5 @@
 'use client'
+import { safeUrl } from '@/lib/safeUrl'
 import { useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
@@ -112,10 +113,10 @@ export default function TenantDetailPage() {
             </>
           )}
           {tenant.id_document_url && (
-            <a href={tenant.id_document_url} target="_blank" rel="noopener noreferrer" className="px-5 py-2.5 border border-gray-200 text-sm font-medium rounded-lg hover:bg-gray-50">{t('عرض المستند', 'View Document')}</a>
+            <a href={safeUrl(tenant.id_document_url)} target="_blank" rel="noopener noreferrer" className="px-5 py-2.5 border border-gray-200 text-sm font-medium rounded-lg hover:bg-gray-50">{t('عرض المستند', 'View Document')}</a>
           )}
           {tenant.salary_certificate_url && (
-            <a href={tenant.salary_certificate_url} target="_blank" rel="noopener noreferrer" className="px-5 py-2.5 border border-gray-200 text-sm font-medium rounded-lg hover:bg-gray-50">{t('شهادة الراتب', 'Salary Certificate')}</a>
+            <a href={safeUrl(tenant.salary_certificate_url)} target="_blank" rel="noopener noreferrer" className="px-5 py-2.5 border border-gray-200 text-sm font-medium rounded-lg hover:bg-gray-50">{t('شهادة الراتب', 'Salary Certificate')}</a>
           )}
         </div>
       </div>

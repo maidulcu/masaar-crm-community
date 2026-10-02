@@ -1,4 +1,5 @@
 'use client'
+import { safeUrl } from '@/lib/safeUrl'
 import { useState, useEffect } from 'react'
 import { Header } from '@/components/layout/Header'
 import { api } from '@/lib/api'
@@ -148,7 +149,7 @@ export default function CompanySettingsPage() {
                 <div>
                   <label className={labelCls}>{t('رابط الشعار', 'Logo URL')}</label>
                   <input className={inputCls} value={form.logo_url} onChange={update('logo_url')} placeholder="https://..." />
-                  {form.logo_url && <img src={form.logo_url} alt="logo preview" className="mt-2 h-10 object-contain rounded border border-gray-100" />}
+                  {form.logo_url && <img src={safeUrl(form.logo_url)} alt="logo preview" className="mt-2 h-10 object-contain rounded border border-gray-100" />}
                 </div>
                 <div>
                   <label className={labelCls}>{t('اللون الأساسي', 'Primary Color')}</label>

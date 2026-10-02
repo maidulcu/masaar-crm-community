@@ -1,5 +1,6 @@
 'use client'
 
+import { safeUrl } from '@/lib/safeUrl'
 import { useEffect, useState } from 'react'
 import api from '@/lib/api'
 
@@ -334,7 +335,7 @@ export default function DocumentAttachmentSection({
                   <div className="flex items-center gap-3 pt-1">
                     {doc.file_url && (
                       <a
-                        href={doc.file_url}
+                        href={safeUrl(doc.file_url)}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="text-xs text-blue-600 hover:underline font-medium flex items-center gap-1"

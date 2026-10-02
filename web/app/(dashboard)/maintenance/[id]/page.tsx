@@ -1,4 +1,5 @@
 'use client'
+import { safeUrl } from '@/lib/safeUrl'
 import { useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
@@ -142,7 +143,7 @@ export default function MaintenanceDetailPage() {
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
               {photos.map(ph => (
                 <div key={ph.id} className="border border-gray-200 rounded-lg p-3">
-                  <a href={ph.photo_url} target="_blank" rel="noopener noreferrer" className="text-xs text-brand-600 hover:underline block mb-1 break-all">{ph.photo_url}</a>
+                  <a href={safeUrl(ph.photo_url)} target="_blank" rel="noopener noreferrer" className="text-xs text-brand-600 hover:underline block mb-1 break-all">{ph.photo_url}</a>
                   <p className="text-[10px] text-gray-400">{ph.photo_stage} · {fmtDate(ph.uploaded_at)}</p>
                 </div>
               ))}

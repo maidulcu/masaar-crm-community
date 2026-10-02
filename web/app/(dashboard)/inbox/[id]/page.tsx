@@ -1,4 +1,5 @@
 'use client'
+import { safeUrl } from '@/lib/safeUrl'
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { Header } from '@/components/layout/Header'
@@ -219,12 +220,12 @@ export default function ThreadPage() {
 
   const renderMedia = (url: string) => {
     const ext = url.split('.').pop()?.toLowerCase()
-    if (!ext) return <a href={url} target="_blank" rel="noopener noreferrer" className="text-xs text-brand-600 hover:underline block mt-1">{t('عرض المرفق', 'View attachment')}</a>
+    if (!ext) return <a href={safeUrl(url)} target="_blank" rel="noopener noreferrer" className="text-xs text-brand-600 hover:underline block mt-1">{t('عرض المرفق', 'View attachment')}</a>
     if (['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext))
-      return <img src={url} alt="" className="max-w-full rounded-lg mt-1 max-h-48 object-cover" loading="lazy" />
+      return <img src={safeUrl(url)} alt="" className="max-w-full rounded-lg mt-1 max-h-48 object-cover" loading="lazy" />
     if (['mp4', 'webm', 'mov'].includes(ext))
-      return <video src={url} controls className="max-w-full rounded-lg mt-1 max-h-48" />
-    return <a href={url} target="_blank" rel="noopener noreferrer" className="text-xs text-brand-600 hover:underline block mt-1">{t('تحميل المرفق', 'Download attachment')}</a>
+      return <video src={safeUrl(url)} controls className="max-w-full rounded-lg mt-1 max-h-48" />
+    return <a href={safeUrl(url)} target="_blank" rel="noopener noreferrer" className="text-xs text-brand-600 hover:underline block mt-1">{t('تحميل المرفق', 'Download attachment')}</a>
   }
 
   if (loading) {

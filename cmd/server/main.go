@@ -239,7 +239,8 @@ func main() {
 		WriteTimeout:            30 * time.Second,
 		IdleTimeout:             120 * time.Second,
 		ErrorHandler:            errorHandler,
-		ProxyHeader:             fiber.HeaderXForwardedFor,
+		ProxyHeader:             cfg.ProxyHeader,
+		EnableIPValidation:      true,
 		EnableTrustedProxyCheck: true,
 		TrustedProxies:          splitList(cfg.TrustedProxies),
 	})

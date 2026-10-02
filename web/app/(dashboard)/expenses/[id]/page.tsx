@@ -1,4 +1,5 @@
 'use client'
+import { safeUrl } from '@/lib/safeUrl'
 import { useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
@@ -165,7 +166,7 @@ export default function ExpenseDetailPage() {
         {expense.receipt_url && (
           <div className="bg-white rounded-xl border border-gray-100 p-5">
             <h3 className="text-sm font-semibold text-gray-700 mb-2">{t('الإيصال', 'Receipt')}</h3>
-            <a href={expense.receipt_url} target="_blank" rel="noopener noreferrer"
+            <a href={safeUrl(expense.receipt_url)} target="_blank" rel="noopener noreferrer"
               className="text-sm text-brand-600 hover:underline font-medium">
               {t('عرض الإيصال', 'View Receipt →')}
             </a>

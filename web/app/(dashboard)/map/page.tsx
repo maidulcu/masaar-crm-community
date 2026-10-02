@@ -1,5 +1,6 @@
 'use client'
 
+import { safeUrl } from '@/lib/safeUrl'
 import { useState, useEffect, useCallback } from 'react'
 import dynamic from 'next/dynamic'
 import { Header } from '@/components/layout/Header'
@@ -251,7 +252,7 @@ export default function MapPage() {
                 <button onClick={() => setSelectedListing(null)} className="text-gray-400 hover:text-gray-600 text-xs shrink-0">✕</button>
               </div>
               {selectedListing.cover_image_url && (
-                <img src={selectedListing.cover_image_url} alt={selectedListing.title}
+                <img src={safeUrl(selectedListing.cover_image_url)} alt={selectedListing.title}
                   className="w-full h-28 object-cover rounded-lg mb-2" />
               )}
               <div className="space-y-1 text-xs text-gray-600">

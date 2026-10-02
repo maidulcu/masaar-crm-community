@@ -655,11 +655,15 @@ func (h *AuthHandler) RequestMagicLink(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid request"})
 	}
 
+	body.Email = strings.ToLower(strings.TrimSpace(body.Email))
 	if body.Email == "" {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "email required"})
 	}
+	if _, err := mail.ParseAddress(body.Email); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid email format"})
+	}
 
-	if body.LangPref == "" {
+	if body.LangPref != "ar" {
 		body.LangPref = "en"
 	}
 
@@ -681,6 +685,13 @@ func (h *AuthHandler) RequestMagicLink(c *fiber.Ctx) error {
 	h.redis.Incr(ctx, rateKey)
 	if count == 0 {
 		h.redis.Expire(ctx, rateKey, 1*time.Hour)
+	}
+
+	// Only registered, active accounts get a link. Anything else gets the same generic response
+	// (no enumeration) but no email — otherwise this endpoint is a free way to send unsolicited
+	// mail to arbitrary addresses.
+	if u, uerr := h.users.FindByEmail(c.Context(), body.Email); uerr != nil || !u.IsActive {
+		return c.JSON(fiber.Map{"message": "if the email exists, a magic link has been sent"})
 	}
 
 	// Generate magic token
