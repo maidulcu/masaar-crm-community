@@ -143,37 +143,37 @@ func (h *ExpenseHandler) CreateExpense(c *fiber.Ctx) error {
 	userID := c.Locals("user_id").(uuid.UUID)
 
 	var req struct {
-		CategoryID    uuid.UUID `json:"category_id"`
+		CategoryID    uuid.UUID  `json:"category_id"`
 		PropertyID    *uuid.UUID `json:"property_id"`
-		Amount        float64   `json:"amount"`
-		ExpenseDate   time.Time `json:"expense_date"`
-		Description   string    `json:"description"`
-		VendorName    string    `json:"vendor_name"`
-		VendorContact string    `json:"vendor_contact"`
-		PaymentMethod string    `json:"payment_method"`
-		ReceiptURL    string    `json:"receipt_url"`
-		Notes         string    `json:"notes"`
+		Amount        float64    `json:"amount"`
+		ExpenseDate   time.Time  `json:"expense_date"`
+		Description   string     `json:"description"`
+		VendorName    string     `json:"vendor_name"`
+		VendorContact string     `json:"vendor_contact"`
+		PaymentMethod string     `json:"payment_method"`
+		ReceiptURL    string     `json:"receipt_url"`
+		Notes         string     `json:"notes"`
 	}
 	if err := c.BodyParser(&req); err != nil {
 		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": "Invalid request"})
 	}
 
 	expense := &domain.Expense{
-		ID:             uuid.New(),
-		CompanyID:      companyID,
-		CategoryID:     req.CategoryID,
-		PropertyID:     req.PropertyID,
-		Amount:         req.Amount,
-		Currency:       "AED",
-		ExpenseDate:    req.ExpenseDate,
-		Description:    req.Description,
-		VendorName:     req.VendorName,
-		VendorContact:  req.VendorContact,
-		PaymentMethod:  domain.ExpensePaymentMethod(req.PaymentMethod),
-		PaymentStatus:  domain.ExpensePaymentPending,
-		ReceiptURL:     req.ReceiptURL,
-		Notes:          req.Notes,
-		CreatedBy:      userID,
+		ID:            uuid.New(),
+		CompanyID:     companyID,
+		CategoryID:    req.CategoryID,
+		PropertyID:    req.PropertyID,
+		Amount:        req.Amount,
+		Currency:      "AED",
+		ExpenseDate:   req.ExpenseDate,
+		Description:   req.Description,
+		VendorName:    req.VendorName,
+		VendorContact: req.VendorContact,
+		PaymentMethod: domain.ExpensePaymentMethod(req.PaymentMethod),
+		PaymentStatus: domain.ExpensePaymentPending,
+		ReceiptURL:    req.ReceiptURL,
+		Notes:         req.Notes,
+		CreatedBy:     userID,
 	}
 
 	if err := h.expenseRepo.CreateExpense(c.Context(), expense); err != nil {

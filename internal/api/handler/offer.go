@@ -61,12 +61,11 @@ func (h *OfferHandler) List(c *fiber.Ctx) error {
 		contactID = &id
 	}
 	status := c.Query("status")
-	page := c.QueryInt("page", 1)
-	limit := c.QueryInt("limit", 50)
+	page, limit := pageParams(c, 50, 100)
 
 	offers, total, err := h.offerRepo.List(c.Context(), listingID, contactID, status, page, limit)
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 	return c.JSON(fiber.Map{
 		"data": offers,
@@ -142,7 +141,7 @@ func (h *OfferHandler) Create(c *fiber.Ctx) error {
 	}
 
 	if err := h.offerRepo.Create(c.Context(), offer); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 
 	// Notify via WebSocket
@@ -185,7 +184,7 @@ func (h *OfferHandler) UpdateStatus(c *fiber.Ctx) error {
 	}
 
 	if err := h.offerRepo.UpdateStatus(c.Context(), id, domain.OfferStatus(body.Status)); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 	return c.JSON(fiber.Map{"ok": true, "status": body.Status})
 }
@@ -242,7 +241,7 @@ func (h *OfferHandler) Counter(c *fiber.Ctx) error {
 	}
 
 	if err := h.offerRepo.Counter(c.Context(), parentID, counter); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 	return c.Status(fiber.StatusCreated).JSON(counter)
 }
@@ -306,12 +305,12 @@ func (h *OfferHandler) Accept(c *fiber.Ctx) error {
 		OwnerID:     ownerID,
 	}
 	if err := h.dealRepo.Create(c.Context(), deal); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to create deal: " + err.Error()})
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": safeMsg("failed to create deal", err)})
 	}
 
 	// Link offer → deal and mark as accepted
 	if err := h.offerRepo.SetDeal(c.Context(), id, deal.ID); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 
 	h.hub.BroadcastToCompany(localsCompanyID(c), ws.Event{
@@ -337,7 +336,7 @@ func (h *OfferHandler) Delete(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid id"})
 	}
 	if err := h.offerRepo.Delete(c.Context(), id); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 	return c.SendStatus(fiber.StatusNoContent)
 }

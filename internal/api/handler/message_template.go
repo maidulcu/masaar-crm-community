@@ -35,7 +35,7 @@ func (h *MessageTemplateHandler) List(c *fiber.Ctx) error {
 	}
 	result, err := h.templates.List(c.Context(), companyID, page, limit)
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 	return c.JSON(result)
 }
@@ -101,7 +101,7 @@ func (h *MessageTemplateHandler) Create(c *fiber.Ctx) error {
 		UpdatedBy: &userID,
 	}
 	if err := h.templates.Create(c.Context(), tpl); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 	return c.Status(fiber.StatusCreated).JSON(tpl)
 }
@@ -147,7 +147,7 @@ func (h *MessageTemplateHandler) Update(c *fiber.Ctx) error {
 	tpl.UpdatedBy = &userID
 
 	if err := h.templates.Update(c.Context(), tpl); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 	return c.JSON(tpl)
 }
@@ -166,7 +166,7 @@ func (h *MessageTemplateHandler) Delete(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid id"})
 	}
 	if err := h.templates.Delete(c.Context(), id); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 	return c.SendStatus(fiber.StatusNoContent)
 }

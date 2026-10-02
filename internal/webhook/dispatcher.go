@@ -8,16 +8,14 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log"
-	"net"
 	"net/http"
-	"syscall"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/maidulcu/masaar-crm/internal/repo"
+	"github.com/maidulcu/masaar-crm/internal/safehttp"
 )
 
 // Supported event names — use these constants in handlers.
@@ -38,92 +36,16 @@ type Payload struct {
 	Data      interface{} `json:"data"`
 }
 
-// createSafeTransport creates an http.Transport that prevents SSRF by blocking internal IP ranges
-func createSafeTransport() *http.Transport {
-	transport := http.DefaultTransport.(*http.Transport).Clone()
-
-	dialer := &net.Dialer{
-		Timeout:   30 * time.Second,
-		KeepAlive: 30 * time.Second,
-		Control: func(network, address string, c syscall.RawConn) error {
-			host, _, err := net.SplitHostPort(address)
-			if err != nil {
-				return err
-			}
-			ip := net.ParseIP(host)
-			if ip == nil {
-				return errors.New("invalid IP address")
-			}
-			if ip.IsPrivate() || ip.IsLoopback() || ip.IsUnspecified() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
-				return errors.New("blocked private/internal IP address")
-			}
-			return nil
-		},
-	}
-
-	transport.DialContext = dialer.DialContext
-	return transport
-}
-
 // Dispatcher fires outbound webhooks for CRM events.
 type Dispatcher struct {
 	repo   *repo.WebhookRepo
 	client *http.Client
 }
 
-func safeTransport() *http.Transport {
-	transport := http.DefaultTransport.(*http.Transport).Clone()
-
-	dialer := &net.Dialer{
-		Timeout:   30 * time.Second,
-		KeepAlive: 30 * time.Second,
-		Control: func(network, address string, c syscall.RawConn) error {
-			host, _, err := net.SplitHostPort(address)
-			if err != nil {
-				return err
-			}
-			ip := net.ParseIP(host)
-			if ip == nil {
-				return errors.New("invalid IP address")
-			}
-			if ip.IsPrivate() || ip.IsLoopback() || ip.IsUnspecified() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
-				return errors.New("SSRF prevented: access to internal IP blocked")
-			}
-			return nil
-		},
-	}
-	transport.DialContext = dialer.DialContext
-	return transport
-}
-
 func NewDispatcher(webhookRepo *repo.WebhookRepo) *Dispatcher {
-	dialer := &net.Dialer{
-		Timeout:   30 * time.Second,
-		KeepAlive: 30 * time.Second,
-		Control: func(network, address string, c syscall.RawConn) error {
-			host, _, err := net.SplitHostPort(address)
-			if err != nil {
-				return err
-			}
-			ip := net.ParseIP(host)
-			if ip == nil {
-				return fmt.Errorf("invalid IP: %s", host)
-			}
-			if ip.IsPrivate() || ip.IsLoopback() || ip.IsUnspecified() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
-				return fmt.Errorf("SSRF blocked: restricted IP %s", ip.String())
-			}
-			return nil
-		},
-	}
-	t := http.DefaultTransport.(*http.Transport).Clone()
-	t.DialContext = dialer.DialContext
-
 	return &Dispatcher{
-		repo: webhookRepo,
-		client: &http.Client{
-			Transport: t,
-			Timeout:   10 * time.Second,
-		},
+		repo:   webhookRepo,
+		client: safehttp.NewClient(10 * time.Second), // refuses internal addresses (SSRF)
 	}
 }
 

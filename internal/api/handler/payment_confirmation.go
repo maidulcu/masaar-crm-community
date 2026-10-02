@@ -8,7 +8,7 @@ import (
 )
 
 type PaymentConfirmationHandler struct {
-	confirmations *repo.PaymentConfirmationRepo
+	confirmations       *repo.PaymentConfirmationRepo
 	confirmationService *ai.PaymentConfirmationService
 }
 
@@ -64,7 +64,7 @@ func (h *PaymentConfirmationHandler) Send(c *fiber.Ctx) error {
 	}
 
 	if err := h.confirmationService.CreateAndSendConfirmation(c.Context(), paymentID); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 
 	confirmation, _ := h.confirmations.GetByPaymentID(c.Context(), paymentID)

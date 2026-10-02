@@ -8,6 +8,7 @@ import (
 	basicauth "github.com/gofiber/fiber/v2/middleware/basicauth"
 	"github.com/gofiber/fiber/v2/middleware/limiter"
 	fiberws "github.com/gofiber/websocket/v2"
+	"github.com/jackc/pgx/v5/pgxpool"
 	_ "github.com/maidulcu/masaar-crm/docs" // swagger generated docs
 	"github.com/maidulcu/masaar-crm/internal/api/handler"
 	"github.com/maidulcu/masaar-crm/internal/api/middleware"
@@ -15,59 +16,58 @@ import (
 	"github.com/maidulcu/masaar-crm/internal/domain"
 	"github.com/maidulcu/masaar-crm/internal/repo"
 	"github.com/maidulcu/masaar-crm/internal/ws"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 	fiberswagger "github.com/swaggo/fiber-swagger"
 )
 
 type Handlers struct {
-	Auth              *handler.AuthHandler
-	User              *handler.UserHandler
-	Stats             *handler.StatsHandler
-	Contact           *handler.ContactHandler
-	Lead              *handler.LeadHandler
-	WhatsApp          *handler.WhatsAppHandler
-	WhatsAppOutbound  *handler.WhatsAppOutboundHandler
-	AI                *handler.AIHandler
-	Message           *handler.MessageHandler
-	Notification      *handler.NotificationHandler
-	Deal              *handler.DealHandler
-	Invoice           *handler.InvoiceHandler
-	Property          *handler.PropertyHandler
-	Settings          *handler.SettingsHandler
-	Email             *handler.EmailHandler
-	RentalProperty    *handler.RentalPropertyHandler
-	Tenant            *handler.TenantHandler
-	LeaseTemplate     *handler.LeaseTemplateHandler
-	Lease             *handler.LeaseHandler
-	Payment           *handler.PaymentHandler
-	BankIntegration   *handler.BankIntegrationHandler
-	BankStatement     *handler.BankStatementHandler
+	Auth                *handler.AuthHandler
+	User                *handler.UserHandler
+	Stats               *handler.StatsHandler
+	Contact             *handler.ContactHandler
+	Lead                *handler.LeadHandler
+	WhatsApp            *handler.WhatsAppHandler
+	WhatsAppOutbound    *handler.WhatsAppOutboundHandler
+	AI                  *handler.AIHandler
+	Message             *handler.MessageHandler
+	Notification        *handler.NotificationHandler
+	Deal                *handler.DealHandler
+	Invoice             *handler.InvoiceHandler
+	Property            *handler.PropertyHandler
+	Settings            *handler.SettingsHandler
+	Email               *handler.EmailHandler
+	RentalProperty      *handler.RentalPropertyHandler
+	Tenant              *handler.TenantHandler
+	LeaseTemplate       *handler.LeaseTemplateHandler
+	Lease               *handler.LeaseHandler
+	Payment             *handler.PaymentHandler
+	BankIntegration     *handler.BankIntegrationHandler
+	BankStatement       *handler.BankStatementHandler
 	PaymentConfirmation *handler.PaymentConfirmationHandler
-	Analytics         *handler.AnalyticsHandler
-	Expense           *handler.ExpenseHandler
-	Inspection        *handler.InspectionHandler
-	Maintenance       *handler.MaintenanceTaskHandler
-	LeaseRenewal      *handler.LeaseRenewalHandler
-	Document          *handler.DocumentHandler
-	ApiKey            *handler.ApiKeyHandler
-	PublicLead        *handler.PublicLeadHandler
-	WebhookSub        *handler.WebhookSubHandler
-	Billing           *handler.BillingHandler
-	MessageTemplate   *handler.MessageTemplateHandler
-	AuditLog          *handler.AuditHandler
-	Listing           *handler.ListingHandler
-	BOS24Integration  *handler.BOS24IntegrationHandler
-	Offer             *handler.OfferHandler
-	LeadRotation      *handler.LeadRotationHandler
-	Commission        *handler.CommissionHandler
-	Performance       *handler.PerformanceHandler
-	Viewing           *handler.ViewingHandler
-	Marketing         *handler.MarketingHandler
-	ImportExport      *handler.ImportExportHandler
-	PipelineStage     *handler.PipelineStageHandler
-	Approval          *handler.ApprovalHandler
-	DocusignWebhook   *handler.DocusignWebhookHandler
+	Analytics           *handler.AnalyticsHandler
+	Expense             *handler.ExpenseHandler
+	Inspection          *handler.InspectionHandler
+	Maintenance         *handler.MaintenanceTaskHandler
+	LeaseRenewal        *handler.LeaseRenewalHandler
+	Document            *handler.DocumentHandler
+	ApiKey              *handler.ApiKeyHandler
+	PublicLead          *handler.PublicLeadHandler
+	WebhookSub          *handler.WebhookSubHandler
+	Billing             *handler.BillingHandler
+	MessageTemplate     *handler.MessageTemplateHandler
+	AuditLog            *handler.AuditHandler
+	Listing             *handler.ListingHandler
+	BOS24Integration    *handler.BOS24IntegrationHandler
+	Offer               *handler.OfferHandler
+	LeadRotation        *handler.LeadRotationHandler
+	Commission          *handler.CommissionHandler
+	Performance         *handler.PerformanceHandler
+	Viewing             *handler.ViewingHandler
+	Marketing           *handler.MarketingHandler
+	ImportExport        *handler.ImportExportHandler
+	PipelineStage       *handler.PipelineStageHandler
+	Approval            *handler.ApprovalHandler
+	DocusignWebhook     *handler.DocusignWebhookHandler
 }
 
 // webhookLimiter allows Meta's burst delivery (300 req/min per IP) while
@@ -280,8 +280,14 @@ func RegisterRoutes(app *fiber.App, h *Handlers, hub *ws.Hub, cfg *config.Config
 		middleware.RequireRole(domain.RoleAdmin, domain.RoleAgent),
 		h.ImportExport.ImportLeads,
 	)
-	v1.Get("/export/contacts", h.ImportExport.ExportContacts)
-	v1.Get("/export/leads", h.ImportExport.ExportLeads)
+	v1.Get("/export/contacts",
+		middleware.RequireRole(domain.RoleAdmin, domain.RoleAgent),
+		h.ImportExport.ExportContacts,
+	)
+	v1.Get("/export/leads",
+		middleware.RequireRole(domain.RoleAdmin, domain.RoleAgent),
+		h.ImportExport.ExportLeads,
+	)
 	v1.Get("/export/listings",
 		middleware.RequireRole(domain.RoleAdmin, domain.RoleAgent),
 		h.ImportExport.ExportListings,

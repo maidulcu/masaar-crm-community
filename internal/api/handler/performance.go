@@ -37,7 +37,7 @@ func (h *PerformanceHandler) Leaderboard(c *fiber.Ctx) error {
 
 	board, err := h.repo.GetLeaderboard(c.Context(), companyID, from, to, metric)
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 
 	// Re-sort by the caller's chosen metric
@@ -64,7 +64,7 @@ func (h *PerformanceHandler) AgentKPIs(c *fiber.Ctx) error {
 
 	kpis, err := h.repo.GetAgentKPIs(c.Context(), agentID, from, to)
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 	return c.JSON(kpis)
 }
@@ -79,7 +79,7 @@ func (h *PerformanceHandler) AgentTrends(c *fiber.Ctx) error {
 	now := time.Now().UTC()
 	trends, err := h.repo.GetKPITrends(c.Context(), agentID, now)
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 	return c.JSON(fiber.Map{"data": trends})
 }
@@ -95,7 +95,7 @@ func (h *PerformanceHandler) AgentTargets(c *fiber.Ctx) error {
 
 	targets, err := h.repo.GetTargets(c.Context(), agentID, period)
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 
 	// Enrich targets with current progress
@@ -152,7 +152,7 @@ func (h *PerformanceHandler) UpsertTarget(c *fiber.Ctx) error {
 		Period:      body.Period,
 	}
 	if err := h.repo.UpsertTarget(c.Context(), t); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 	return c.Status(fiber.StatusCreated).JSON(t)
 }
@@ -164,7 +164,7 @@ func (h *PerformanceHandler) DeleteTarget(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid id"})
 	}
 	if err := h.repo.DeleteTarget(c.Context(), id); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 	return c.SendStatus(fiber.StatusNoContent)
 }

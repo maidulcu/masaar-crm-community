@@ -201,6 +201,24 @@ func TestContactsIsolated(t *testing.T) {
 	}
 }
 
+func TestContactCannotBeAssignedToAnotherCompanysAgent(t *testing.T) {
+	e := setup(t)
+	repo := NewContactRepo(e.pool)
+	bad := &domain.Contact{PhoneWA: "+97158" + uuid.NewString()[:7], FullName: "X", Language: "en", AssignedTo: &e.a.user}
+	if err := repo.Create(e.b.ctx, bad); !isNotFound(err) {
+		t.Fatalf("B assigned a new contact to A's agent: %v", err)
+	}
+	own := e.contact(t, e.b, "+97159"+uuid.NewString()[:7])
+	own.AssignedTo = &e.a.user
+	if err := repo.Update(e.b.ctx, own); !isNotFound(err) {
+		t.Fatalf("B reassigned a contact to A's agent: %v", err)
+	}
+	own.AssignedTo = &e.b.user
+	if err := repo.Update(e.b.ctx, own); err != nil {
+		t.Fatalf("assigning to own agent must work: %v", err)
+	}
+}
+
 func TestLeadsIsolatedAndNoCrossReferences(t *testing.T) {
 	e := setup(t)
 	leads := NewLeadRepo(e.pool)

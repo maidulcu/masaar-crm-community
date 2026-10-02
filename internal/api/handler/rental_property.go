@@ -45,7 +45,7 @@ func (h *RentalPropertyHandler) List(c *fiber.Ctx) error {
 
 	result, err := h.properties.List(c.Context(), companyID, page, limit)
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 	return c.JSON(result)
 }
@@ -87,7 +87,7 @@ func (h *RentalPropertyHandler) Get(c *fiber.Ctx) error {
 func (h *RentalPropertyHandler) Create(c *fiber.Ctx) error {
 	var p domain.RentalProperty
 	if err := c.BodyParser(&p); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+		return badRequest(c, err)
 	}
 
 	if p.Name == "" || p.PropertyType == "" {
@@ -105,7 +105,7 @@ func (h *RentalPropertyHandler) Create(c *fiber.Ctx) error {
 	p.CompanyID = companyID
 
 	if err := h.properties.Create(c.Context(), &p); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 	return c.Status(fiber.StatusCreated).JSON(p)
 }
@@ -135,14 +135,14 @@ func (h *RentalPropertyHandler) Update(c *fiber.Ctx) error {
 	}
 
 	if err := c.BodyParser(p); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+		return badRequest(c, err)
 	}
 
 	userID := c.Locals("user_id").(uuid.UUID)
 	p.UpdatedBy = &userID
 
 	if err := h.properties.Update(c.Context(), p); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 	return c.JSON(p)
 }
@@ -164,7 +164,7 @@ func (h *RentalPropertyHandler) Delete(c *fiber.Ctx) error {
 	}
 
 	if err := h.properties.Delete(c.Context(), id); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 	return c.SendStatus(fiber.StatusNoContent)
 }

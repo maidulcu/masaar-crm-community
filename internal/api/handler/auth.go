@@ -422,11 +422,11 @@ func (h *AuthHandler) Register(c *fiber.Ctx) error {
 	}
 
 	var body struct {
-		Name          string `json:"name"`
-		Email         string `json:"email"`
-		Password      string `json:"password"`
-		CompanyName   string `json:"company_name"`
-		Subdomain     string `json:"subdomain"`
+		Name           string `json:"name"`
+		Email          string `json:"email"`
+		Password       string `json:"password"`
+		CompanyName    string `json:"company_name"`
+		Subdomain      string `json:"subdomain"`
 		TurnstileToken string `json:"turnstile_token"`
 	}
 	if err := c.BodyParser(&body); err != nil {
@@ -496,8 +496,8 @@ func (h *AuthHandler) Register(c *fiber.Ctx) error {
 
 	// Audit log
 	h.audit.Log(c.Context(), user.ID, repo.AuditCreate, repo.AuditUser, user.ID, fiber.Map{
-		"action":      "registration",
-		"company_id":  company.ID.String(),
+		"action":       "registration",
+		"company_id":   company.ID.String(),
 		"company_name": company.Name,
 	})
 

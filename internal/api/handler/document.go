@@ -1,21 +1,21 @@
 package handler
 
 import (
-	"io"
-	"net/http"
+	"context"
 	"strconv"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
-	"github.com/maidulcu/masaar-crm/internal/domain"
 	"github.com/maidulcu/masaar-crm/internal/docusign"
+	"github.com/maidulcu/masaar-crm/internal/domain"
 	"github.com/maidulcu/masaar-crm/internal/repo"
+	"github.com/maidulcu/masaar-crm/internal/safehttp"
 )
 
 type DocumentHandler struct {
-	docs    *repo.DocumentRepo
-	audit   *repo.AuditLogRepo
+	docs     *repo.DocumentRepo
+	audit    *repo.AuditLogRepo
 	dsClient *docusign.Client
 }
 
@@ -46,7 +46,7 @@ func (h *DocumentHandler) ListTemplates(c *fiber.Ctx) error {
 	companyID, _ := uuid.Parse(c.Locals("company_id").(string))
 	result, err := h.docs.ListTemplates(c.Context(), companyID, page, limit)
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 	return c.JSON(result)
 }
@@ -97,7 +97,7 @@ func (h *DocumentHandler) CreateTemplate(c *fiber.Ctx) error {
 	t.CreatedBy = c.Locals("user_id").(uuid.UUID)
 
 	if err := h.docs.CreateTemplate(c.Context(), &t); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 	h.audit.Log(c.Context(), t.CreatedBy, repo.AuditCreate, "document_template", t.ID, t)
 	return c.Status(fiber.StatusCreated).JSON(t)
@@ -129,7 +129,7 @@ func (h *DocumentHandler) UpdateTemplate(c *fiber.Ctx) error {
 	}
 
 	if err := h.docs.UpdateTemplate(c.Context(), id, body.TemplateName, body.TemplateContent); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 	userID := c.Locals("user_id").(uuid.UUID)
 	h.audit.Log(c.Context(), userID, repo.AuditUpdate, "document_template", id, body)
@@ -151,7 +151,7 @@ func (h *DocumentHandler) DeleteTemplate(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid id"})
 	}
 	if err := h.docs.DeleteTemplate(c.Context(), id); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 	userID := c.Locals("user_id").(uuid.UUID)
 	h.audit.Log(c.Context(), userID, repo.AuditDelete, "document_template", id, nil)
@@ -183,7 +183,7 @@ func (h *DocumentHandler) CreateDocument(c *fiber.Ctx) error {
 	d.SignatureStatus = domain.SignaturePending
 
 	if err := h.docs.CreateDocument(c.Context(), &d); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 	h.audit.Log(c.Context(), d.CreatedBy, repo.AuditCreate, repo.AuditDocument, d.ID, d)
 	return c.Status(fiber.StatusCreated).JSON(d)
@@ -239,7 +239,7 @@ func (h *DocumentHandler) ListDocuments(c *fiber.Ctx) error {
 
 	docs, err := h.docs.ListDocumentsByEntity(c.Context(), entityType, entityID)
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 	return c.JSON(docs)
 }
@@ -289,7 +289,7 @@ func (h *DocumentHandler) SendForSignature(c *fiber.Ctx) error {
 	// DocuSign flow
 	if body.UseDocusign && h.dsClient != nil && h.dsClient.Enabled() {
 		if d.FileURL != "" {
-			docContent, fetchErr := fetchDocumentContent(d.FileURL)
+			docContent, fetchErr := fetchDocumentContent(c.Context(), d.FileURL)
 			if fetchErr == nil {
 				envResult, dsErr := h.dsClient.SendEnvelope(c.Context(), docContent, d.DocumentTitle,
 					docusign.Signer{Name: body.SignerName, Email: body.SignerEmail})
@@ -301,7 +301,7 @@ func (h *DocumentHandler) SendForSignature(c *fiber.Ctx) error {
 	}
 
 	if err := h.docs.CreateSignature(c.Context(), sig); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 
 	h.audit.Log(c.Context(), c.Locals("user_id").(uuid.UUID), "signature_request", repo.AuditDocument, docID, sig)
@@ -314,17 +314,18 @@ func (h *DocumentHandler) SendForSignature(c *fiber.Ctx) error {
 }
 
 // fetchDocumentContent retrieves document bytes from a URL or file path.
-func fetchDocumentContent(url string) ([]byte, error) {
+// The URL is user-controlled (documents store a client-supplied file_url), so it is fetched
+// through safehttp: internal addresses are refused, only http(s) is allowed, and the size is
+// capped.
+func fetchDocumentContent(ctx context.Context, url string) ([]byte, error) {
 	if url == "" {
 		return nil, fiber.ErrBadRequest
 	}
-	resp, err := http.Get(url)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	return io.ReadAll(resp.Body)
+	return safehttp.Fetch(ctx, url, maxDocumentBytes, 20*time.Second)
 }
+
+// maxDocumentBytes bounds a document pulled for e-signature (DocuSign allows ~25 MB).
+const maxDocumentBytes = 25 << 20
 
 // MarkSigned godoc
 // @Summary      Mark signature as signed
@@ -344,7 +345,7 @@ func (h *DocumentHandler) MarkSigned(c *fiber.Ctx) error {
 	}
 
 	if err := h.docs.MarkSigned(c.Context(), sigID, time.Now()); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 
 	return c.JSON(fiber.Map{"id": sigID})
@@ -415,7 +416,7 @@ func (h *DocumentHandler) DeleteDocument(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid id"})
 	}
 	if err := h.docs.SoftDeleteDocument(c.Context(), id); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 	userID := c.Locals("user_id").(uuid.UUID)
 	h.audit.Log(c.Context(), userID, repo.AuditDelete, repo.AuditDocument, id, nil)

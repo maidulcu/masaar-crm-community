@@ -74,7 +74,7 @@ func (h *EmailHandler) SendEmail(c *fiber.Ctx) error {
 	err := h.emailRepo.Create(c.Context(), emailHist)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"error": "failed to save email: " + err.Error(),
+			"error": safeMsg("failed to save email", err),
 		})
 	}
 
@@ -84,7 +84,7 @@ func (h *EmailHandler) SendEmail(c *fiber.Ctx) error {
 		// Update status to failed
 		h.emailRepo.UpdateStatus(c.Context(), emailHist.ID, domain.EmailFailed, err.Error())
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"error": "failed to send email: " + err.Error(),
+			"error": safeMsg("failed to send email", err),
 		})
 	}
 
@@ -92,7 +92,7 @@ func (h *EmailHandler) SendEmail(c *fiber.Ctx) error {
 	h.emailRepo.UpdateStatus(c.Context(), emailHist.ID, domain.EmailSent, "")
 
 	return c.JSON(fiber.Map{
-		"success": true,
+		"success":  true,
 		"email_id": emailHist.ID,
 	})
 }
@@ -128,7 +128,7 @@ func (h *EmailHandler) GetEmailHistory(c *fiber.Ctx) error {
 	emails, err := h.emailRepo.ListByRelated(c.Context(), relatedTo, int64(relatedID))
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"error": "failed to fetch email history: " + err.Error(),
+			"error": safeMsg("failed to fetch email history", err),
 		})
 	}
 
@@ -156,7 +156,7 @@ func (h *EmailHandler) ListAllEmailHistory(c *fiber.Ctx) error {
 
 	emails, total, err := h.emailRepo.ListAll(c.Context(), page, limit)
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 	if emails == nil {
 		emails = []domain.EmailHistory{}
@@ -166,12 +166,12 @@ func (h *EmailHandler) ListAllEmailHistory(c *fiber.Ctx) error {
 
 // Request types
 type SendEmailRequest struct {
-	FromEmail   string                 `json:"from_email"`
-	ToEmail     string                 `json:"to_email"`
-	Subject     string                 `json:"subject"`
-	Body        string                 `json:"body"`
-	HTMLBody    string                 `json:"html_body"`
-	RelatedTo   string                 `json:"related_to"`
-	RelatedID   int64                  `json:"related_id"`
-	Metadata    map[string]interface{} `json:"metadata"`
+	FromEmail string                 `json:"from_email"`
+	ToEmail   string                 `json:"to_email"`
+	Subject   string                 `json:"subject"`
+	Body      string                 `json:"body"`
+	HTMLBody  string                 `json:"html_body"`
+	RelatedTo string                 `json:"related_to"`
+	RelatedID int64                  `json:"related_id"`
+	Metadata  map[string]interface{} `json:"metadata"`
 }

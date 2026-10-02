@@ -47,7 +47,7 @@ func (h *LeadRotationHandler) GetSettings(c *fiber.Ctx) error {
 
 	settings, err := h.rotationRepo.GetSettings(c.Context(), companyID)
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 
 	// Return available agents count for UI
@@ -95,7 +95,7 @@ func (h *LeadRotationHandler) UpdateSettings(c *fiber.Ctx) error {
 	existing.MaxPerAgent = body.MaxPerAgent
 
 	if err := h.rotationRepo.SaveSettings(c.Context(), existing); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 	return c.JSON(fiber.Map{"ok": true, "mode": existing.Mode, "enabled": existing.Enabled})
 }
@@ -114,18 +114,18 @@ func (h *LeadRotationHandler) AutoAssign(c *fiber.Ctx) error {
 
 	agentID, err := h.pickAgent(c, companyID)
 	if err != nil {
-		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"error": err.Error()})
+		return upstreamError(c, err)
 	}
 	if agentID == nil {
 		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"error": "no available agents"})
 	}
 
 	if err := h.leadRepo.Assign(c.Context(), leadID, agentID); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 
 	h.hub.BroadcastToCompany(localsCompanyID(c), ws.Event{
-		Type: "lead.assigned",
+		Type:    "lead.assigned",
 		Payload: fiber.Map{"lead_id": leadID, "agent_id": agentID},
 	})
 

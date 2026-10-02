@@ -83,7 +83,7 @@ func NewLeadHandler(leads LeadRepository, contacts ContactRepository, commHistRe
 func (h *LeadHandler) KanbanBoard(c *fiber.Ctx) error {
 	board, err := h.leads.KanbanBoard(c.Context())
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 	return c.JSON(board)
 }
@@ -133,7 +133,7 @@ func (h *LeadHandler) List(c *fiber.Ctx) error {
 
 	leads, err := h.leads.List(c.Context(), f)
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 	if leads == nil {
 		leads = []domain.Lead{}
@@ -168,7 +168,7 @@ func (h *LeadHandler) Create(c *fiber.Ctx) error {
 	}
 
 	if err := h.leads.Create(c.Context(), &lead); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 
 	h.hub.BroadcastToCompany(localsCompanyID(c), ws.Event{
@@ -239,7 +239,7 @@ func (h *LeadHandler) UpdateStage(c *fiber.Ctx) error {
 	}
 
 	if err := h.leads.UpdateStage(c.Context(), id, body.Stage, body.ClosedReason); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 
 	if h.scoringService != nil {
@@ -301,7 +301,7 @@ func (h *LeadHandler) UpdateNotes(c *fiber.Ctx) error {
 	}
 
 	if err := h.leads.UpdateNotes(c.Context(), id, body.Notes); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 
 	return c.JSON(fiber.Map{"lead_id": id, "notes": body.Notes})
@@ -333,7 +333,7 @@ func (h *LeadHandler) Assign(c *fiber.Ctx) error {
 	}
 
 	if err := h.leads.Assign(c.Context(), id, body.UserID); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 
 	return c.JSON(fiber.Map{"lead_id": id, "assigned_to": body.UserID})
@@ -420,7 +420,7 @@ func (h *LeadHandler) GetTags(c *fiber.Ctx) error {
 	}
 	tags, err := h.tags.GetByLead(c.Context(), id)
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 	if tags == nil {
 		tags = []string{}
@@ -455,7 +455,7 @@ func (h *LeadHandler) AddTag(c *fiber.Ctx) error {
 	}
 	userID := c.Locals("user_id").(uuid.UUID)
 	if err := h.tags.AddTag(c.Context(), id, body.Tag, body.Category, false, &userID); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 	return c.SendStatus(fiber.StatusCreated)
 }
@@ -479,7 +479,7 @@ func (h *LeadHandler) RemoveTag(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "tag is required"})
 	}
 	if err := h.tags.RemoveTag(c.Context(), id, tag); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 	return c.SendStatus(fiber.StatusNoContent)
 }
@@ -499,7 +499,7 @@ func (h *LeadHandler) GetCommunications(c *fiber.Ctx) error {
 
 	comms, err := h.commHistRepo.GetByLead(c.Context(), id, limit)
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return serverError(c, err)
 	}
 
 	return c.JSON(comms)

@@ -64,7 +64,7 @@ func (h *PropertyHandler) SearchProperties(c *fiber.Ctx) error {
 
 	result, err := h.bos24Client.SearchProperties(ctx, req.Query, limit)
 	if err != nil {
-		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"error": err.Error()})
+		return upstreamError(c, err)
 	}
 
 	return c.JSON(result)
@@ -121,7 +121,7 @@ func (h *PropertyHandler) GetTransactions(c *fiber.Ctx) error {
 
 	result, err := h.bos24Client.GetTransactions(ctx, filters)
 	if err != nil {
-		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"error": err.Error()})
+		return upstreamError(c, err)
 	}
 
 	return c.JSON(fiber.Map{"transactions": result})
@@ -159,7 +159,7 @@ func (h *PropertyHandler) GetBuildings(c *fiber.Ctx) error {
 
 	result, err := h.bos24Client.SearchBuildings(ctx, query, limit)
 	if err != nil {
-		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"error": err.Error()})
+		return upstreamError(c, err)
 	}
 
 	return c.JSON(fiber.Map{"buildings": result})
@@ -191,7 +191,7 @@ func (h *PropertyHandler) GetBuildingByID(c *fiber.Ctx) error {
 
 	result, err := h.bos24Client.GetBuilding(ctx, buildingID)
 	if err != nil {
-		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"error": err.Error()})
+		return upstreamError(c, err)
 	}
 
 	return c.JSON(result)
@@ -247,7 +247,7 @@ func (h *PropertyHandler) GetNearbyPOIs(c *fiber.Ctx) error {
 
 	result, err := h.bos24Client.GetPOIs(ctx, lat, lng, radius, c.Query("category"), limit)
 	if err != nil {
-		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"error": err.Error()})
+		return upstreamError(c, err)
 	}
 
 	return c.JSON(fiber.Map{"pois": result})
@@ -302,7 +302,7 @@ func (h *PropertyHandler) GetNearbySchools(c *fiber.Ctx) error {
 
 	result, err := h.bos24Client.GetNearbySchools(ctx, lat, lng, radius, limit)
 	if err != nil {
-		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"error": err.Error()})
+		return upstreamError(c, err)
 	}
 
 	return c.JSON(fiber.Map{"schools": result})
@@ -327,7 +327,7 @@ func (h *PropertyHandler) GetAreas(c *fiber.Ctx) error {
 
 	result, err := h.bos24Client.GetAreas(ctx)
 	if err != nil {
-		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"error": err.Error()})
+		return upstreamError(c, err)
 	}
 
 	return c.JSON(fiber.Map{"areas": result})
@@ -359,7 +359,7 @@ func (h *PropertyHandler) GetAreaSummary(c *fiber.Ctx) error {
 
 	result, err := h.bos24Client.GetAreaSummary(ctx, slug)
 	if err != nil {
-		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"error": err.Error()})
+		return upstreamError(c, err)
 	}
 
 	return c.JSON(result)
@@ -397,7 +397,7 @@ func (h *PropertyHandler) GetAreaBuildings(c *fiber.Ctx) error {
 
 	result, err := h.bos24Client.GetAreaBuildings(ctx, slug, limit)
 	if err != nil {
-		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"error": err.Error()})
+		return upstreamError(c, err)
 	}
 
 	return c.JSON(fiber.Map{"buildings": result})
@@ -422,7 +422,7 @@ func (h *PropertyHandler) GetMapAreas(c *fiber.Ctx) error {
 
 	result, err := h.bos24Client.GetAreasWithLocations(ctx)
 	if err != nil {
-		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"error": err.Error()})
+		return upstreamError(c, err)
 	}
 
 	return c.JSON(fiber.Map{"areas": result})
@@ -461,7 +461,7 @@ func (h *PropertyHandler) GetTransactionAreas(c *fiber.Ctx) error {
 
 	result, err := h.bos24Client.GetTransactionAreas(ctx, filters)
 	if err != nil {
-		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"error": err.Error()})
+		return upstreamError(c, err)
 	}
 
 	return c.JSON(fiber.Map{"areas": result})
@@ -504,7 +504,7 @@ func (h *PropertyHandler) GetEjariRentals(c *fiber.Ctx) error {
 
 	result, err := h.bos24Client.GetEjariRentals(ctx, filters)
 	if err != nil {
-		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"error": err.Error()})
+		return upstreamError(c, err)
 	}
 
 	return c.JSON(fiber.Map{"rentals": result})
@@ -539,7 +539,7 @@ func (h *PropertyHandler) GetEjariYield(c *fiber.Ctx) error {
 
 	result, err := h.bos24Client.GetEjariYield(ctx, filters)
 	if err != nil {
-		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"error": err.Error()})
+		return upstreamError(c, err)
 	}
 
 	return c.JSON(fiber.Map{"yield": result})
@@ -578,7 +578,7 @@ func (h *PropertyHandler) GetRentals(c *fiber.Ctx) error {
 
 	result, err := h.bos24Client.GetRentals(ctx, filters)
 	if err != nil {
-		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"error": err.Error()})
+		return upstreamError(c, err)
 	}
 
 	return c.JSON(fiber.Map{"rentals": result})
@@ -610,7 +610,7 @@ func (h *PropertyHandler) GetDevelopers(c *fiber.Ctx) error {
 
 	result, err := h.bos24Client.GetDevelopers(ctx, c.Query("q"), limit)
 	if err != nil {
-		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"error": err.Error()})
+		return upstreamError(c, err)
 	}
 
 	return c.JSON(fiber.Map{"developers": result})
@@ -653,7 +653,7 @@ func (h *PropertyHandler) GetProjects(c *fiber.Ctx) error {
 
 	result, err := h.bos24Client.GetProjects(ctx, filters)
 	if err != nil {
-		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"error": err.Error()})
+		return upstreamError(c, err)
 	}
 
 	return c.JSON(fiber.Map{"projects": result})
@@ -691,7 +691,7 @@ func (h *PropertyHandler) SearchProjects(c *fiber.Ctx) error {
 
 	result, err := h.bos24Client.SearchProjects(ctx, req.Query, limit)
 	if err != nil {
-		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"error": err.Error()})
+		return upstreamError(c, err)
 	}
 
 	return c.JSON(result)
@@ -730,7 +730,7 @@ func (h *PropertyHandler) GetValuations(c *fiber.Ctx) error {
 
 	result, err := h.bos24Client.GetValuations(ctx, filters)
 	if err != nil {
-		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"error": err.Error()})
+		return upstreamError(c, err)
 	}
 
 	return c.JSON(fiber.Map{"valuations": result})
@@ -763,7 +763,7 @@ func (h *PropertyHandler) DescribeProperty(c *fiber.Ctx) error {
 
 	result, err := h.bos24Client.DescribeProperty(ctx, details)
 	if err != nil {
-		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"error": err.Error()})
+		return upstreamError(c, err)
 	}
 
 	return c.JSON(result)
@@ -808,7 +808,7 @@ func (h *PropertyHandler) GetUnits(c *fiber.Ctx) error {
 
 	result, err := h.bos24Client.GetUnits(ctx, filters)
 	if err != nil {
-		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"error": err.Error()})
+		return upstreamError(c, err)
 	}
 
 	return c.JSON(fiber.Map{"units": result})
@@ -846,12 +846,12 @@ func (h *PropertyHandler) GetYieldAnalysis(c *fiber.Ctx) error {
 
 	rentalStats, err := h.bos24Client.GetEjariStats(ctx, filters)
 	if err != nil {
-		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"error": err.Error()})
+		return upstreamError(c, err)
 	}
 
 	salesStats, err := h.bos24Client.GetTransactionStats(ctx, filters)
 	if err != nil {
-		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"error": err.Error()})
+		return upstreamError(c, err)
 	}
 
 	return c.JSON(YieldAnalysisResponse{
@@ -897,7 +897,7 @@ func (h *PropertyHandler) GetComparables(c *fiber.Ctx) error {
 
 	transactions, err := h.bos24Client.GetTransactions(ctx, filters)
 	if err != nil {
-		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"error": err.Error()})
+		return upstreamError(c, err)
 	}
 
 	comparables := make([]interface{}, len(transactions))
@@ -945,7 +945,7 @@ func (h *PropertyHandler) GetMarketTrends(c *fiber.Ctx) error {
 
 	stats, err := h.bos24Client.GetTransactionStats(ctx, filters)
 	if err != nil {
-		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"error": err.Error()})
+		return upstreamError(c, err)
 	}
 
 	rentalStats, err := h.bos24Client.GetEjariStats(ctx, filters)
@@ -980,7 +980,7 @@ func (h *PropertyHandler) GetMarketOverview(c *fiber.Ctx) error {
 	defer cancel()
 	result, err := h.bos24Client.GetMarketOverview(ctx, c.Query("period"), c.Query("property_type"))
 	if err != nil {
-		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"error": err.Error()})
+		return upstreamError(c, err)
 	}
 	return c.JSON(result)
 }
@@ -1009,7 +1009,7 @@ func (h *PropertyHandler) GetAreaComparison(c *fiber.Ctx) error {
 	defer cancel()
 	result, err := h.bos24Client.GetAreaComparison(ctx, areas, c.Query("property_type"))
 	if err != nil {
-		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"error": err.Error()})
+		return upstreamError(c, err)
 	}
 	return c.JSON(result)
 }
@@ -1039,7 +1039,7 @@ func (h *PropertyHandler) GetPriceTrends(c *fiber.Ctx) error {
 	defer cancel()
 	result, err := h.bos24Client.GetPriceTrends(ctx, area, c.Query("property_type"), c.Query("granularity"))
 	if err != nil {
-		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"error": err.Error()})
+		return upstreamError(c, err)
 	}
 	return c.JSON(result)
 }
@@ -1068,7 +1068,7 @@ func (h *PropertyHandler) GetTopAreas(c *fiber.Ctx) error {
 	defer cancel()
 	result, err := h.bos24Client.GetTopAreas(ctx, c.Query("metric"), c.Query("property_type"), limit)
 	if err != nil {
-		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"error": err.Error()})
+		return upstreamError(c, err)
 	}
 	return c.JSON(result)
 }
@@ -1100,7 +1100,7 @@ func (h *PropertyHandler) GetBrokers(c *fiber.Ctx) error {
 	defer cancel()
 	result, err := h.bos24Client.GetBrokers(ctx, limit, offset)
 	if err != nil {
-		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"error": err.Error()})
+		return upstreamError(c, err)
 	}
 	return c.JSON(result)
 }
@@ -1128,7 +1128,7 @@ func (h *PropertyHandler) GetTransaction(c *fiber.Ctx) error {
 	defer cancel()
 	result, err := h.bos24Client.GetTransaction(ctx, id)
 	if err != nil {
-		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"error": err.Error()})
+		return upstreamError(c, err)
 	}
 	return c.JSON(result)
 }
@@ -1156,7 +1156,7 @@ func (h *PropertyHandler) GetEnrichedTransaction(c *fiber.Ctx) error {
 	defer cancel()
 	result, err := h.bos24Client.GetEnrichedTransaction(ctx, id)
 	if err != nil {
-		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"error": err.Error()})
+		return upstreamError(c, err)
 	}
 	return c.JSON(result)
 }
@@ -1189,7 +1189,7 @@ func (h *PropertyHandler) GetTransactionsByProject(c *fiber.Ctx) error {
 	defer cancel()
 	result, err := h.bos24Client.GetTransactionsByProject(ctx, name, filters)
 	if err != nil {
-		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"error": err.Error()})
+		return upstreamError(c, err)
 	}
 	return c.JSON(result)
 }
@@ -1217,7 +1217,7 @@ func (h *PropertyHandler) GetAreaTransactionSummary(c *fiber.Ctx) error {
 	defer cancel()
 	result, err := h.bos24Client.GetAreaTransactionSummary(ctx, name)
 	if err != nil {
-		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"error": err.Error()})
+		return upstreamError(c, err)
 	}
 	return c.JSON(result)
 }
@@ -1248,7 +1248,7 @@ func (h *PropertyHandler) GetRentalStats(c *fiber.Ctx) error {
 	defer cancel()
 	result, err := h.bos24Client.GetRentalStats(ctx, filters)
 	if err != nil {
-		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"error": err.Error()})
+		return upstreamError(c, err)
 	}
 	return c.JSON(result)
 }
@@ -1270,7 +1270,7 @@ func (h *PropertyHandler) GetRentalAreas(c *fiber.Ctx) error {
 	defer cancel()
 	result, err := h.bos24Client.GetRentalAreas(ctx)
 	if err != nil {
-		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"error": err.Error()})
+		return upstreamError(c, err)
 	}
 	return c.JSON(result)
 }
@@ -1308,7 +1308,7 @@ func (h *PropertyHandler) GetRentalsByProject(c *fiber.Ctx) error {
 	defer cancel()
 	result, err := h.bos24Client.GetRentalsByProject(ctx, name, limit, offset)
 	if err != nil {
-		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"error": err.Error()})
+		return upstreamError(c, err)
 	}
 	return c.JSON(result)
 }
@@ -1346,7 +1346,7 @@ func (h *PropertyHandler) GetRentalsByBuilding(c *fiber.Ctx) error {
 	defer cancel()
 	result, err := h.bos24Client.GetRentalsByBuilding(ctx, name, limit, offset)
 	if err != nil {
-		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"error": err.Error()})
+		return upstreamError(c, err)
 	}
 	return c.JSON(result)
 }
@@ -1378,7 +1378,7 @@ func (h *PropertyHandler) GetLands(c *fiber.Ctx) error {
 	defer cancel()
 	result, err := h.bos24Client.GetLands(ctx, limit, offset)
 	if err != nil {
-		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"error": err.Error()})
+		return upstreamError(c, err)
 	}
 	return c.JSON(result)
 }
@@ -1406,7 +1406,7 @@ func (h *PropertyHandler) GetLand(c *fiber.Ctx) error {
 	defer cancel()
 	result, err := h.bos24Client.GetLand(ctx, idInt)
 	if err != nil {
-		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"error": err.Error()})
+		return upstreamError(c, err)
 	}
 	return c.JSON(result)
 }
@@ -1428,7 +1428,7 @@ func (h *PropertyHandler) GetMapConfig(c *fiber.Ctx) error {
 	defer cancel()
 	result, err := h.bos24Client.GetMapConfig(ctx)
 	if err != nil {
-		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"error": err.Error()})
+		return upstreamError(c, err)
 	}
 	return c.JSON(result)
 }
@@ -1450,7 +1450,7 @@ func (h *PropertyHandler) GetMapBounds(c *fiber.Ctx) error {
 	defer cancel()
 	result, err := h.bos24Client.GetMapBounds(ctx)
 	if err != nil {
-		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"error": err.Error()})
+		return upstreamError(c, err)
 	}
 	return c.JSON(result)
 }
@@ -1472,7 +1472,7 @@ func (h *PropertyHandler) GetPOICategories(c *fiber.Ctx) error {
 	defer cancel()
 	result, err := h.bos24Client.GetPOICategories(ctx)
 	if err != nil {
-		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"error": err.Error()})
+		return upstreamError(c, err)
 	}
 	return c.JSON(result)
 }
@@ -1496,7 +1496,7 @@ func (h *PropertyHandler) GetPropertyHeatmap(c *fiber.Ctx) error {
 	defer cancel()
 	result, err := h.bos24Client.GetPropertyHeatmap(ctx)
 	if err != nil {
-		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"error": err.Error()})
+		return upstreamError(c, err)
 	}
 	return c.JSON(result)
 }
@@ -1524,7 +1524,7 @@ func (h *PropertyHandler) GetAreaLocation(c *fiber.Ctx) error {
 	defer cancel()
 	result, err := h.bos24Client.GetAreaLocation(ctx, name)
 	if err != nil {
-		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"error": err.Error()})
+		return upstreamError(c, err)
 	}
 	return c.JSON(result)
 }
@@ -1552,7 +1552,7 @@ func (h *PropertyHandler) GetAreaByID(c *fiber.Ctx) error {
 	defer cancel()
 	result, err := h.bos24Client.GetAreaByID(ctx, idInt)
 	if err != nil {
-		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"error": err.Error()})
+		return upstreamError(c, err)
 	}
 	return c.JSON(result)
 }
@@ -1580,7 +1580,7 @@ func (h *PropertyHandler) GetDeveloper(c *fiber.Ctx) error {
 	defer cancel()
 	result, err := h.bos24Client.GetDeveloper(ctx, idInt)
 	if err != nil {
-		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"error": err.Error()})
+		return upstreamError(c, err)
 	}
 	return c.JSON(result)
 }
@@ -1608,7 +1608,7 @@ func (h *PropertyHandler) GetProject(c *fiber.Ctx) error {
 	defer cancel()
 	result, err := h.bos24Client.GetProject(ctx, idInt)
 	if err != nil {
-		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"error": err.Error()})
+		return upstreamError(c, err)
 	}
 	return c.JSON(result)
 }
@@ -1636,7 +1636,7 @@ func (h *PropertyHandler) GetUnit(c *fiber.Ctx) error {
 	defer cancel()
 	result, err := h.bos24Client.GetUnit(ctx, idInt)
 	if err != nil {
-		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"error": err.Error()})
+		return upstreamError(c, err)
 	}
 	return c.JSON(result)
 }
@@ -1664,7 +1664,7 @@ func (h *PropertyHandler) GetValuationByID(c *fiber.Ctx) error {
 	defer cancel()
 	result, err := h.bos24Client.GetValuation(ctx, idInt)
 	if err != nil {
-		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"error": err.Error()})
+		return upstreamError(c, err)
 	}
 	return c.JSON(result)
 }
