@@ -3,7 +3,7 @@ version: '3.8'
 services:
   # PostgreSQL Database
   postgres:
-    image: postgres:16-alpine
+    image: pgvector/pgvector:pg16
     container_name: masaar-postgres
     environment:
       POSTGRES_USER: ${DB_USER:-masaar}
@@ -82,6 +82,8 @@ services:
       ALLOW_REGISTRATION: ${ALLOW_REGISTRATION:-false}
       # Required in production: set to your frontend origin, e.g. https://crm.example.com
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:3000}
+      DOCS_PASSWORD: ${DOCS_PASSWORD:-}
+      TRUSTED_PROXIES: ${TRUSTED_PROXIES:-127.0.0.1,::1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16}
 
       # Database
       DATABASE_URL: postgres://${DB_USER:-masaar}:${DB_PASSWORD:-masaar}@postgres:5432/${DB_NAME:-masaar}?sslmode=disable

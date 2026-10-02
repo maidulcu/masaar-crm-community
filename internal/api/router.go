@@ -1140,16 +1140,17 @@ func RegisterRoutes(app *fiber.App, h *Handlers, hub *ws.Hub, cfg *config.Config
 		return c.JSON(fiber.Map{"status": "ok"})
 	})
 
-	// Swagger UI — gated behind BasicAuth in production
+	// Swagger UI — in production it is served only behind HTTP basic auth with a
+	// dedicated DOCS_PASSWORD (never derived from JWT_SECRET), and disabled when unset.
 	if cfg.AppEnv == "production" {
-		app.Get("/docs/*",
-			basicauth.New(basicauth.Config{
-				Users: map[string]string{
-					"admin": cfg.JWTSecret[:16], // use first 16 chars of JWT secret as password
-				},
-			}),
-			fiberswagger.WrapHandler,
-		)
+		if cfg.DocsPassword != "" {
+			app.Get("/docs/*",
+				basicauth.New(basicauth.Config{
+					Users: map[string]string{"admin": cfg.DocsPassword},
+				}),
+				fiberswagger.WrapHandler,
+			)
+		}
 	} else {
 		app.Get("/docs/*", fiberswagger.WrapHandler)
 	}
