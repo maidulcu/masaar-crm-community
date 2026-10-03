@@ -492,6 +492,7 @@ func RegisterRoutes(app *fiber.App, h *Handlers, hub *ws.Hub, cfg *config.Config
 	v1.Get("/threads", h.WhatsApp.ListThreads)
 	v1.Get("/threads/:id", h.WhatsApp.GetThread)
 	v1.Get("/threads/:id/messages", h.WhatsApp.GetMessages)
+	v1.Get("/threads/:id/messages/:mid/media", h.WhatsApp.GetMedia)
 	v1.Post("/threads/:id/close",
 		middleware.RequireRole(domain.RoleAdmin, domain.RoleAgent),
 		h.WhatsApp.CloseThread,

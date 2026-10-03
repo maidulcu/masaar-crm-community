@@ -11,6 +11,7 @@ import { useAuthStore } from '@/store/auth'
 import { createNotificationSocket } from '@/lib/ws'
 import type { WhatsAppThread, WhatsAppMessage, WhatsAppOutbound, WSEvent } from '@/types'
 import clsx from 'clsx'
+import AuthedMedia from '@/components/inbox/AuthedMedia'
 
 const outboundStatusColor: Record<string, string> = {
   pending: 'bg-yellow-100 text-yellow-700',
@@ -47,6 +48,8 @@ export default function ThreadPage() {
   const [mediaUrl, setMediaUrl] = useState('')
   const [mediaType, setMediaType] = useState('image')
   const [mediaCaption, setMediaCaption] = useState('')
+  const [mediaFile, setMediaFile] = useState<File | null>(null)
+  const [mediaError, setMediaError] = useState('')
 
   const [buyerProfile, setBuyerProfile] = useState<Record<string, unknown> | null>(null)
   const [profileLoading, setProfileLoading] = useState(false)
@@ -162,20 +165,30 @@ export default function ThreadPage() {
     } catch {} finally { setSending(false) }
   }
 
+  const mediaTypeForFile = (f: File) =>
+    f.type.startsWith('image/') ? 'image' : f.type.startsWith('audio/') ? 'audio' : f.type.startsWith('video/') ? 'video' : 'document'
+
   const handleSendMedia = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!mediaUrl.trim() || sending) return
+    if ((!mediaUrl.trim() && !mediaFile) || sending) return
     setSending(true)
+    setMediaError('')
     try {
-      await api.whatsapp.sendMedia(id, { media_url: mediaUrl.trim(), media_type: mediaType, caption: mediaCaption })
-      setMediaUrl(''); setMediaCaption(''); setShowMedia(false)
+      if (mediaFile) {
+        await api.whatsapp.sendMediaFile(id, mediaFile, mediaType, mediaCaption.trim() || undefined)
+      } else {
+        await api.whatsapp.sendMedia(id, { media_url: mediaUrl.trim(), media_type: mediaType, caption: mediaCaption.trim() || undefined })
+      }
+      setMediaUrl(''); setMediaCaption(''); setMediaFile(null); setShowMedia(false)
       const [msgs, ob] = await Promise.all([
         api.threads.messages(id),
         api.whatsapp.getOutboundMessages(id).catch(() => []),
       ])
       setMessages(Array.isArray(msgs) ? msgs : [])
       setOutbound(Array.isArray(ob) ? ob : [])
-    } catch {} finally { setSending(false) }
+    } catch (err) {
+      setMediaError(err instanceof Error ? err.message : t('فشل الإرسال', 'Sending failed'))
+    } finally { setSending(false) }
   }
 
   const handleSendTemplate = async (e: React.FormEvent) => {
@@ -212,6 +225,8 @@ export default function ThreadPage() {
       body: m.body, mediaUrl: m.media_url, direction: m.direction,
       status: m.direction === 'outbound' ? m.status : undefined,
       errorMessage: m.error_message,
+      // Attachments held by us (received, or uploaded by an agent) are shown via the API.
+      attachment: m.media_id ? { threadId: m.thread_id, messageId: m.id, mime: m.media_mime, filename: m.media_filename, size: m.media_size } : undefined,
     })),
     ...outbound
       .filter(o => o.status !== 'pending' && !(o.wa_message_id && storedIds.has(o.wa_message_id)))
@@ -221,6 +236,7 @@ export default function ThreadPage() {
         body: o.message_body, mediaUrl: o.media_url,
         direction: 'outbound' as const, status: o.status as string | undefined,
         errorMessage: o.error_message,
+        attachment: undefined,
       })),
   ].sort((a, b) => a.time - b.time)
 
@@ -335,7 +351,8 @@ export default function ThreadPage() {
           allMessages.map((msg) => {
             const isInbound = msg.direction === 'inbound'
             const isPureMedia = isMediaPlaceholder(msg.body, msg.direction)
-            const displayBody = isPureMedia ? null : msg.body
+            // For an attachment shown below, the "[Image]" style label is redundant: keep the caption.
+            const displayBody = isPureMedia ? null : (msg.attachment ? msg.body.replace(/^\[[^\]]*\]\s*/, '') || null : msg.body)
             return (
               <div key={msg.id} className={clsx('flex', isInbound ? 'justify-start' : 'justify-end')}>
                 <div className={clsx('max-w-xs md:max-w-md px-4 py-2.5 rounded-2xl text-sm', isInbound ? 'bg-white border border-gray-100 text-gray-800 rounded-tl-sm' : 'bg-brand-600 text-white rounded-tr-sm')}>
@@ -350,7 +367,8 @@ export default function ThreadPage() {
                   {'errorMessage' in msg && msg.errorMessage && msg.status === 'failed' && (
                     <p className="text-[10px] mt-1 text-red-400">{msg.errorMessage}</p>
                   )}
-                  {msg.mediaUrl && renderMedia(msg.mediaUrl)}
+                  {msg.attachment && <AuthedMedia {...msg.attachment} />}
+                  {msg.mediaUrl && !msg.attachment && renderMedia(msg.mediaUrl)}
                 </div>
               </div>
             )
@@ -394,9 +412,19 @@ export default function ThreadPage() {
               <p className="text-xs font-semibold text-gray-600 mb-3">{t('إرسال وسائط', 'Send Media')}</p>
               <div className="flex gap-3">
                 <div className="flex-1">
-                  <label className="block text-[10px] text-gray-500 mb-1">{t('رابط الملف', 'Media URL')}</label>
-                  <input value={mediaUrl} onChange={e => setMediaUrl(e.target.value)}
-                    className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  <label className="block text-[10px] text-gray-500 mb-1">{t('ملف من جهازك', 'File from your device')}</label>
+                  <input type="file"
+                    accept="image/jpeg,image/png,audio/aac,audio/mp4,audio/mpeg,audio/amr,audio/ogg,video/mp4,video/3gpp,application/pdf,text/plain,.doc,.docx,.xls,.xlsx,.ppt,.pptx"
+                    onChange={e => {
+                      const f = e.target.files?.[0] ?? null
+                      setMediaFile(f)
+                      if (f) { setMediaType(mediaTypeForFile(f)); setMediaUrl('') }
+                    }}
+                    className="w-full text-xs file:mr-2 file:px-3 file:py-1.5 file:rounded-lg file:border-0 file:bg-gray-100 file:text-gray-700" />
+                  <label className="block text-[10px] text-gray-500 mt-2 mb-1">{t('أو رابط عام (https)', 'Or a public https link')}</label>
+                  <input value={mediaUrl} onChange={e => { setMediaUrl(e.target.value); if (e.target.value) setMediaFile(null) }}
+                    disabled={!!mediaFile}
+                    className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-500 disabled:bg-gray-50"
                     placeholder="https://example.com/image.jpg" />
                 </div>
                 <div>
@@ -413,10 +441,11 @@ export default function ThreadPage() {
                   className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-500"
                   placeholder={t('أضف تعليقاً...', 'Add a caption...')} />
               </div>
+              {mediaError && <p role="alert" className="text-xs text-red-600 mt-2">{mediaError}</p>}
               <div className="flex gap-2 mt-3">
-                <button type="submit" disabled={sending || !mediaUrl.trim()}
+                <button type="submit" disabled={sending || (!mediaUrl.trim() && !mediaFile)}
                   className="px-4 py-2 bg-green-600 text-white text-xs font-medium rounded-lg hover:bg-green-700 disabled:opacity-50">
-                  {t('إرسال الوسائط', 'Send Media')}
+                  {sending ? '...' : t('إرسال الوسائط', 'Send Media')}
                 </button>
                 <button type="button" onClick={() => setShowMedia(false)}
                   className="px-4 py-2 border border-gray-200 text-xs font-medium rounded-lg text-gray-600 hover:bg-gray-50">
