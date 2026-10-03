@@ -1,6 +1,11 @@
 package handler
 
 import (
+	"fmt"
+	"log"
+	"strings"
+	"unicode/utf8"
+
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 	"github.com/maidulcu/masaar-crm/internal/domain"
@@ -8,17 +13,59 @@ import (
 	"github.com/maidulcu/masaar-crm/internal/whatsapp"
 )
 
+// maxWhatsAppText is WhatsApp's limit for a text message body.
+const maxWhatsAppText = 4096
+
 type WhatsAppOutboundHandler struct {
 	sender       *whatsapp.Sender
 	outboundRepo *repo.WhatsAppOutboundRepo
 	threadRepo   *repo.WhatsAppRepo
+	comms        *repo.CommunicationHistoryRepo
 }
 
-func NewWhatsAppOutboundHandler(sender *whatsapp.Sender, outboundRepo *repo.WhatsAppOutboundRepo, threadRepo *repo.WhatsAppRepo) *WhatsAppOutboundHandler {
+func NewWhatsAppOutboundHandler(sender *whatsapp.Sender, outboundRepo *repo.WhatsAppOutboundRepo, threadRepo *repo.WhatsAppRepo, comms *repo.CommunicationHistoryRepo) *WhatsAppOutboundHandler {
 	return &WhatsAppOutboundHandler{
 		sender:       sender,
 		outboundRepo: outboundRepo,
 		threadRepo:   threadRepo,
+		comms:        comms,
+	}
+}
+
+// recordSent makes a successfully sent message part of the conversation: it is stored in the
+// thread's message list (so summaries, AI drafts and the inbox ordering see agent replies, not
+// just the customer's side), bumps the thread's activity, and is added to the lead timeline.
+// Failures here are logged and never fail the request — the message has already been sent.
+func (h *WhatsAppOutboundHandler) recordSent(c *fiber.Ctx, thread *domain.WhatsAppThread, out *domain.WhatsAppOutbound, body, mediaURL string) {
+	ctx := c.Context()
+	msg := &domain.WhatsAppMessage{
+		ThreadID:    thread.ID,
+		Direction:   domain.DirectionOutbound,
+		Body:        body,
+		MediaURL:    mediaURL,
+		WAMessageID: out.WAMessageID,
+	}
+	created, err := h.threadRepo.SaveMessage(ctx, msg)
+	if err != nil {
+		log.Printf("whatsapp: record sent message %s: %v", out.WAMessageID, err)
+		return
+	}
+	if !created {
+		return
+	}
+	if err := h.threadRepo.UpdateThreadMeta(ctx, thread.ID); err != nil {
+		log.Printf("whatsapp: thread meta for %s: %v", thread.ID, err)
+	}
+	if _, err := h.comms.LogWhatsApp(ctx, thread.ContactID, &domain.CommunicationHistory{
+		CommunicationType: domain.CommWhatsAppOutbound,
+		Direction:         "outbound",
+		Body:              body,
+		ToIdentifier:      out.ToNumber,
+		ExternalID:        out.WAMessageID,
+		Status:            string(out.Status),
+		CreatedBy:         out.CreatedBy,
+	}); err != nil {
+		log.Printf("whatsapp: timeline entry for %s: %v", out.WAMessageID, err)
 	}
 }
 
@@ -52,8 +99,12 @@ func (h *WhatsAppOutboundHandler) SendMessage(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid request"})
 	}
 
+	req.Message = strings.TrimSpace(req.Message)
 	if req.Message == "" {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "message is required"})
+	}
+	if utf8.RuneCountInString(req.Message) > maxWhatsAppText {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": fmt.Sprintf("message must be at most %d characters", maxWhatsAppText)})
 	}
 
 	// Get thread to verify it exists
@@ -93,6 +144,7 @@ func (h *WhatsAppOutboundHandler) SendMessage(c *fiber.Ctx) error {
 	h.outboundRepo.UpdateStatus(c.Context(), outbound.ID, domain.OutboundSent, waMessageID, "")
 	outbound.WAMessageID = waMessageID
 	outbound.Status = domain.OutboundSent
+	h.recordSent(c, thread, outbound, outbound.MessageBody, "")
 
 	return c.Status(fiber.StatusCreated).JSON(outbound)
 }
@@ -176,6 +228,11 @@ func (h *WhatsAppOutboundHandler) SendTemplate(c *fiber.Ctx) error {
 	h.outboundRepo.UpdateStatus(c.Context(), outbound.ID, domain.OutboundSent, waMessageID, "")
 	outbound.WAMessageID = waMessageID
 	outbound.Status = domain.OutboundSent
+	label := "[Template] " + req.TemplateName
+	if len(req.Parameters) > 0 {
+		label += " (" + strings.Join(req.Parameters, ", ") + ")"
+	}
+	h.recordSent(c, thread, outbound, label, "")
 
 	return c.Status(fiber.StatusCreated).JSON(outbound)
 }
@@ -283,6 +340,11 @@ func (h *WhatsAppOutboundHandler) SendMedia(c *fiber.Ctx) error {
 	h.outboundRepo.UpdateStatus(c.Context(), outbound.ID, domain.OutboundSent, waMessageID, "")
 	outbound.WAMessageID = waMessageID
 	outbound.Status = domain.OutboundSent
+	mediaLabel := "[" + req.MediaType + "]"
+	if req.Caption != "" {
+		mediaLabel += " " + req.Caption
+	}
+	h.recordSent(c, thread, outbound, mediaLabel, req.MediaURL)
 
 	return c.Status(fiber.StatusCreated).JSON(outbound)
 }

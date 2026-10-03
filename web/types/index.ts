@@ -180,6 +180,11 @@ export interface WhatsAppMessage {
   media_url: string
   wa_message_id: string
   sent_at: string
+  /** Outbound only: sent | delivered | read | failed (from WhatsApp delivery receipts). */
+  status?: string
+  error_message?: string
+  media_id?: string
+  media_mime?: string
 }
 
 // ─── Deal ─────────────────────────────────────────────────────────────────────
