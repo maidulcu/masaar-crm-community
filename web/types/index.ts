@@ -185,6 +185,8 @@ export interface WhatsAppMessage {
   error_message?: string
   media_id?: string
   media_mime?: string
+  media_filename?: string
+  media_size?: number
 }
 
 // ─── Deal ─────────────────────────────────────────────────────────────────────

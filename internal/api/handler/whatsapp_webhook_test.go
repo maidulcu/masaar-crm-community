@@ -9,10 +9,15 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/gofiber/fiber/v2"
@@ -20,18 +25,136 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/maidulcu/masaar-crm/internal/config"
+	"github.com/maidulcu/masaar-crm/internal/mediastore"
 	"github.com/maidulcu/masaar-crm/internal/repo"
 	"github.com/maidulcu/masaar-crm/internal/tenant"
 	"github.com/maidulcu/masaar-crm/internal/testdb"
+	"github.com/maidulcu/masaar-crm/internal/whatsapp"
 	"github.com/maidulcu/masaar-crm/internal/ws"
 )
 
 const waTestSecret = "test-app-secret"
 
+// fakeMeta stands in for the WhatsApp Cloud API: media lookup + download, message sending and
+// media upload. It records what it was asked to do.
+type fakeMeta struct {
+	srv *httptest.Server
+	mu  sync.Mutex
+
+	files       map[string]fakeFile // media id -> file served by lookup + download
+	lookupFail  int                 // when non-zero, media lookups answer this HTTP status
+	downloads   int
+	lookups     int
+	sentPayload []map[string]any // JSON bodies POSTed to /messages
+	uploads     []uploadRecord   // files POSTed to /media
+	nextMsgID   int
+}
+
+type fakeFile struct {
+	data []byte
+	mime string
+}
+
+type uploadRecord struct {
+	Filename, Mime string
+	Data           []byte
+}
+
+func newFakeMeta(t *testing.T) *fakeMeta {
+	m := &fakeMeta{files: map[string]fakeFile{}}
+	m.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		path := strings.TrimPrefix(r.URL.Path, "/")
+		switch {
+		case r.Method == http.MethodPost && strings.HasSuffix(path, "/messages"):
+			var body map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			m.sentPayload = append(m.sentPayload, body)
+			m.nextMsgID++
+			_, _ = fmt.Fprintf(w, `{"messages":[{"id":"wamid.SENT%d"}]}`, m.nextMsgID)
+		case r.Method == http.MethodPost && strings.HasSuffix(path, "/media"):
+			if err := r.ParseMultipartForm(32 << 20); err != nil {
+				w.WriteHeader(400)
+				return
+			}
+			f, hdr, _ := r.FormFile("file")
+			data, _ := io.ReadAll(f)
+			m.uploads = append(m.uploads, uploadRecord{Filename: hdr.Filename, Mime: r.FormValue("type"), Data: data})
+			_, _ = fmt.Fprintf(w, `{"id":"UPLOAD%d"}`, len(m.uploads))
+		case strings.HasPrefix(path, "dl/"):
+			m.downloads++
+			file, ok := m.files[strings.TrimPrefix(path, "dl/")]
+			if !ok {
+				w.WriteHeader(404)
+				return
+			}
+			w.Header().Set("Content-Type", file.mime)
+			_, _ = w.Write(file.data)
+		default: // GET /{media id}
+			m.lookups++
+			if m.lookupFail != 0 {
+				w.WriteHeader(m.lookupFail)
+				_, _ = w.Write([]byte(`{"error":{"message":"Unsupported get request","code":100}}`))
+				return
+			}
+			file, ok := m.files[path]
+			if !ok {
+				w.WriteHeader(404)
+				_, _ = w.Write([]byte(`{"error":{"message":"Unsupported get request","code":100}}`))
+				return
+			}
+			_, _ = fmt.Fprintf(w, `{"url":%q,"mime_type":%q,"file_size":%d}`, m.srv.URL+"/dl/"+path, file.mime, len(file.data))
+		}
+	}))
+	t.Cleanup(m.srv.Close)
+	return m
+}
+
+func (m *fakeMeta) addFile(id, mimeType string, data []byte) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.files[id] = fakeFile{data: data, mime: mimeType}
+}
+
+func (m *fakeMeta) setLookupFail(status int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.lookupFail = status
+}
+
+func (m *fakeMeta) counts() (lookups, downloads int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.lookups, m.downloads
+}
+
+func (m *fakeMeta) lastPayload(t *testing.T) map[string]any {
+	t.Helper()
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(m.sentPayload) == 0 {
+		t.Fatal("nothing was sent to Meta")
+	}
+	return m.sentPayload[len(m.sentPayload)-1]
+}
+
+func (m *fakeMeta) sentCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return len(m.sentPayload)
+}
+
 type waEnv struct {
-	app       *fiber.App
+	app       *fiber.App // public webhook routes + authenticated routes under /api (company A)
 	pool      *pgxpool.Pool
 	companyID uuid.UUID
+	userID    uuid.UUID
+	meta      *fakeMeta
+	mediaDir  string
+	wa        *WhatsAppHandler
+	media     *WAMediaService
+	otherCo   uuid.UUID // a second company; its routes are under /apib
 }
 
 func newWAEnv(t *testing.T) *waEnv {
@@ -48,35 +171,72 @@ func newWAEnv(t *testing.T) *waEnv {
 	}
 	t.Cleanup(pool.Close)
 
-	id := uuid.New()
-	for _, q := range []string{
-		`INSERT INTO companies (id, name, subdomain) VALUES ($1::uuid, 'WA test', 'wa-' || substr($1::uuid::text,1,8))`,
-		`INSERT INTO company_settings (company_id, name, vat_number, business_address) VALUES ($1, 'WA test', '', '')`,
-	} {
-		if _, err := pool.Exec(ctx, q, id); err != nil {
-			t.Fatal(err)
+	mkCompany := func() uuid.UUID {
+		id := uuid.New()
+		for _, q := range []string{
+			`INSERT INTO companies (id, name, subdomain) VALUES ($1::uuid, 'WA test', 'wa-' || substr($1::uuid::text,1,8))`,
+			`INSERT INTO company_settings (company_id, name, vat_number, business_address) VALUES ($1, 'WA test', '', '')`,
+		} {
+			if _, err := pool.Exec(ctx, q, id); err != nil {
+				t.Fatal(err)
+			}
 		}
+		return id
+	}
+	id, other := mkCompany(), mkCompany()
+	userID := uuid.New()
+	if _, err := pool.Exec(ctx, `INSERT INTO users (id, company_id, name, email, password_hash, role) VALUES ($1,$2,'Agent',$3,'x','agent')`, userID, id, userID.String()+"@test.local"); err != nil {
+		t.Fatal(err)
 	}
 	t.Cleanup(func() {
 		c := context.Background()
-		for _, q := range []string{
-			`DELETE FROM whatsapp_outbound WHERE company_id = $1`,
-			`DELETE FROM whatsapp_messages WHERE thread_id IN (SELECT id FROM whatsapp_threads WHERE company_id = $1)`,
-			`DELETE FROM whatsapp_threads WHERE company_id = $1`,
-			`DELETE FROM contacts WHERE company_id = $1`,
-			`DELETE FROM company_settings WHERE company_id = $1`,
-			`DELETE FROM companies WHERE id = $1`,
-		} {
-			_, _ = pool.Exec(c, q, id)
+		for _, co := range []uuid.UUID{id, other} {
+			for _, q := range []string{
+				`DELETE FROM whatsapp_outbound WHERE company_id = $1`,
+				`DELETE FROM whatsapp_messages WHERE thread_id IN (SELECT id FROM whatsapp_threads WHERE company_id = $1)`,
+				`DELETE FROM whatsapp_threads WHERE company_id = $1`,
+				`DELETE FROM contacts WHERE company_id = $1`,
+				`DELETE FROM users WHERE company_id = $1`,
+				`DELETE FROM company_settings WHERE company_id = $1`,
+				`DELETE FROM companies WHERE id = $1`,
+			} {
+				_, _ = pool.Exec(c, q, co)
+			}
 		}
 	})
 
+	meta := newFakeMeta(t)
+	sender := whatsapp.NewSender(&whatsapp.SenderConfig{BaseURL: meta.srv.URL, PhoneNumberID: "PNID1", AccessToken: "tok", AllowInsecureMedia: true})
+	mediaDir := filepath.Join(t.TempDir(), "media")
+	store, err := mediastore.New(mediaDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+
+	waRepo := repo.NewWhatsAppRepo(pool)
+	media := NewWAMediaService(sender, store, waRepo, 1) // 1 MB cap keeps the oversize test small
 	cfg := &config.Config{WAAppSecret: waTestSecret, AppCompanyID: id.String(), WAVerifyToken: "verify-me"}
-	h := NewWhatsAppHandler(repo.NewWhatsAppRepo(pool), repo.NewContactRepo(pool), repo.NewWhatsAppOutboundRepo(pool), repo.NewCommunicationHistoryRepo(pool), nil, ws.NewHub(), cfg)
-	app := fiber.New()
-	app.Get("/webhooks/whatsapp", h.Verify)
-	app.Post("/webhooks/whatsapp", h.Receive)
-	return &waEnv{app: app, pool: pool, companyID: id}
+	comms := repo.NewCommunicationHistoryRepo(pool)
+	wa := NewWhatsAppHandler(waRepo, repo.NewContactRepo(pool), repo.NewWhatsAppOutboundRepo(pool), comms, media, nil, ws.NewHub(), cfg)
+	out := NewWhatsAppOutboundHandler(sender, repo.NewWhatsAppOutboundRepo(pool), waRepo, comms, media)
+
+	app := fiber.New(fiber.Config{BodyLimit: 10 * 1024 * 1024})
+	app.Get("/webhooks/whatsapp", wa.Verify)
+	app.Post("/webhooks/whatsapp", wa.Receive)
+	for prefix, company := range map[string]uuid.UUID{"/api": id, "/apib": other} {
+		company := company
+		g := app.Group(prefix, func(c *fiber.Ctx) error {
+			c.Locals("user_id", userID)
+			c.Locals("company_id", company.String())
+			return c.Next()
+		})
+		g.Get("/threads/:id/messages", wa.GetMessages)
+		g.Get("/threads/:id/messages/:mid/media", wa.GetMedia)
+		g.Post("/threads/:id/send-message", out.SendMessage)
+		g.Post("/threads/:id/send-media", out.SendMedia)
+	}
+	return &waEnv{app: app, pool: pool, companyID: id, userID: userID, meta: meta, mediaDir: mediaDir, wa: wa, media: media, otherCo: other}
 }
 
 func (e *waEnv) post(t *testing.T, body string) int {
