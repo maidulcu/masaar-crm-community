@@ -11,7 +11,6 @@ package repo
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"math/rand"
@@ -22,11 +21,10 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	_ "github.com/jackc/pgx/v5/stdlib"
-	"github.com/pressly/goose/v3"
 
 	"github.com/maidulcu/masaar-crm/internal/domain"
 	"github.com/maidulcu/masaar-crm/internal/tenant"
+	"github.com/maidulcu/masaar-crm/internal/testdb"
 )
 
 type company struct {
@@ -47,18 +45,7 @@ func setup(t *testing.T) *testEnv {
 		t.Skip("TEST_DATABASE_URL not set; skipping database isolation tests")
 	}
 
-	sqlDB, err := sql.Open("pgx", url)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := goose.SetDialect("postgres"); err != nil {
-		t.Fatal(err)
-	}
-	goose.SetLogger(goose.NopLogger())
-	if err := goose.Up(sqlDB, "../../migrations"); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
-	sqlDB.Close()
+	testdb.Migrate(t, url)
 
 	ctx := context.Background()
 	pool, err := pgxpool.New(ctx, url)

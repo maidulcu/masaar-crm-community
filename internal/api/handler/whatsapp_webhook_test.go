@@ -22,6 +22,7 @@ import (
 	"github.com/maidulcu/masaar-crm/internal/config"
 	"github.com/maidulcu/masaar-crm/internal/repo"
 	"github.com/maidulcu/masaar-crm/internal/tenant"
+	"github.com/maidulcu/masaar-crm/internal/testdb"
 	"github.com/maidulcu/masaar-crm/internal/ws"
 )
 
@@ -39,6 +40,7 @@ func newWAEnv(t *testing.T) *waEnv {
 	if url == "" {
 		t.Skip("TEST_DATABASE_URL not set")
 	}
+	testdb.Migrate(t, url)
 	ctx := context.Background()
 	pool, err := pgxpool.New(ctx, url)
 	if err != nil {
