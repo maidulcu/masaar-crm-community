@@ -11,9 +11,19 @@ const securityHeaders = [
   { key: 'Cross-Origin-Opener-Policy', value: 'same-origin' },
 ]
 
+import path from 'path'
+import { fileURLToPath } from 'url'
+
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
+
 const nextConfig = {
   output: 'standalone',
   poweredByHeader: false,
+  webpack: (config) => {
+    config.resolve.alias['@'] = __dirname
+    return config
+  },
   async headers() {
     return [{ source: '/:path*', headers: securityHeaders }]
   },
