@@ -69,7 +69,7 @@ export default function SignupPage() {
         subdomain,
         turnstile_token: turnstileToken ?? '',
       }) as LoginResponse
-      setSession(res.access_token, res.refresh_token, res.user, res.company)
+      setSession(res.access_token, res.user, res.company)
       router.push('/onboarding')
     } catch (err: any) {
       setError(err.message || 'Registration failed')

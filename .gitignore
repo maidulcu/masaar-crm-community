@@ -95,3 +95,4 @@ coverage.html
 
 # TypeScript incremental build cache
 *.tsbuildinfo
+dump.rdb

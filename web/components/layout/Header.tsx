@@ -5,7 +5,6 @@ import { useAuthStore } from '@/store/auth'
 import { useLang } from '@/context/LangContext'
 import { NotificationBell } from './NotificationBell'
 import { api } from '@/lib/api'
-import { getRefreshToken } from '@/lib/auth'
 
 export function Header({ title, back }: { title: string; back?: string }) {
   const { user, logout } = useAuthStore()
@@ -13,8 +12,8 @@ export function Header({ title, back }: { title: string; back?: string }) {
   const router = useRouter()
 
   const handleLogout = async () => {
-    const rt = getRefreshToken()
-    if (rt) await api.auth.logout(rt).catch(() => {})
+    // Revokes the refresh token server-side and clears the HttpOnly cookie.
+    await api.auth.logout().catch(() => {})
     logout()
     router.push('/login')
   }

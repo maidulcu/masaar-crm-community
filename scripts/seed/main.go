@@ -719,12 +719,12 @@ func main() {
 
 	// Renewal communication log
 	renewLogs := []struct {
-		id         uuid.UUID
-		renewIdx   int
-		commType   string
-		tplIdx     int
-		delivered  string
-		response   *string
+		id        uuid.UUID
+		renewIdx  int
+		commType  string
+		tplIdx    int
+		delivered string
+		response  *string
 	}{
 		{id("ren-log", "1"), 0, "email", 0, "delivered", strPtr("Sounds good, but can we do 265K?")},
 		{id("ren-log", "2"), 0, "whatsapp", 0, "delivered", nil},
@@ -808,15 +808,15 @@ func main() {
 	}
 
 	expenses := []struct {
-		ID         uuid.UUID
-		CatIdx     int
-		PropIdx    int
-		Amount     float64
-		Date       time.Time
-		Desc       string
-		Vendor     string
-		PayMethod  string
-		PayStatus  string
+		ID        uuid.UUID
+		CatIdx    int
+		PropIdx   int
+		Amount    float64
+		Date      time.Time
+		Desc      string
+		Vendor    string
+		PayMethod string
+		PayStatus string
 	}{
 		// CatIdx: 0=Utilities 1=Maintenance 2=PropertyMgmt 3=Marketing 4=Insurance 5=ProfServices
 		{id("exp", "1"), 0, 0, 2450.50, now.AddDate(0, 0, -20), "DEWA electricity bill — Marina Heights", "DEWA", "bank_transfer", "paid"},
@@ -869,12 +869,12 @@ func main() {
 	}
 
 	documents := []struct {
-		ID             uuid.UUID
-		TplIdx         int
-		RelatedEntity  string
-		RelatedID      uuid.UUID
-		Title          string
-		SigStatus      string
+		ID            uuid.UUID
+		TplIdx        int
+		RelatedEntity string
+		RelatedID     uuid.UUID
+		Title         string
+		SigStatus     string
 	}{
 		{id("doc", "1"), 0, "lease", leases[0].ID, "Lease Agreement — Marina Heights #204", "signed"},
 		{id("doc", "2"), 0, "lease", leases[1].ID, "Lease Agreement — Downtown #1201", "pending"},
@@ -1130,21 +1130,21 @@ func main() {
 	//  34. LISTINGS  (migration 0048)
 	// ══════════════════════════════════════════════════════════════════════════
 	listings := []struct {
-		ID       uuid.UUID
-		Title    string
-		PropType string
-		LType    string
-		Price    float64
-		Area     string
+		ID        uuid.UUID
+		Title     string
+		PropType  string
+		LType     string
+		Price     float64
+		Area      string
 		Community string
-		City     string
-		Emirate  string
-		Bed      int
-		Bath     int
-		Sqft     float64
-		Furn     string
-		Status   string
-		AgentIdx int
+		City      string
+		Emirate   string
+		Bed       int
+		Bath      int
+		Sqft      float64
+		Furn      string
+		Status    string
+		AgentIdx  int
 	}{
 		{id("lst", "1"), "Stunning 2BR with Marina View", "apartment", "rent", 120000, "Dubai Marina", "Dubai Marina", "Dubai", "Dubai", 2, 2, 1250, "furnished", "published", 1},
 		{id("lst", "2"), "Premium 3BR Downtown Penthouse", "apartment", "rent", 300000, "Downtown Dubai", "Downtown Dubai", "Dubai", "Dubai", 3, 3, 1800, "furnished", "published", 0},
@@ -1195,12 +1195,12 @@ func main() {
 	//  36. OFFERS  (migration 0051)
 	// ══════════════════════════════════════════════════════════════════════════
 	offers := []struct {
-		id          uuid.UUID
-		listingIdx  int
-		contactIdx  int
-		agentIdx    int
-		amount      float64
-		status      string
+		id         uuid.UUID
+		listingIdx int
+		contactIdx int
+		agentIdx   int
+		amount     float64
+		status     string
 	}{
 		{id("offer", "1"), 0, 0, 1, 115000, "countered"},
 		{id("offer", "2"), 1, 1, 2, 290000, "submitted"},
