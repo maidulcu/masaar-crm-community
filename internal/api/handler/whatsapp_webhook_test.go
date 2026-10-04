@@ -19,6 +19,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -43,6 +44,7 @@ type fakeMeta struct {
 
 	files       map[string]fakeFile // media id -> file served by lookup + download
 	lookupFail  int                 // when non-zero, media lookups answer this HTTP status
+	delay       time.Duration       // artificial latency on media downloads (to make requests overlap)
 	downloads   int
 	lookups     int
 	sentPayload []map[string]any // JSON bodies POSTed to /messages
@@ -84,6 +86,11 @@ func newFakeMeta(t *testing.T) *fakeMeta {
 			_, _ = fmt.Fprintf(w, `{"id":"UPLOAD%d"}`, len(m.uploads))
 		case strings.HasPrefix(path, "dl/"):
 			m.downloads++
+			if m.delay > 0 {
+				m.mu.Unlock()
+				time.Sleep(m.delay)
+				m.mu.Lock()
+			}
 			file, ok := m.files[strings.TrimPrefix(path, "dl/")]
 			if !ok {
 				w.WriteHeader(404)
@@ -121,6 +128,12 @@ func (m *fakeMeta) setLookupFail(status int) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.lookupFail = status
+}
+
+func (m *fakeMeta) setDownloadDelay(d time.Duration) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.delay = d
 }
 
 func (m *fakeMeta) counts() (lookups, downloads int) {

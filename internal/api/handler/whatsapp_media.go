@@ -106,6 +106,22 @@ func (m *WAMediaService) Ensure(ctx context.Context, threadID, messageID uuid.UU
 	_, err, _ = m.group.Do(messageID.String(), func() (any, error) {
 		dctx, cancel := context.WithTimeout(tenant.With(context.Background(), cid), 2*time.Minute)
 		defer cancel()
+		// singleflight only merges calls that overlap in time. A caller that read the record
+		// just before another download finished can join after that flight ended and would
+		// start a second download, so look at the current state again before fetching.
+		cur, err := m.msgs.GetMessageMedia(dctx, threadID, messageID)
+		if err != nil {
+			return nil, err
+		}
+		if cur.Path != "" {
+			if f, err := m.store.Open(cur.Path); err == nil {
+				f.Close()
+				return nil, nil // already stored by the download we just missed
+			}
+			if err := m.msgs.ClearMessageMedia(dctx, messageID); err != nil {
+				return nil, err
+			}
+		}
 		return nil, m.download(dctx, threadID, ref)
 	})
 	if err != nil {
