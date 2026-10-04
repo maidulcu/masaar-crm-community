@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math/rand"
 	"mime/multipart"
 	"net/http/httptest"
 	"net/textproto"
@@ -138,27 +139,40 @@ func TestWAMedia_RefetchesWhenStoredFileIsMissing(t *testing.T) {
 // Many people opening the same message at once cause one download, not one each.
 func TestWAMedia_ConcurrentRequestsDownloadOnce(t *testing.T) {
 	e := newWAEnv(t)
-	e.meta.addFile("MEDIA4", "image/png", pngBytes)
-	e.meta.setLookupFail(503)
-	e.post(t, payload("971501110023", "Dana", imageMsg("971501110023", "wamid.IMG4", "MEDIA4", "image/png")))
-	thread, msg := e.messageID(t, "wamid.IMG4")
-	time.Sleep(300 * time.Millisecond)
-	e.meta.setLookupFail(0)
-	_, dlBefore := e.meta.counts()
+	// Unique ids: Meta message ids are globally unique in the database, so repeated or parallel
+	// runs of this test must not share them.
+	suffix := uuid.NewString()
+	mediaID := "MEDIA4-" + suffix
+	phone := testPhoneDigits()
+	thread := e.openThread(t, phone, "wamid.TXT4."+suffix)
+
+	// A message whose file has not been fetched yet. It is inserted directly so no background
+	// prefetch is started: this test is about requests racing each other, not the prefetch.
+	msg := uuid.New()
+	if _, err := e.pool.Exec(context.Background(),
+		`INSERT INTO whatsapp_messages (id, thread_id, direction, body, wa_message_id, wa_media_id, media_mime)
+		 VALUES ($1, $2, 'inbound', '[Image]', $3, $4, 'image/png')`,
+		msg, thread, "wamid.IMG4."+suffix, mediaID); err != nil {
+		t.Fatal(err)
+	}
+	e.meta.addFile(mediaID, "image/png", pngBytes)
+	e.meta.setDownloadDelay(100 * time.Millisecond) // keep the download in flight while all 8 arrive
 
 	var wg sync.WaitGroup
 	for i := 0; i < 8; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if code, _, _ := e.getMedia(t, "/api", thread, msg); code != 200 {
-				t.Errorf("concurrent GET = %d", code)
+			code, body, _ := e.getMedia(t, "/api", thread, msg)
+			if code != 200 || !bytes.Equal(body, pngBytes) {
+				t.Errorf("concurrent GET = %d (%d bytes)", code, len(body))
 			}
 		}()
 	}
 	wg.Wait()
-	if _, dl := e.meta.counts(); dl-dlBefore != 1 {
-		t.Errorf("%d downloads for 8 concurrent requests, want 1", dl-dlBefore)
+
+	if _, dl := e.meta.counts(); dl != 1 {
+		t.Errorf("%d downloads for 8 concurrent requests, want exactly 1", dl)
 	}
 	if n := e.storedFiles(t); n != 1 {
 		t.Errorf("%d files stored, want 1", n)
@@ -369,4 +383,9 @@ func TestWAOutbound_UploadValidation(t *testing.T) {
 	if n := e.storedFiles(t); n != 0 {
 		t.Errorf("%d files stored for rejected uploads", n)
 	}
+}
+
+// testPhoneDigits returns a unique, valid WhatsApp-style number (digits only).
+func testPhoneDigits() string {
+	return fmt.Sprintf("9715%08d", rand.Intn(100_000_000))
 }
