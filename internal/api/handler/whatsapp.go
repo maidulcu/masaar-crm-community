@@ -26,13 +26,14 @@ type WhatsAppHandler struct {
 	contacts       *repo.ContactRepo
 	outbound       *repo.WhatsAppOutboundRepo
 	comms          *repo.CommunicationHistoryRepo
+	media          *WAMediaService
 	taggingService *ai.TaggingService
 	hub            *ws.Hub
 	config         *config.Config
 }
 
-func NewWhatsAppHandler(wa *repo.WhatsAppRepo, contacts *repo.ContactRepo, outbound *repo.WhatsAppOutboundRepo, comms *repo.CommunicationHistoryRepo, taggingService *ai.TaggingService, hub *ws.Hub, cfg *config.Config) *WhatsAppHandler {
-	return &WhatsAppHandler{wa: wa, contacts: contacts, outbound: outbound, comms: comms, taggingService: taggingService, hub: hub, config: cfg}
+func NewWhatsAppHandler(wa *repo.WhatsAppRepo, contacts *repo.ContactRepo, outbound *repo.WhatsAppOutboundRepo, comms *repo.CommunicationHistoryRepo, media *WAMediaService, taggingService *ai.TaggingService, hub *ws.Hub, cfg *config.Config) *WhatsAppHandler {
+	return &WhatsAppHandler{wa: wa, contacts: contacts, outbound: outbound, comms: comms, media: media, taggingService: taggingService, hub: hub, config: cfg}
 }
 
 // GET /webhooks/whatsapp — Meta webhook verification
@@ -286,6 +287,9 @@ func (h *WhatsAppHandler) handleInbound(ctx context.Context, companyID uuid.UUID
 
 	if err := h.wa.UpdateThreadMeta(ctx, thread.ID); err != nil {
 		log.Printf("whatsapp: thread meta for %s: %v", thread.ID, err)
+	}
+	if content.MediaID != "" {
+		h.media.Prefetch(companyID, thread.ID, waMsg.ID)
 	}
 	if _, err := h.comms.LogWhatsApp(ctx, contact.ID, &domain.CommunicationHistory{
 		CommunicationType: domain.CommWhatsAppInbound,

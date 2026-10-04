@@ -115,6 +115,8 @@ services:
       - "8080:8080"
     env_file:
       - .env
+    volumes:
+      - media_data:/app/data   # WhatsApp attachments
     environment:
       PORT: 8080
       APP_ENV: production
@@ -193,6 +195,7 @@ services:
         labels: "service=web"
 
 volumes:
+  media_data:
   postgres_data:
   redis_data:
   # ollama_data:  # Uncomment if adding Ollama back

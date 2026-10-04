@@ -60,7 +60,8 @@ async function request<T>(path: string, init: RequestInit = {}, _retry = true): 
   const token = getToken()
   const auth = authInit(path)
   const headers: HeadersInit = {
-    'Content-Type': 'application/json',
+    // A FormData body needs the browser to set its own multipart Content-Type (with boundary).
+    ...(init.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
     ...auth.headers,
     ...(init.headers || {}),
@@ -759,6 +760,19 @@ export const api = {
         method: 'POST',
         body: JSON.stringify(data),
       }),
+    /** Sends a file from the user's device (uploaded to WhatsApp, not a public link). */
+    sendMediaFile: (threadId: string, file: File, mediaType: string, caption?: string) => {
+      const fd = new FormData()
+      fd.append('file', file)
+      fd.append('media_type', mediaType)
+      if (caption) fd.append('caption', caption)
+      return request(`/api/v1/threads/${threadId}/send-media`, { method: 'POST', body: fd })
+    },
+    /** Fetches a message attachment with the Authorization header (a plain URL cannot carry it). */
+    fetchMedia: (threadId: string, messageId: string) =>
+      requestBlob(`/api/v1/threads/${threadId}/messages/${messageId}/media`),
+    downloadMedia: async (threadId: string, messageId: string, filename: string) =>
+      saveBlob(await requestBlob(`/api/v1/threads/${threadId}/messages/${messageId}/media`), filename),
     sendTemplate: (threadId: string, templateName: string, params: string[]) =>
       request(`/api/v1/threads/${threadId}/send-template`, {
         method: 'POST',

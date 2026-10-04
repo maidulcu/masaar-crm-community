@@ -54,6 +54,8 @@ services:
       - "8080:8080"
     env_file:
       - ../.env
+    volumes:
+      - media_data:/app/data   # WhatsApp attachments
     environment:
       DATABASE_URL: postgres://masaar:masaar@postgres:5432/masaar?sslmode=disable
       REDIS_URL: redis://redis:6379
@@ -82,6 +84,7 @@ services:
       - api
 
 volumes:
+  media_data:
   postgres_data:
   redis_data:
   ollama_data:
