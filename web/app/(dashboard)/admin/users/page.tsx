@@ -1,12 +1,12 @@
 'use client'
 import { useEffect, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
-import { Header } from '@/components/layout/Header'
-import { Modal, FormField, FormError } from '@/components/ui/Modal'
-import { useLang } from '@/context/LangContext'
-import { useAuthStore } from '@/store/auth'
-import { api } from '@/lib/api'
-import type { User } from '@/types'
+import { Header } from '../../../../components/layout/Header'
+import { Modal, FormField, FormError } from '../../../../components/ui/Modal'
+import { useLang } from '../../../../context/LangContext'
+import { useAuthStore } from '../../../../store/auth'
+import { api } from '../../../../lib/api'
+import type { User } from '../../../../types'
 
 const ROLES = ['agent', 'viewer', 'admin'] as const
 const inputCls = 'w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-500'
