@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/hex"
+	"errors"
 	"log"
 	"strconv"
 	"strings"
@@ -23,13 +24,16 @@ import (
 type WhatsAppHandler struct {
 	wa             *repo.WhatsAppRepo
 	contacts       *repo.ContactRepo
+	outbound       *repo.WhatsAppOutboundRepo
+	comms          *repo.CommunicationHistoryRepo
+	media          *WAMediaService
 	taggingService *ai.TaggingService
 	hub            *ws.Hub
 	config         *config.Config
 }
 
-func NewWhatsAppHandler(wa *repo.WhatsAppRepo, contacts *repo.ContactRepo, taggingService *ai.TaggingService, hub *ws.Hub, cfg *config.Config) *WhatsAppHandler {
-	return &WhatsAppHandler{wa: wa, contacts: contacts, taggingService: taggingService, hub: hub, config: cfg}
+func NewWhatsAppHandler(wa *repo.WhatsAppRepo, contacts *repo.ContactRepo, outbound *repo.WhatsAppOutboundRepo, comms *repo.CommunicationHistoryRepo, media *WAMediaService, taggingService *ai.TaggingService, hub *ws.Hub, cfg *config.Config) *WhatsAppHandler {
+	return &WhatsAppHandler{wa: wa, contacts: contacts, outbound: outbound, comms: comms, media: media, taggingService: taggingService, hub: hub, config: cfg}
 }
 
 // GET /webhooks/whatsapp — Meta webhook verification
@@ -98,7 +102,7 @@ func (h *WhatsAppHandler) GetMessages(c *fiber.Ctx) error {
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid id"})
 	}
-	limit, _ := strconv.Atoi(c.Query("limit", "100"))
+	_, limit := pageParams(c, 100, 500)
 
 	msgs, err := h.wa.GetMessages(c.Context(), id, limit)
 	if err != nil {
@@ -192,152 +196,153 @@ func (h *WhatsAppHandler) Receive(c *fiber.Ctx) error {
 	}
 	ctx := tenant.With(c.Context(), companyID)
 
-	var payload struct {
-		Object string `json:"object"`
-		Entry  []struct {
-			ID      string `json:"id"`
-			Changes []struct {
-				Value struct {
-					MessagingProduct string `json:"messaging_product"`
-					Metadata         struct {
-						PhoneNumberID string `json:"phone_number_id"`
-					} `json:"metadata"`
-					Contacts []struct {
-						Profile struct {
-							Name string `json:"name"`
-						} `json:"profile"`
-						WAID string `json:"wa_id"`
-					} `json:"contacts"`
-					Messages []struct {
-						From      string `json:"from"`
-						ID        string `json:"id"`
-						Timestamp string `json:"timestamp"`
-						Type      string `json:"type"`
-						Text      struct {
-							Body string `json:"body"`
-						} `json:"text"`
-						Image struct {
-							URL string `json:"url"`
-						} `json:"image"`
-						Video struct {
-							URL string `json:"url"`
-						} `json:"video"`
-						Audio struct {
-							URL string `json:"url"`
-						} `json:"audio"`
-						Document struct {
-							Filename string `json:"filename"`
-							URL      string `json:"url"`
-						} `json:"document"`
-					} `json:"messages"`
-				} `json:"value"`
-				Field string `json:"field"`
-			} `json:"changes"`
-		} `json:"entry"`
-	}
-
+	var payload waPayload
 	if err := c.BodyParser(&payload); err != nil {
 		log.Printf("whatsapp webhook: body parse error: %v", err)
 		return c.Status(fiber.StatusBadRequest).SendString("invalid body")
 	}
 
+	// Meta redelivers a webhook until it gets a 2xx, so processing is idempotent and one bad
+	// item never stops the rest of the batch. Only a genuine failure (e.g. database down) makes
+	// the whole request answer 5xx so Meta retries it; items already stored are then skipped.
+	var failed error
 	for _, entry := range payload.Entry {
 		for _, change := range entry.Changes {
 			if change.Field != "messages" {
 				continue
 			}
-			val := change.Value
-
-			for _, msg := range val.Messages {
-				msgBody := ""
-				mediaURL := ""
-
-				switch msg.Type {
-				case "text":
-					msgBody = msg.Text.Body
-				case "image":
-					if msg.Image.URL != "" {
-						msgBody = "[Image]"
-						mediaURL = msg.Image.URL
-					}
-				case "video":
-					if msg.Video.URL != "" {
-						msgBody = "[Video]"
-						mediaURL = msg.Video.URL
-					}
-				case "audio":
-					if msg.Audio.URL != "" {
-						msgBody = "[Audio]"
-						mediaURL = msg.Audio.URL
-					}
-				case "document":
-					if msg.Document.URL != "" {
-						msgBody = "[Document: " + msg.Document.Filename + "]"
-						mediaURL = msg.Document.URL
-					}
-				default:
-					msgBody = "[" + msg.Type + "]"
+			for _, st := range change.Value.Statuses {
+				if err := h.handleStatus(ctx, st); err != nil {
+					log.Printf("whatsapp: status %s for %s: %v", st.Status, st.ID, err)
+					failed = err
 				}
-
-				if msgBody == "" {
-					log.Printf("whatsapp: skipping message %s — empty body (unsupported type %s)", msg.ID, msg.Type)
-					continue
+			}
+			for _, msg := range change.Value.Messages {
+				if err := h.handleInbound(ctx, companyID, change.Value, msg); err != nil {
+					log.Printf("whatsapp: message %s: %v", msg.ID, err)
+					failed = err
 				}
-
-				senderName := msg.From
-				for _, wc := range val.Contacts {
-					if wc.WAID == msg.From {
-						senderName = wc.Profile.Name
-						break
-					}
-				}
-
-				contact, err := h.contacts.Upsert(ctx, msg.From, senderName)
-				if err != nil {
-					log.Printf("whatsapp: upsert contact error for msg %s: %v", msg.ID, err)
-					return c.Status(fiber.StatusInternalServerError).SendString("contact upsert failed")
-				}
-
-				thread, err := h.wa.UpsertThread(ctx, contact.ID, val.Metadata.PhoneNumberID)
-				if err != nil {
-					log.Printf("whatsapp: upsert thread error for msg %s: %v", msg.ID, err)
-					return c.Status(fiber.StatusInternalServerError).SendString("thread upsert failed")
-				}
-
-				waMsg := &domain.WhatsAppMessage{
-					ThreadID:    thread.ID,
-					Direction:   domain.DirectionInbound,
-					Body:        msgBody,
-					MediaURL:    mediaURL,
-					WAMessageID: msg.ID,
-				}
-				if err := h.wa.SaveMessage(ctx, waMsg); err != nil {
-					log.Printf("whatsapp: save message error for msg %s: %v", msg.ID, err)
-					return c.Status(fiber.StatusInternalServerError).SendString("message save failed")
-				}
-
-				_ = h.wa.UpdateThreadMeta(ctx, thread.ID)
-
-				// Auto-tag leads based on message content
-				if h.taggingService != nil && msg.Type == "text" {
-					go func() {
-						if err := h.taggingService.AutoTagFromMessage(context.Background(), contact.ID, msg.Text.Body); err != nil {
-							log.Printf("whatsapp: auto-tagging error: %v", err)
-						}
-					}()
-				}
-
-				h.hub.BroadcastToCompany(h.config.AppCompanyID, ws.Event{
-					Type: "whatsapp.message",
-					Payload: fiber.Map{
-						"thread_id": thread.ID,
-						"contact":   contact,
-						"message":   waMsg,
-					},
-				})
 			}
 		}
 	}
-
+	if failed != nil {
+		return c.SendStatus(fiber.StatusInternalServerError)
+	}
 	return c.SendStatus(fiber.StatusOK)
+}
+
+// handleInbound stores one customer message. It returns nil for messages that are intentionally
+// not stored (duplicates, reactions, unusable sender numbers).
+func (h *WhatsAppHandler) handleInbound(ctx context.Context, companyID uuid.UUID, val waChangeValue, msg waMessage) error {
+	content := parseInbound(msg)
+	if content.Skip || msg.ID == "" {
+		return nil
+	}
+
+	// Cheap duplicate check first: a redelivery must not touch the contact or reopen a thread
+	// that an agent has closed since.
+	if exists, err := h.wa.MessageExists(ctx, msg.ID); err != nil {
+		return err
+	} else if exists {
+		return nil
+	}
+
+	profileName := ""
+	for _, wc := range val.Contacts {
+		if wc.WAID == msg.From {
+			profileName = wc.Profile.Name
+			break
+		}
+	}
+
+	contact, err := h.contacts.Upsert(ctx, msg.From, profileName)
+	if errors.Is(err, repo.ErrInvalidPhone) {
+		log.Printf("whatsapp: ignoring message %s from unusable number %q", msg.ID, msg.From)
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+
+	thread, err := h.wa.UpsertThread(ctx, contact.ID, val.Metadata.PhoneNumberID)
+	if err != nil {
+		return err
+	}
+
+	waMsg := &domain.WhatsAppMessage{
+		ThreadID:    thread.ID,
+		Direction:   domain.DirectionInbound,
+		Body:        content.Body,
+		WAMessageID: msg.ID,
+		MediaID:     content.MediaID,
+		MediaMime:   content.MediaMime,
+	}
+	created, err := h.wa.SaveMessage(ctx, waMsg)
+	if err != nil {
+		return err
+	}
+	if !created { // lost a race with a concurrent redelivery
+		return nil
+	}
+
+	if err := h.wa.UpdateThreadMeta(ctx, thread.ID); err != nil {
+		log.Printf("whatsapp: thread meta for %s: %v", thread.ID, err)
+	}
+	if content.MediaID != "" {
+		h.media.Prefetch(companyID, thread.ID, waMsg.ID)
+	}
+	if _, err := h.comms.LogWhatsApp(ctx, contact.ID, &domain.CommunicationHistory{
+		CommunicationType: domain.CommWhatsAppInbound,
+		Direction:         "inbound",
+		Body:              content.Body,
+		FromIdentifier:    contact.PhoneWA,
+		ExternalID:        msg.ID,
+		Status:            "received",
+	}); err != nil {
+		log.Printf("whatsapp: timeline entry for %s: %v", msg.ID, err)
+	}
+
+	// Auto-tag leads based on message content. Runs detached from the request, so it gets its
+	// own context that still carries the company.
+	if h.taggingService != nil && msg.Type == "text" {
+		body := msg.Text.Body
+		go func() {
+			if err := h.taggingService.AutoTagFromMessage(tenant.With(context.Background(), companyID), contact.ID, body); err != nil {
+				log.Printf("whatsapp: auto-tagging error: %v", err)
+			}
+		}()
+	}
+
+	h.hub.BroadcastToCompany(h.config.AppCompanyID, ws.Event{
+		Type: "whatsapp.message",
+		Payload: fiber.Map{
+			"thread_id": thread.ID,
+			"contact":   contact,
+			"message":   waMsg,
+		},
+	})
+	return nil
+}
+
+// handleStatus applies a delivery receipt (sent / delivered / read / failed) to the outbound
+// message it refers to.
+func (h *WhatsAppHandler) handleStatus(ctx context.Context, st waStatus) error {
+	status, ok := statusFromMeta(st.Status)
+	if !ok || st.ID == "" {
+		return nil
+	}
+	errMsg := ""
+	if status == "failed" {
+		errMsg = describeStatusErrors(st)
+	}
+	updated, err := h.outbound.ApplyStatus(ctx, st.ID, domain.OutboundStatus(status), errMsg)
+	if err != nil {
+		return err
+	}
+	if updated {
+		if err := h.comms.UpdateStatusByExternalID(ctx, st.ID, status); err != nil {
+			log.Printf("whatsapp: timeline status for %s: %v", st.ID, err)
+		}
+	}
+	return nil
 }

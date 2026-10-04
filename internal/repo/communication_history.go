@@ -199,3 +199,37 @@ func (r *CommunicationHistoryRepo) UpdateStatus(ctx context.Context, id int64, s
 	_, err = r.pool.Exec(ctx, query, status, id, cid)
 	return err
 }
+
+// LogWhatsApp adds a WhatsApp message to the timeline of the contact's most recent lead.
+// Timeline entries belong to a lead, so a contact with no lead yet gets none (returns false);
+// the message itself is always kept in the WhatsApp thread.
+func (r *CommunicationHistoryRepo) LogWhatsApp(ctx context.Context, contactID uuid.UUID, comm *domain.CommunicationHistory) (bool, error) {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return false, err
+	}
+	tag, err := r.pool.Exec(ctx, `
+		INSERT INTO communication_history
+			(lead_id, contact_id, communication_type, direction, body, from_identifier, to_identifier, external_id, status, created_by, company_id)
+		SELECT l.id, $1, $2, $3, $4, $5, $6, NULLIF($7, ''), $8, $9, $10
+		FROM leads l
+		WHERE l.contact_id = $1 AND l.company_id = $10
+		ORDER BY l.created_at DESC
+		LIMIT 1`,
+		contactID, comm.CommunicationType, comm.Direction, comm.Body, comm.FromIdentifier, comm.ToIdentifier,
+		comm.ExternalID, comm.Status, comm.CreatedBy, cid)
+	if err != nil {
+		return false, err
+	}
+	return tag.RowsAffected() > 0, nil
+}
+
+// UpdateStatusByExternalID mirrors a WhatsApp delivery receipt onto the timeline entry.
+func (r *CommunicationHistoryRepo) UpdateStatusByExternalID(ctx context.Context, externalID, status string) error {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return err
+	}
+	_, err = r.pool.Exec(ctx, `UPDATE communication_history SET status = $1 WHERE external_id = $2 AND company_id = $3`, status, externalID, cid)
+	return err
+}

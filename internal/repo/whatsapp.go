@@ -2,9 +2,11 @@ package repo
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/maidulcu/masaar-crm/internal/domain"
 	"github.com/maidulcu/masaar-crm/internal/tenant"
@@ -47,23 +49,58 @@ func (r *WhatsAppRepo) UpsertThread(ctx context.Context, contactID uuid.UUID, wa
 	return t, nil
 }
 
-// SaveMessage persists an inbound or outbound message.
-func (r *WhatsAppRepo) SaveMessage(ctx context.Context, msg *domain.WhatsAppMessage) error {
+// SaveMessage persists an inbound or outbound message and reports whether it was newly stored.
+//
+// Saving is idempotent on the Meta message id: Meta redelivers webhooks until it gets a 2xx, so
+// seeing the same id again is normal and returns created=false (not an error).
+func (r *WhatsAppRepo) SaveMessage(ctx context.Context, msg *domain.WhatsAppMessage) (created bool, err error) {
 	cid, err := tenant.From(ctx)
 	if err != nil {
-		return err
+		return false, err
 	}
 	// The thread must belong to the caller's company.
 	const q = `
-		INSERT INTO whatsapp_messages (id, thread_id, direction, body, media_url, wa_message_id, sent_at)
-		SELECT uuid_generate_v4(), $1, $2, $3, $4, $5, NOW()
+		INSERT INTO whatsapp_messages (id, thread_id, direction, body, media_url, wa_message_id, wa_media_id, media_mime, media_filename, sent_at)
+		SELECT uuid_generate_v4(), $1, $2, $3, $4, NULLIF($5, ''), NULLIF($7, ''), NULLIF($8, ''), NULLIF($9, ''), NOW()
 		WHERE EXISTS (SELECT 1 FROM whatsapp_threads WHERE id = $1 AND company_id = $6)
 		ON CONFLICT (wa_message_id) DO NOTHING
 		RETURNING id, sent_at
 	`
-	return r.db.QueryRow(ctx, q,
-		msg.ThreadID, msg.Direction, msg.Body, msg.MediaURL, msg.WAMessageID, cid,
+	err = r.db.QueryRow(ctx, q,
+		msg.ThreadID, msg.Direction, msg.Body, msg.MediaURL, msg.WAMessageID, cid, msg.MediaID, msg.MediaMime, msg.MediaFilename,
 	).Scan(&msg.ID, &msg.SentAt)
+	if err == nil {
+		return true, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return false, err
+	}
+	// No row: either this message id is already stored (a redelivery) or the thread is not ours.
+	var exists bool
+	if qerr := r.db.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM whatsapp_messages m JOIN whatsapp_threads t ON t.id = m.thread_id
+			WHERE m.wa_message_id = $1 AND t.company_id = $2)`, msg.WAMessageID, cid).Scan(&exists); qerr != nil {
+		return false, qerr
+	}
+	if exists {
+		return false, nil
+	}
+	return false, ErrForeignReference
+}
+
+// MessageExists reports whether a message with this Meta message id is already stored.
+func (r *WhatsAppRepo) MessageExists(ctx context.Context, waMessageID string) (bool, error) {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return false, err
+	}
+	var exists bool
+	err = r.db.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM whatsapp_messages m JOIN whatsapp_threads t ON t.id = m.thread_id
+			WHERE m.wa_message_id = $1 AND t.company_id = $2)`, waMessageID, cid).Scan(&exists)
+	return exists, err
 }
 
 // UpdateThreadMeta bumps last_message_at and message_count after saving a message.
@@ -130,10 +167,17 @@ func (r *WhatsAppRepo) GetMessages(ctx context.Context, threadID uuid.UUID, limi
 	if err != nil {
 		return nil, err
 	}
+	if limit < 1 || limit > 500 {
+		limit = 100
+	}
+	// Outbound rows carry the delivery state recorded from Meta's status webhooks.
 	const q = `
-		SELECT m.id, m.thread_id, m.direction, m.body, m.media_url, m.wa_message_id, m.sent_at
+		SELECT m.id, m.thread_id, m.direction, m.body, COALESCE(m.media_url,''), COALESCE(m.wa_message_id,''), m.sent_at,
+		       COALESCE(m.wa_media_id,''), COALESCE(m.media_mime,''), COALESCE(m.media_filename,''), COALESCE(m.media_size,0),
+		       COALESCE(o.status,''), COALESCE(o.error_message,'')
 		FROM whatsapp_messages m
 		JOIN whatsapp_threads t ON t.id = m.thread_id
+		LEFT JOIN whatsapp_outbound o ON o.wa_message_id = m.wa_message_id AND o.company_id = t.company_id
 		WHERE m.thread_id = $1 AND t.company_id = $3
 		ORDER BY m.sent_at ASC
 		LIMIT $2
@@ -150,12 +194,13 @@ func (r *WhatsAppRepo) GetMessages(ctx context.Context, threadID uuid.UUID, limi
 		if err := rows.Scan(
 			&m.ID, &m.ThreadID, &m.Direction, &m.Body,
 			&m.MediaURL, &m.WAMessageID, &m.SentAt,
+			&m.MediaID, &m.MediaMime, &m.MediaFilename, &m.MediaSize, &m.Status, &m.ErrorMsg,
 		); err != nil {
 			return nil, fmt.Errorf("scan message: %w", err)
 		}
 		msgs = append(msgs, m)
 	}
-	return msgs, nil
+	return msgs, rows.Err()
 }
 
 func (r *WhatsAppRepo) CloseThread(ctx context.Context, threadID uuid.UUID) error {
@@ -213,4 +258,65 @@ func (r *WhatsAppRepo) GetThread(ctx context.Context, threadID uuid.UUID) (*doma
 	}
 	t.Contact = &c
 	return t, nil
+}
+
+// MessageMedia describes the file attached to a WhatsApp message.
+type MessageMedia struct {
+	MessageID uuid.UUID
+	WAMediaID string // Meta's media id (empty when the file did not come from WhatsApp)
+	Mime      string
+	Filename  string
+	Path      string // opaque name in the media store; empty until downloaded
+	Size      int64
+}
+
+// GetMessageMedia returns the media reference of a message in one of the caller's threads.
+func (r *WhatsAppRepo) GetMessageMedia(ctx context.Context, threadID, messageID uuid.UUID) (*MessageMedia, error) {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return nil, err
+	}
+	m := &MessageMedia{MessageID: messageID}
+	err = r.db.QueryRow(ctx, `
+		SELECT COALESCE(m.wa_media_id,''), COALESCE(m.media_mime,''), COALESCE(m.media_filename,''),
+		       COALESCE(m.media_path,''), COALESCE(m.media_size,0)
+		FROM whatsapp_messages m JOIN whatsapp_threads t ON t.id = m.thread_id
+		WHERE m.id = $1 AND m.thread_id = $2 AND t.company_id = $3`,
+		messageID, threadID, cid).Scan(&m.WAMediaID, &m.Mime, &m.Filename, &m.Path, &m.Size)
+	if err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
+// ClearMessageMedia forgets a stored file reference (e.g. the file was lost), so the media can be
+// downloaded again.
+func (r *WhatsAppRepo) ClearMessageMedia(ctx context.Context, messageID uuid.UUID) error {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return err
+	}
+	_, err = r.db.Exec(ctx, `
+		UPDATE whatsapp_messages m SET media_path = NULL, media_size = NULL
+		FROM whatsapp_threads t
+		WHERE m.id = $1 AND t.id = m.thread_id AND t.company_id = $2`, messageID, cid)
+	return err
+}
+
+// SetMessageMedia records where a message's file was stored. It only fills an empty slot and
+// reports whether it did, so two concurrent downloads cannot overwrite each other's file.
+func (r *WhatsAppRepo) SetMessageMedia(ctx context.Context, messageID uuid.UUID, path string, size int64, mime string) (bool, error) {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return false, err
+	}
+	tag, err := r.db.Exec(ctx, `
+		UPDATE whatsapp_messages m SET media_path = $2, media_size = $3, media_mime = COALESCE(NULLIF(m.media_mime, ''), NULLIF($4, ''))
+		FROM whatsapp_threads t
+		WHERE m.id = $1 AND t.id = m.thread_id AND t.company_id = $5 AND m.media_path IS NULL`,
+		messageID, path, size, mime, cid)
+	if err != nil {
+		return false, err
+	}
+	return tag.RowsAffected() > 0, nil
 }

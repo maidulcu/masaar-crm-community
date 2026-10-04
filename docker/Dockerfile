@@ -34,6 +34,9 @@ RUN if [ -f /app/.env ]; then cp --chown=masaar:masaar /app/.env .env; fi
 # Set permissions
 RUN chmod +x /app/masaar
 
+# Writable location for WhatsApp attachments (mount a volume here to keep them across upgrades)
+RUN mkdir -p /app/data/whatsapp-media && chown -R masaar:masaar /app/data
+
 # Run as non-root user
 USER masaar
 
