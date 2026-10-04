@@ -24,7 +24,7 @@ function MagicLinkVerifyContent() {
     const verifyToken = async () => {
       try {
         const res = await api.auth.verifyMagicLink(token) as any
-        setSession(res.access_token, res.refresh_token, res.user, res.company)
+        setSession(res.access_token, res.user, res.company)
         if (res.user.lang_pref) setLang(res.user.lang_pref)
         setStatus('success')
         setTimeout(() => {

@@ -29,12 +29,12 @@ type Config struct {
 }
 
 type Client struct {
-	cfg       Config
+	cfg        Config
 	httpClient *http.Client
-	mu        sync.Mutex
-	acctBase  string // cached {base_uri}/restapi/v2.1/accounts/{account_id}
-	token     string
-	tokenExp  time.Time
+	mu         sync.Mutex
+	acctBase   string // cached {base_uri}/restapi/v2.1/accounts/{account_id}
+	token      string
+	tokenExp   time.Time
 }
 
 func NewClient(cfg Config) *Client {
@@ -81,11 +81,11 @@ func (c *Client) ensureToken(ctx context.Context) error {
 
 	now := time.Now()
 	claims := jwt.MapClaims{
-		"iss": c.cfg.IntegrationKey,
-		"sub": c.cfg.UserID,
-		"aud": "account-d.docusign.com",
-		"iat": now.Unix(),
-		"exp": now.Add(59 * time.Minute).Unix(),
+		"iss":   c.cfg.IntegrationKey,
+		"sub":   c.cfg.UserID,
+		"aud":   "account-d.docusign.com",
+		"iat":   now.Unix(),
+		"exp":   now.Add(59 * time.Minute).Unix(),
 		"scope": "signature impersonation",
 	}
 	tok := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
@@ -158,17 +158,17 @@ func (c *Client) SendEnvelope(ctx context.Context, docContent []byte, docName st
 		"recipients": map[string]interface{}{
 			"signers": []map[string]interface{}{
 				{
-					"email":          signer.Email,
-					"name":           signer.Name,
-					"recipientId":    "1",
-					"routingOrder":   "1",
+					"email":        signer.Email,
+					"name":         signer.Name,
+					"recipientId":  "1",
+					"routingOrder": "1",
 					"tabs": map[string]interface{}{
 						"signHereTabs": []map[string]interface{}{
 							{
-								"documentId":  "1",
-								"pageNumber":  "1",
-								"xPosition":   "200",
-								"yPosition":   "700",
+								"documentId": "1",
+								"pageNumber": "1",
+								"xPosition":  "200",
+								"yPosition":  "700",
 							},
 						},
 					},

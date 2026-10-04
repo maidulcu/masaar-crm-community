@@ -7,6 +7,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [v0.3.3] - Unreleased
+
+WhatsApp inbox fixes found in a pipeline audit. Includes migration `0061` (merges duplicate contacts — see upgrade notes).
+
+### Fixed
+- **Duplicate webhook deliveries no longer fail.** Meta redelivers a webhook until it gets a 2xx; a message that was already stored used to return HTTP 500, so Meta retried it for days and every later message in the same batch was lost. Processing is now idempotent, a bad item no longer stops the rest of its batch, and only genuine failures (e.g. database down) answer 5xx. A redelivery also no longer reopens a thread an agent has closed or inflates its message count.
+- **Delivery receipts are applied.** Outbound messages now move through sent → delivered → read, and a failure (e.g. outside the 24-hour window, invalid number) is recorded with Meta's error code and shown on the message. Out-of-order receipts never move a status backwards.
+- **One person, one contact.** Phone numbers are normalised to E.164 (`+971501234567`) everywhere they are written or looked up. WhatsApp reports numbers without the `+`, so a contact an agent created as `+971…` used to get a second contact and thread on the first inbound message. Contacts API/CSV import also accept `971 50 123 4567` and `00971…`.
+- **Contact names are no longer overwritten** by the sender's WhatsApp profile name (or the bare number) on every message. A name is only filled in when it is empty or just the phone number.
+- **Inbound media is no longer dropped.** Meta sends an image/document/voice-note *id*, not a URL, so these messages used to be skipped entirely. They now appear in the thread (`[Image] caption`, `[Document: passport.pdf]`, `[Voice message]`, …) with the media id and type stored for download. Locations, button/list replies, quick-reply buttons and contact cards keep their content instead of showing `[location]`; reactions are no longer stored as messages.
+- **Agent replies are part of the conversation.** Sent messages (text, template, media) are stored in the thread, update its activity time and message count, show their delivery status, and are added to the lead timeline; inbound messages are too (when the contact has a lead). Previously AI summaries/drafts and inbox ordering only saw the customer's side.
+- Auto-tagging of inbound messages ran without a company context and could never write; it now carries the company.
+- `GET /threads/:id/messages?limit=` is bounded; messages over WhatsApp's 4096-character limit are rejected with 400.
+- Message bodies are cleaned of NUL bytes/invalid UTF-8 so one malformed message cannot fail on every redelivery.
+
+### Upgrade notes
+- Migration `0061` normalises `contacts.phone_wa` to `+<digits>` and **merges contacts that differ only by formatting** within a company (oldest survives; leads, offers, viewings, timeline entries and WhatsApp threads move to it, nothing is deleted except the duplicate row). Numbers whose country cannot be determined (national format such as `0501234567`) are left untouched. The merge cannot be undone; back up before upgrading if you have many hand-entered duplicates.
+- Importing a CSV or capturing a public lead for an existing number no longer renames the existing contact.
+
+## [v0.3.2] - Unreleased
+
+Third hardening pass: session storage and horizontal scaling. No schema changes.
+
+### Security
+- **Tokens out of `localStorage`** — the web app no longer keeps credentials where injected script can read them. The access token is held in memory only and the refresh token is an `HttpOnly` cookie (`masaar_rt`, path `/api/v1/auth`, `Secure` in production, `SameSite=Lax`). A reload restores the session from the cookie. Cookie mode is opt-in per request (`X-Auth-Mode: cookie`), so API, mobile and script clients keep using the refresh token in the JSON body exactly as before. Cookie-authenticated endpoints require the custom header (forces a CORS preflight) and an `Origin` in `ALLOWED_ORIGINS`; CORS now allows credentials for the configured origins. Tokens written to `localStorage` by earlier versions are deleted on first load.
+- **Shared rate limiting** — IP rate limits (login, OTP, registration, refresh, webhooks, API) were counted per process, so running several API replicas multiplied every limit. Counters now live in Redis (fail-open if Redis is unreachable; authentication itself still depends on Redis and fails closed).
+- **Content-Security-Policy** — now a full policy: `default-src 'self'`, scripts only from this site (plus Cloudflare Turnstile), `connect-src` restricted to this site, the API and the WebSocket, and `frame-ancestors/base-uri/object-src/form-action` locks. `script-src` still allows `'unsafe-inline'` (Next.js bootstrap scripts); a nonce-based policy remains future work.
+
+### Fixed
+- **Import / export downloads** — the Import/Export page read the token from the wrong storage key and put it in the URL (`?token=`, `?authorization=`), which the API ignores — downloads failed with 401 and the credential leaked into history and logs. Downloads and the listing brochure/QR links now use authenticated fetches. Wrong-password responses on the login page no longer trigger a pointless refresh attempt and page reload.
+- `gofmt` is now enforced in CI.
+
+### Upgrade notes
+- **The web app and the API must be on the same site** (same registrable domain, e.g. `crm.example.com` and `api.example.com`, or `localhost:3000` and `localhost:8080`) for the refresh cookie to be sent. For different sites set `AUTH_COOKIE_SAMESITE=none` (HTTPS required).
+- `ALLOWED_ORIGINS` now defaults to `http://localhost:3000` instead of `*` outside production; credentialed CORS cannot be used with `*`, so the browser app needs explicit origins.
+- Everyone is signed out once on upgrade (tokens move from `localStorage` to the cookie).
+- Running more than one API replica? They now share limits through the same Redis automatically.
+
+### Known limitations
+- WhatsApp, SMTP and AI credentials are still configured per deployment, not per company.
+- `script-src` still permits inline scripts (see above).
+
+---
+
 ## [v0.3.1] - Unreleased
 
 Second security audit pass over the merged v0.3.0 code. No schema changes.
@@ -29,7 +73,7 @@ Second security audit pass over the merged v0.3.0 code. No schema changes.
 - Existing rows containing non-http(s) values in URL fields are not rewritten; the UI will render those links inert.
 
 ### Known limitations
-- Access and refresh tokens still live in browser `localStorage`; moving them to `HttpOnly` cookies and adding a nonce-based `script-src` CSP is future work.
+- Access and refresh tokens still live in browser `localStorage` (fixed in v0.3.2).
 
 ---
 

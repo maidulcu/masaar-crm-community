@@ -68,7 +68,7 @@ export default function LoginPage() {
     try {
       if (!await checkTurnstile()) return
       const res = await api.auth.login(email, password) as LoginResponse
-      setSession(res.access_token, res.refresh_token, res.user, res.company)
+      setSession(res.access_token, res.user, res.company)
       if (res.user.lang_pref) setLang(res.user.lang_pref)
       router.push('/pipeline')
     } catch (err: any) {
@@ -85,7 +85,7 @@ export default function LoginPage() {
     setLoading(true)
     try {
       const res = await api.auth.login('ahmed@masaar.local', 'Demo@1234') as LoginResponse
-      setSession(res.access_token, res.refresh_token, res.user, res.company)
+      setSession(res.access_token, res.user, res.company)
       if (res.user.lang_pref) setLang(res.user.lang_pref)
       router.push('/pipeline')
     } catch (err: any) {
@@ -135,7 +135,7 @@ export default function LoginPage() {
     setLoading(true)
     try {
       const res = await api.auth.verifySMSOTP(phone, otp) as LoginResponse
-      setSession(res.access_token, res.refresh_token, res.user, res.company)
+      setSession(res.access_token, res.user, res.company)
       if (res.user.lang_pref) setLang(res.user.lang_pref)
       router.push('/pipeline')
     } catch (err: any) {

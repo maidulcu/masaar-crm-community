@@ -1,28 +1,54 @@
-import { getToken, getRefreshToken, saveSession, getUser, clearSession } from './auth'
+import { getToken, saveSession, getUser, clearSession } from './auth'
+import type { AuthUser } from '@/types'
 
 const BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080'
+
+/**
+ * Requests to /api/v1/auth/* run in "cookie mode": the refresh token travels only in an HttpOnly
+ * cookie (credentials: 'include'), and the custom X-Auth-Mode header makes the request
+ * un-forgeable from another site (it forces a CORS preflight the API only grants to our origin).
+ */
+function authInit(path: string): RequestInit & { headers: Record<string, string> } {
+  if (path.startsWith('/api/v1/auth/')) {
+    return { credentials: 'include', headers: { 'X-Auth-Mode': 'cookie' } }
+  }
+  return { headers: {} }
+}
 
 /** Tracks an in-flight refresh so concurrent requests don't each kick one off. */
 let refreshPromise: Promise<string | null> | null = null
 
-async function silentRefresh(): Promise<string | null> {
+async function doRefresh(): Promise<string | null> {
+  try {
+    const res = await fetch(`${BASE}/api/v1/auth/refresh`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json', 'X-Auth-Mode': 'cookie' },
+    })
+    if (!res.ok) return null
+    const data = await res.json()
+    const user = (data.user as AuthUser | undefined) ?? getUser()
+    if (!user) return null
+    saveSession(data.access_token, user)
+    return data.access_token as string
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Exchanges the HttpOnly refresh cookie for a fresh access token. Refresh tokens are single-use,
+ * so refreshes from several tabs are serialised with the Web Locks API; otherwise two tabs
+ * opening at once would race and one would be logged out.
+ */
+export async function silentRefresh(): Promise<string | null> {
   if (refreshPromise) return refreshPromise
   refreshPromise = (async () => {
     try {
-      const rt = getRefreshToken()
-      if (!rt) return null
-      const res = await fetch(`${BASE}/api/v1/auth/refresh`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ refresh_token: rt }),
-      })
-      if (!res.ok) return null
-      const data = await res.json()
-      const user = getUser()
-      if (user) saveSession(data.access_token, data.refresh_token ?? rt, user)
-      return data.access_token as string
-    } catch {
-      return null
+      if (typeof navigator !== 'undefined' && navigator.locks) {
+        return await navigator.locks.request('masaar-refresh', doRefresh)
+      }
+      return await doRefresh()
     } finally {
       refreshPromise = null
     }
@@ -32,13 +58,22 @@ async function silentRefresh(): Promise<string | null> {
 
 async function request<T>(path: string, init: RequestInit = {}, _retry = true): Promise<T> {
   const token = getToken()
+  const auth = authInit(path)
   const headers: HeadersInit = {
     'Content-Type': 'application/json',
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...auth.headers,
     ...(init.headers || {}),
   }
 
-  const res = await fetch(`${BASE}${path}`, { ...init, headers })
+  const res = await fetch(`${BASE}${path}`, { ...init, credentials: auth.credentials, headers })
+
+  // A 401 from a credential-submitting auth endpoint (bad password / OTP / link) is an ordinary
+  // error to show the user, not an expired session — don't refresh or bounce to /login.
+  if (res.status === 401 && path.startsWith('/api/v1/auth/') && !path.endsWith('/logout')) {
+    const err = await res.json().catch(() => ({ error: 'Unauthorized' }))
+    throw new Error(err.error || 'Unauthorized')
+  }
 
   if (res.status === 401 && _retry) {
     // Try a silent token refresh before giving up
@@ -77,7 +112,7 @@ async function request<T>(path: string, init: RequestInit = {}, _retry = true): 
   return res.json()
 }
 
-async function requestBlob(path: string, init: RequestInit = {}): Promise<Blob> {
+export async function requestBlob(path: string, init: RequestInit = {}): Promise<Blob> {
   const token = getToken()
   const headers: HeadersInit = {
     'Content-Type': 'application/json',
@@ -97,6 +132,32 @@ async function requestBlob(path: string, init: RequestInit = {}): Promise<Blob> 
     throw new Error(err.error || 'Request failed')
   }
   return res.blob()
+}
+
+function saveBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  setTimeout(() => URL.revokeObjectURL(url), 10_000)
+}
+
+/** Opens the tab synchronously (so popup blockers allow it), then points it at the fetched Blob. */
+async function openBlobInTab(load: () => Promise<Blob>) {
+  const win = window.open('', '_blank')
+  try {
+    const blob = await load()
+    const url = URL.createObjectURL(blob)
+    if (win) win.location.href = url
+    else saveBlob(blob, 'download')
+    setTimeout(() => URL.revokeObjectURL(url), 60_000)
+  } catch (e) {
+    win?.close()
+    throw e
+  }
 }
 
 // ─── Auth ─────────────────────────────────────────────────────────────────────
@@ -123,11 +184,7 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ token }),
       }),
-    logout: (refreshToken: string) =>
-      request('/api/v1/auth/logout', {
-        method: 'DELETE',
-        body: JSON.stringify({ refresh_token: refreshToken }),
-      }),
+    logout: () => request('/api/v1/auth/logout', { method: 'DELETE' }),
     requestSMSOTP: (phone: string, lang?: string) =>
       request('/api/v1/auth/sms/request', {
         method: 'POST',
@@ -147,11 +204,6 @@ export const api = {
       request('/api/v1/auth/reset-password', {
         method: 'POST',
         body: JSON.stringify({ token, password }),
-      }),
-    refresh: (refreshToken: string) =>
-      request('/api/v1/auth/refresh', {
-        method: 'POST',
-        body: JSON.stringify({ refresh_token: refreshToken }),
       }),
     register: (data: { name: string; email: string; password: string; company_name: string; subdomain: string; turnstile_token?: string }) =>
       request('/api/v1/auth/register', {
@@ -895,8 +947,10 @@ export const api = {
   },
 
   importExport: {
-    template: (entity: 'contacts' | 'leads' | 'listings') =>
-      `${BASE}/api/v1/import/template/${entity}`,
+    // Downloads are fetched with the Authorization header and saved from a Blob. Never put the
+    // JWT in a URL: it would leak through history, proxy/server logs and the Referer header.
+    downloadTemplate: async (entity: 'contacts' | 'leads' | 'listings') =>
+      saveBlob(await requestBlob(`/api/v1/import/template/${entity}`), `${entity}-template.csv`),
     importContacts: async (file: File) => {
       const fd = new FormData(); fd.append('file', file)
       const token = (await import('./auth')).getToken()
@@ -917,21 +971,25 @@ export const api = {
       if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || 'Import failed') }
       return res.json()
     },
-    exportContacts: (search?: string) => {
+    exportContacts: async (search?: string) => {
       const q = search ? `?search=${encodeURIComponent(search)}` : ''
-      return `${BASE}/api/v1/export/contacts${q}`
+      saveBlob(await requestBlob(`/api/v1/export/contacts${q}`), 'contacts.csv')
     },
-    exportLeads: (stage?: string) => {
-      const q = stage ? `?stage=${stage}` : ''
-      return `${BASE}/api/v1/export/leads${q}`
+    exportLeads: async (stage?: string) => {
+      const q = stage ? `?stage=${encodeURIComponent(stage)}` : ''
+      saveBlob(await requestBlob(`/api/v1/export/leads${q}`), 'leads.csv')
     },
-    exportListings: () => `${BASE}/api/v1/export/listings`,
+    exportListings: async () =>
+      saveBlob(await requestBlob('/api/v1/export/listings'), 'listings.csv'),
   },
 
   marketing: {
     publicListing: (id: string) => fetch(`${BASE}/api/public/listings/${id}`).then(r => r.json()),
-    brochureUrl: (id: string) => `${BASE}/api/v1/listings/${id}/brochure`,
-    qrUrl: (id: string) => `${BASE}/api/v1/listings/${id}/qr`,
+    // Authenticated endpoints: open the result from a Blob (a plain <a href> cannot send the bearer token).
+    // Saved rather than opened: a blob: tab inherits this page's CSP, which (object-src 'none') can block PDF viewers.
+    downloadBrochure: async (id: string) =>
+      saveBlob(await requestBlob(`/api/v1/listings/${id}/brochure`), 'brochure.pdf'),
+    openQr: (id: string) => openBlobInTab(() => requestBlob(`/api/v1/listings/${id}/qr`)),
     emailCampaign: (id: string, data: { contact_ids: string[]; subject?: string; message?: string }) =>
       request(`/api/v1/listings/${id}/email-campaign`, { method: 'POST', body: JSON.stringify(data) }),
   },

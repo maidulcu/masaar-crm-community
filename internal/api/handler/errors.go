@@ -22,6 +22,8 @@ func apiError(err error) (int, string) {
 	switch {
 	case errors.Is(err, tenant.ErrMissing):
 		return fiber.StatusUnauthorized, "unauthorized"
+	case errors.Is(err, repo.ErrInvalidPhone):
+		return fiber.StatusUnprocessableEntity, "invalid phone number"
 	case errors.Is(err, pgx.ErrNoRows),
 		errors.Is(err, repo.ErrForeignReference),
 		errors.Is(err, repo.ErrUserNotFound):

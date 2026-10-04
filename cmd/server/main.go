@@ -183,8 +183,8 @@ func main() {
 		Stats:               handler.NewStatsHandler(statsRepo),
 		Contact:             handler.NewContactHandler(contactRepo, auditRepo),
 		Lead:                handler.NewLeadHandler(leadRepo, contactRepo, commHistRepo, scoringSvc, leadTagRepo, hub, auditRepo, dispatcher, pipelineStageRepo),
-		WhatsApp:            handler.NewWhatsAppHandler(waRepo, contactRepo, taggingSvc, hub, cfg),
-		WhatsAppOutbound:    handler.NewWhatsAppOutboundHandler(waSender, waOutboundRepo, waRepo),
+		WhatsApp:            handler.NewWhatsAppHandler(waRepo, contactRepo, waOutboundRepo, commHistRepo, taggingSvc, hub, cfg),
+		WhatsAppOutbound:    handler.NewWhatsAppOutboundHandler(waSender, waOutboundRepo, waRepo, commHistRepo),
 		AI:                  handler.NewAIHandler(aiSensitive, aiCloud, contactRepo, leadRepo, waRepo),
 		Message:             handler.NewMessageHandler(aiSensitive, waRepo, contactRepo, leadRepo, commHistRepo, leadTagRepo, scoringSvc, hub),
 		Notification:        handler.NewNotificationHandler(notificationRepo),
@@ -250,8 +250,11 @@ func main() {
 	app.Use(cors.New(cors.Config{
 		AllowOrigins: cfg.AllowedOrigins,
 		AllowMethods: "GET,POST,PUT,PATCH,DELETE,OPTIONS",
-		AllowHeaders: "Origin,Content-Type,Accept,Authorization,X-API-Key",
-		MaxAge:       600,
+		AllowHeaders: "Origin,Content-Type,Accept,Authorization,X-API-Key,X-Auth-Mode",
+		// The browser app keeps its refresh token in an HttpOnly cookie, which requires
+		// credentialed CORS and therefore explicit origins (never "*").
+		AllowCredentials: strings.TrimSpace(cfg.AllowedOrigins) != "*",
+		MaxAge:           600,
 	}))
 
 	api.RegisterRoutes(app, h, hub, cfg, rdb, pool, apiKeyRepo, billingRepo, companyRepo)
