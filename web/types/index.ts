@@ -34,7 +34,8 @@ export interface Company {
 
 export interface LoginResponse {
   access_token: string
-  refresh_token: string
+  /** Only present for non-browser clients; the web app receives it as an HttpOnly cookie. */
+  refresh_token?: string
   expires_in: number
   user: AuthUser
   company?: Company

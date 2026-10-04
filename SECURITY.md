@@ -31,6 +31,8 @@ Out of scope: vulnerabilities in third-party services you connect (WhatsApp/Meta
 
 - Generate a strong `JWT_SECRET` (`openssl rand -hex 32`). With `APP_ENV=production` the server refuses placeholder or short secrets.
 - Set `ALLOWED_ORIGINS` to your frontend origin(s) — never `*`.
+- Serve the web app and the API from the **same site** (e.g. `crm.example.com` and `api.example.com`): browser sessions keep the refresh token in an `HttpOnly` cookie. Different sites need `AUTH_COOKIE_SAMESITE=none` and HTTPS.
+- Running several API replicas is fine: rate-limit counters are shared through Redis.
 - If you enable WhatsApp, set both `WA_APP_SECRET` (so inbound webhooks are signature-verified) and a unique `WA_VERIFY_TOKEN`.
 - Keep `ALLOW_REGISTRATION=false` (the default) unless you intend to host several companies. CRM data is isolated per company, but the WhatsApp number, SMTP and AI settings are deployment-wide.
 - Terminate TLS in front of the API and the web app, and do not expose Postgres or Redis publicly.

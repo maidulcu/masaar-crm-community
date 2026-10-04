@@ -21,9 +21,9 @@ type Client struct {
 
 func NewClient(authKey, authToken, senderID string) *Client {
 	return &Client{
-		authKey:   authKey,
-		authToken: authToken,
-		senderID:  senderID,
+		authKey:    authKey,
+		authToken:  authToken,
+		senderID:   senderID,
 		httpClient: &http.Client{Timeout: 10 * time.Second},
 	}
 }

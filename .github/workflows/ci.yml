@@ -23,9 +23,17 @@ jobs:
         options: >-
           --health-cmd "pg_isready -U masaar -d masaar_test"
           --health-interval 5s --health-timeout 5s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 5s --health-retries 10
     env:
       # Enables the multi-company isolation tests in internal/repo (skipped when unset).
       TEST_DATABASE_URL: postgres://masaar:masaar@localhost:5432/masaar_test?sslmode=disable
+      # Enables the shared (cross-replica) rate-limit test (skipped when unset).
+      TEST_REDIS_ADDR: localhost:6379
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
@@ -34,6 +42,10 @@ jobs:
       - name: Entry point must be tracked
         # Guards against .gitignore patterns silently excluding cmd/server/.
         run: test -f cmd/server/main.go
+      - name: gofmt
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then echo "Run gofmt -w on:"; echo "$unformatted"; exit 1; fi
       - run: go vet ./...
       - run: go build ./...
       - name: Build server binary

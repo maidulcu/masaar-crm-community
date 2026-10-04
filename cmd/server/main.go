@@ -250,8 +250,11 @@ func main() {
 	app.Use(cors.New(cors.Config{
 		AllowOrigins: cfg.AllowedOrigins,
 		AllowMethods: "GET,POST,PUT,PATCH,DELETE,OPTIONS",
-		AllowHeaders: "Origin,Content-Type,Accept,Authorization,X-API-Key",
-		MaxAge:       600,
+		AllowHeaders: "Origin,Content-Type,Accept,Authorization,X-API-Key,X-Auth-Mode",
+		// The browser app keeps its refresh token in an HttpOnly cookie, which requires
+		// credentialed CORS and therefore explicit origins (never "*").
+		AllowCredentials: strings.TrimSpace(cfg.AllowedOrigins) != "*",
+		MaxAge:           600,
 	}))
 
 	api.RegisterRoutes(app, h, hub, cfg, rdb, pool, apiKeyRepo, billingRepo, companyRepo)

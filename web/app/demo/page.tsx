@@ -24,7 +24,7 @@ export default function DemoPage() {
       try {
         const res = await api.auth.login('ahmed@masaar.local', 'Demo@1234') as LoginResponse
         if (cancelled) return
-        setSession(res.access_token, res.refresh_token, res.user, res.company)
+        setSession(res.access_token, res.user, res.company)
         if (res.user.lang_pref) setLang(res.user.lang_pref)
         router.replace('/pipeline')
       } catch (err: any) {
