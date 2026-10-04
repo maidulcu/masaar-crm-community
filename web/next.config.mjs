@@ -24,6 +24,8 @@ const csp = [
   "font-src 'self' data: https://fonts.gstatic.com",
   // Listing photos come from arbitrary https hosts; map tiles/markers from OSM and cdnjs.
   "img-src 'self' data: blob: https:",
+  // WhatsApp voice notes/videos are fetched with the auth header and played from blob: URLs.
+  "media-src 'self' blob:",
   `connect-src 'self' ${[apiOrigin, wsOrigin].filter(Boolean).join(' ')}${isDev ? ' ws://localhost:3000' : ''}`,
   'frame-src https://challenges.cloudflare.com',
   "frame-ancestors 'none'",

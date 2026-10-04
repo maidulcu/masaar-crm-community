@@ -71,6 +71,8 @@ services:
         condition: service_healthy
       ollama:
         condition: service_healthy
+    volumes:
+      - media_data:/app/data   # WhatsApp attachments
     environment:
       # Server
       PORT: ${PORT:-8080}
@@ -164,6 +166,7 @@ services:
     restart: unless-stopped
 
 volumes:
+  media_data:
   postgres_data:
     driver: local
   redis_data:

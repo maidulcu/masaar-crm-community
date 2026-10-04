@@ -87,7 +87,7 @@ services:
       WA_VERIFY_TOKEN: ${WA_VERIFY_TOKEN}
       WA_ACCESS_TOKEN: ${WA_ACCESS_TOKEN}
       WA_PHONE_NUMBER_ID: ${WA_PHONE_NUMBER_ID}
-      WA_BASE_URL: ${WA_BASE_URL:-https://graph.instagram.com}
+      WA_BASE_URL: ${WA_BASE_URL:-https://graph.facebook.com}
       OLLAMA_BASE_URL: http://ollama:11434
       OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3}
       SMTP_HOST: ${SMTP_HOST}

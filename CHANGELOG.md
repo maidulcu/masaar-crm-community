@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [v0.3.4] - Unreleased
+
+WhatsApp attachments (follow-up to v0.3.3). Includes migration `0062`.
+
+### Fixed / added
+- **Customer attachments are no longer lost.** Photos, documents and voice notes sent over WhatsApp are downloaded from Meta (which only keeps them ~30 days and hands out short-lived URLs), stored on the server and shown in the inbox. Files are fetched in the background when the message arrives and, if that failed, on demand when someone opens it. Expired files show a clear "no longer available" message.
+- **Send files from your computer.** The inbox can now upload an image, PDF/Office document, audio or video to WhatsApp (previously only a public link could be sent). A copy is kept so the thread shows what was sent.
+- **Captions are delivered.** The caption typed with an image/video/document was saved but never sent to the customer. Documents now carry their file name.
+- Template messages without variables no longer fail (an empty body component was sent).
+- The inbox shows errors from the send-media form instead of silently ignoring them.
+- `docker-compose.prod.override.yml` defaulted `WA_BASE_URL` to `graph.instagram.com` (the Instagram API); it is now `graph.facebook.com`.
+
+### Security
+- **Customer-supplied files are treated as hostile.** They are served only through an authenticated, company-scoped endpoint; the declared type is never trusted (only images, audio, video and PDF are shown inline — everything else, including HTML/SVG, is a forced download), with `nosniff`, a sandboxing `Content-Security-Policy`, and a sanitised file name. Stored under random names (never a customer-chosen path) through `os.Root`, with a size cap (`WA_MEDIA_MAX_MB`, default 25).
+- **The WhatsApp access token is only ever sent to Meta's own hosts.** The download URL comes from Meta's API response, so it is checked (https, Meta domains only, re-checked on redirects) and fetched through the SSRF-safe client.
+- Outgoing uploads are limited to the file types WhatsApp accepts, size-capped and content-checked (a script renamed `.png` is refused); `media_type` is validated (it used to be written straight into the request as a JSON key).
+
+### Upgrade notes
+- Attachments are stored under `WA_MEDIA_DIR` (default `./data/whatsapp-media`; the Docker images use `/app/data` and the compose files mount a `media_data` volume there). Back this volume up with the rest of your data. If the directory cannot be created the integration keeps working and attachments are simply not shown.
+- Messages received before this release have no stored file; their attachments are fetched from Meta on first open if still within Meta's 30-day window.
+
 ## [v0.3.3] - Unreleased
 
 WhatsApp inbox fixes found in a pipeline audit. Includes migration `0061` (merges duplicate contacts — see upgrade notes).

@@ -31,6 +31,7 @@ import (
 	"github.com/maidulcu/masaar-crm/internal/config"
 	"github.com/maidulcu/masaar-crm/internal/docusign"
 	"github.com/maidulcu/masaar-crm/internal/email"
+	"github.com/maidulcu/masaar-crm/internal/mediastore"
 	"github.com/maidulcu/masaar-crm/internal/repo"
 	"github.com/maidulcu/masaar-crm/internal/sms"
 	"github.com/maidulcu/masaar-crm/internal/webhook"
@@ -152,6 +153,19 @@ func main() {
 		AccessToken:   cfg.WAAccessToken,
 	})
 
+	// Files customers send over WhatsApp are kept on disk. If the directory cannot be created the
+	// rest of the WhatsApp integration keeps working; attachments just cannot be shown.
+	var mediaStore *mediastore.Store
+	if waSender.IsConfigured() {
+		if st, err := mediastore.New(cfg.WAMediaDir); err != nil {
+			log.Printf("WARNING: WhatsApp media storage disabled: %v", err)
+		} else {
+			mediaStore = st
+			defer st.Close()
+		}
+	}
+	waMedia := handler.NewWAMediaService(waSender, mediaStore, waRepo, cfg.WAMediaMaxMB)
+
 	bos24Client := bos24.NewClient(cfg.BOS24Token, cfg.BOS24BaseURL, rdb)
 	bos24Sync := bos24.NewSyncService(bos24Repo, contactRepo, hub)
 
@@ -183,8 +197,8 @@ func main() {
 		Stats:               handler.NewStatsHandler(statsRepo),
 		Contact:             handler.NewContactHandler(contactRepo, auditRepo),
 		Lead:                handler.NewLeadHandler(leadRepo, contactRepo, commHistRepo, scoringSvc, leadTagRepo, hub, auditRepo, dispatcher, pipelineStageRepo),
-		WhatsApp:            handler.NewWhatsAppHandler(waRepo, contactRepo, waOutboundRepo, commHistRepo, taggingSvc, hub, cfg),
-		WhatsAppOutbound:    handler.NewWhatsAppOutboundHandler(waSender, waOutboundRepo, waRepo, commHistRepo),
+		WhatsApp:            handler.NewWhatsAppHandler(waRepo, contactRepo, waOutboundRepo, commHistRepo, waMedia, taggingSvc, hub, cfg),
+		WhatsAppOutbound:    handler.NewWhatsAppOutboundHandler(waSender, waOutboundRepo, waRepo, commHistRepo, waMedia),
 		AI:                  handler.NewAIHandler(aiSensitive, aiCloud, contactRepo, leadRepo, waRepo),
 		Message:             handler.NewMessageHandler(aiSensitive, waRepo, contactRepo, leadRepo, commHistRepo, leadTagRepo, scoringSvc, hub),
 		Notification:        handler.NewNotificationHandler(notificationRepo),
