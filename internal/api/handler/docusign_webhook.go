@@ -3,7 +3,7 @@ package handler
 import (
 	"crypto/hmac"
 	"crypto/sha256"
-	"encoding/hex"
+	"encoding/base64"
 	"encoding/json"
 
 	"github.com/gofiber/fiber/v2"
@@ -25,18 +25,21 @@ func NewDocusignWebhookHandler(docs *repo.DocumentRepo, webhookSecret string) *D
 func (h *DocusignWebhookHandler) Handle(c *fiber.Ctx) error {
 	body := c.Body()
 
-	// Verify HMAC if a secret is configured
-	if h.webhookSecret != "" {
-		sig := c.Get("X-DocuSign-Signature-1")
-		if sig == "" {
-			return c.SendStatus(fiber.StatusUnauthorized)
-		}
-		mac := hmac.New(sha256.New, []byte(h.webhookSecret))
-		mac.Write(body)
-		expected := hex.EncodeToString(mac.Sum(nil))
-		if !hmac.Equal([]byte(sig), []byte(expected)) {
-			return c.SendStatus(fiber.StatusUnauthorized)
-		}
+	// DocuSign Connect sends HMAC-SHA256 signatures base64-encoded in X-DocuSign-Signature-1.
+	// Webhook secret must be configured to process incoming webhooks securely.
+	if h.webhookSecret == "" {
+		return c.SendStatus(fiber.StatusUnauthorized)
+	}
+
+	sig := c.Get("X-DocuSign-Signature-1")
+	if sig == "" {
+		return c.SendStatus(fiber.StatusUnauthorized)
+	}
+	mac := hmac.New(sha256.New, []byte(h.webhookSecret))
+	mac.Write(body)
+	expected := base64.StdEncoding.EncodeToString(mac.Sum(nil))
+	if !hmac.Equal([]byte(sig), []byte(expected)) {
+		return c.SendStatus(fiber.StatusUnauthorized)
 	}
 
 	var event struct {
@@ -56,7 +59,7 @@ func (h *DocusignWebhookHandler) Handle(c *fiber.Ctx) error {
 		return c.JSON(fiber.Map{"ok": true})
 	}
 
-	if event.Data.Status == "completed" || event.Data.Status == "signed" {
+	if h.docs != nil && (event.Data.Status == "completed" || event.Data.Status == "signed") {
 		_ = h.docs.MarkSignedByEnvelope(c.Context(), envelopeID)
 	}
 
