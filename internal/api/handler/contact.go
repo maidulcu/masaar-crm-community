@@ -7,6 +7,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 	"github.com/maidulcu/masaar-crm/internal/domain"
+	"github.com/maidulcu/masaar-crm/internal/phone"
 	"github.com/maidulcu/masaar-crm/internal/repo"
 )
 
@@ -93,6 +94,10 @@ func (h *ContactHandler) Create(c *fiber.Ctx) error {
 	}
 	if contact.PhoneWA == "" || contact.FullName == "" {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "phone_wa and full_name are required"})
+	}
+	// Accept the formats people type ("971 50 123 4567", "00971…") and store one canonical form.
+	if normalized, ok := phone.Normalize(contact.PhoneWA); ok {
+		contact.PhoneWA = normalized
 	}
 	if !e164Re.MatchString(contact.PhoneWA) {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "phone_wa must be in E.164 format (e.g. +971501234567)"})

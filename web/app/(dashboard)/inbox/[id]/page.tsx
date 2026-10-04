@@ -202,18 +202,26 @@ export default function ThreadPage() {
   const isMediaPlaceholder = (body: string, direction: string) =>
     direction === 'inbound' && /^\[.*?\]$/.test(body.trim())
 
+  // Sent messages are stored in the thread (with their delivery status), so the outbound list
+  // only adds what the thread does not have: sends that failed before reaching WhatsApp, and
+  // messages sent before replies were stored in the thread.
+  const storedIds = new Set(messages.map(m => m.wa_message_id).filter(Boolean))
   const allMessages = [
     ...messages.map(m => ({
-      type: 'inbound' as const, id: m.id, time: new Date(m.sent_at).getTime(),
+      type: m.direction, id: m.id, time: new Date(m.sent_at).getTime(),
       body: m.body, mediaUrl: m.media_url, direction: m.direction,
+      status: m.direction === 'outbound' ? m.status : undefined,
+      errorMessage: m.error_message,
     })),
-    ...outbound.filter(o => o.status !== 'pending').map(o => ({
-      type: 'outbound' as const, id: `out-${o.id}`,
-      time: o.sent_at ? new Date(o.sent_at).getTime() : Date.now(),
-      body: o.message_body, mediaUrl: o.media_url,
-      direction: 'outbound' as const, status: o.status,
-      errorMessage: o.error_message,
-    })),
+    ...outbound
+      .filter(o => o.status !== 'pending' && !(o.wa_message_id && storedIds.has(o.wa_message_id)))
+      .map(o => ({
+        type: 'outbound' as const, id: `out-${o.id}`,
+        time: new Date(o.sent_at ?? o.created_at).getTime(),
+        body: o.message_body, mediaUrl: o.media_url,
+        direction: 'outbound' as const, status: o.status as string | undefined,
+        errorMessage: o.error_message,
+      })),
   ].sort((a, b) => a.time - b.time)
 
   const conversationText = allMessages.map(m => m.body).join('\n')
