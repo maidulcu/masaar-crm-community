@@ -74,47 +74,36 @@ func (r *PerformanceRepo) GetAgentKPIs(ctx context.Context, agentID uuid.UUID, f
 	}
 	kpi := &AgentKPIs{AgentID: agentID, Period: from.Format("2006-01")}
 
-	// The agent must belong to the caller's company; otherwise report "not found".
-	if err := r.db.QueryRow(ctx, `SELECT name FROM users WHERE id = $1 AND company_id = $2`, agentID, cid).Scan(&kpi.AgentName); err != nil {
+	// Optimization: Consolidate user lookup and 5 metric aggregations into 1 query
+	// (reduces DB roundtrips by 83% from 6 queries to 1 query per call).
+	const q = `
+		SELECT
+			u.name,
+			(SELECT COUNT(*) FROM deals WHERE owner_id=$1 AND company_id=$4 AND stage='won' AND updated_at BETWEEN $2 AND $3),
+			COALESCE((SELECT SUM(amount) FROM deals WHERE owner_id=$1 AND company_id=$4 AND stage='won' AND updated_at BETWEEN $2 AND $3), 0),
+			(SELECT COUNT(*) FROM listings WHERE created_by=$1 AND company_id=$4 AND created_at BETWEEN $2 AND $3),
+			(SELECT COUNT(*) FROM leads WHERE assigned_to=$1 AND company_id=$4 AND created_at BETWEEN $2 AND $3 AND deleted_at IS NULL),
+			(SELECT COUNT(*) FROM leads WHERE assigned_to=$1 AND company_id=$4 AND stage='won' AND updated_at BETWEEN $2 AND $3 AND deleted_at IS NULL),
+			COALESCE((
+				SELECT AVG(EXTRACT(EPOCH FROM (last_contacted_at - created_at)) / 3600)
+				FROM leads
+				WHERE assigned_to=$1 AND company_id=$4 AND last_contacted_at IS NOT NULL AND created_at BETWEEN $2 AND $3 AND deleted_at IS NULL
+			), 0)
+		FROM users u
+		WHERE u.id = $1 AND u.company_id = $4
+	`
+
+	if err := r.db.QueryRow(ctx, q, agentID, from, to, cid).Scan(
+		&kpi.AgentName,
+		&kpi.DealsWon,
+		&kpi.Revenue,
+		&kpi.ListingsAdded,
+		&kpi.LeadsAssigned,
+		&kpi.LeadsConverted,
+		&kpi.AvgResponseHours,
+	); err != nil {
 		return nil, ErrUserNotFound
 	}
-
-	// Won deals + revenue
-	_ = r.db.QueryRow(ctx, `
-		SELECT COUNT(*), COALESCE(SUM(amount),0)
-		FROM deals
-		WHERE owner_id=$1 AND company_id=$4 AND stage='won' AND updated_at BETWEEN $2 AND $3
-	`, agentID, from, to, cid).Scan(&kpi.DealsWon, &kpi.Revenue)
-
-	// Listings added
-	_ = r.db.QueryRow(ctx, `
-		SELECT COUNT(*) FROM listings
-		WHERE created_by=$1 AND company_id=$4 AND created_at BETWEEN $2 AND $3
-	`, agentID, from, to, cid).Scan(&kpi.ListingsAdded)
-
-	// Leads assigned in period
-	_ = r.db.QueryRow(ctx, `
-		SELECT COUNT(*) FROM leads
-		WHERE assigned_to=$1 AND company_id=$4 AND created_at BETWEEN $2 AND $3 AND deleted_at IS NULL
-	`, agentID, from, to, cid).Scan(&kpi.LeadsAssigned)
-
-	// Leads converted (moved to won stage) — approximated by stage=won + assigned_to
-	_ = r.db.QueryRow(ctx, `
-		SELECT COUNT(*) FROM leads
-		WHERE assigned_to=$1 AND company_id=$4 AND stage='won' AND updated_at BETWEEN $2 AND $3 AND deleted_at IS NULL
-	`, agentID, from, to, cid).Scan(&kpi.LeadsConverted)
-
-	// Avg response time: hours between lead creation and first last_contacted_at
-	_ = r.db.QueryRow(ctx, `
-		SELECT COALESCE(AVG(
-		  EXTRACT(EPOCH FROM (last_contacted_at - created_at)) / 3600
-		), 0)
-		FROM leads
-		WHERE assigned_to=$1 AND company_id=$4
-		  AND last_contacted_at IS NOT NULL
-		  AND created_at BETWEEN $2 AND $3
-		  AND deleted_at IS NULL
-	`, agentID, from, to, cid).Scan(&kpi.AvgResponseHours)
 
 	kpi.Badges = computeBadges(kpi)
 	return kpi, nil
