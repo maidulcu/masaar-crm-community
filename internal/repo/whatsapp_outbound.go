@@ -211,3 +211,33 @@ func (r *WhatsAppOutboundRepo) ListPending(ctx context.Context, limit int) ([]do
 
 	return messages, rows.Err()
 }
+
+// ApplyStatus records a delivery receipt from Meta's status webhook for the outbound message
+// with the given WhatsApp message id. It returns false when no such message exists (e.g. it was
+// sent from another tool on the same number) or the receipt is stale.
+//
+// Receipts can arrive out of order, so the status only ever moves forward
+// (sent -> delivered -> read); "failed" is accepted only while the message is still pending or
+// sent, and records the reason.
+func (r *WhatsAppOutboundRepo) ApplyStatus(ctx context.Context, waMessageID string, status domain.OutboundStatus, errorMsg string) (bool, error) {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return false, err
+	}
+	const q = `
+		UPDATE whatsapp_outbound SET
+			status = $1,
+			error_message = CASE WHEN $1 = 'failed' THEN $2 ELSE error_message END
+		WHERE wa_message_id = $3 AND company_id = $4
+		  AND CASE
+				WHEN $1 = 'failed' THEN status IN ('pending', 'sent')
+				ELSE COALESCE(array_position(ARRAY['pending','sent','delivered','read'], $1::text), 0)
+				   > COALESCE(array_position(ARRAY['pending','sent','delivered','read'], status::text), 99)
+			  END
+	`
+	tag, err := r.pool.Exec(ctx, q, string(status), errorMsg, waMessageID, cid)
+	if err != nil {
+		return false, err
+	}
+	return tag.RowsAffected() > 0, nil
+}

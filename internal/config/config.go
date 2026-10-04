@@ -30,6 +30,10 @@ type Config struct {
 	WAAccessToken   string
 	WABaseURL       string
 	WAAppSecret     string // used to validate X-Hub-Signature-256 on inbound webhooks
+	// WAMediaDir is where WhatsApp images/documents/voice notes are stored; WAMediaMaxMB caps
+	// the size of a single file.
+	WAMediaDir   string
+	WAMediaMaxMB int
 
 	// AI provider — "ollama" (local) or "gemini" (Google Cloud)
 	AIProvider    string
@@ -83,6 +87,11 @@ type Config struct {
 
 	// CORS — comma-separated allowed origins; defaults to * in development only
 	AllowedOrigins string
+	// AuthCookieSameSite ("lax" default, "strict" or "none") and AuthCookieDomain control the
+	// HttpOnly refresh-token cookie used by the browser app. Use "none" (forces Secure) only when
+	// the web app and API are on different sites; set the domain to share it across subdomains.
+	AuthCookieSameSite string
+	AuthCookieDomain   string
 	// TrustedProxies lists reverse-proxy IPs/CIDRs whose X-Forwarded-For header is honoured
 	// (needed for correct per-client rate limiting behind nginx).
 	// ProxyHeader names the single-valued request header (set/overwritten by the trusted
@@ -127,6 +136,8 @@ func Load() *Config {
 		WAAccessToken:          getEnv("WA_ACCESS_TOKEN", ""),
 		WABaseURL:              getEnv("WA_BASE_URL", "https://graph.facebook.com/v19.0"),
 		WAAppSecret:            getEnv("WA_APP_SECRET", ""),
+		WAMediaDir:             getEnv("WA_MEDIA_DIR", "./data/whatsapp-media"),
+		WAMediaMaxMB:           getEnvInt("WA_MEDIA_MAX_MB", 25),
 		AIProvider:             getEnv("AI_PROVIDER", "ollama"),
 		OllamaBaseURL:          getEnv("OLLAMA_BASE_URL", "http://localhost:11434"),
 		OllamaModel:            getEnv("OLLAMA_MODEL", "llama3"),
@@ -161,7 +172,9 @@ func Load() *Config {
 		ProxyHeader:            getEnv("PROXY_HEADER", "X-Real-IP"),
 		TrustedProxies:         getEnv("TRUSTED_PROXIES", "127.0.0.1,::1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"),
 		DocsPassword:           getEnv("DOCS_PASSWORD", ""),
-		AllowedOrigins:         getEnv("ALLOWED_ORIGINS", "*"),
+		AllowedOrigins:         getEnv("ALLOWED_ORIGINS", "http://localhost:3000"),
+		AuthCookieSameSite:     getEnv("AUTH_COOKIE_SAMESITE", "lax"),
+		AuthCookieDomain:       getEnv("AUTH_COOKIE_DOMAIN", ""),
 		DocusignIntegrationKey: getEnv("DOCUSIGN_INTEGRATION_KEY", ""),
 		DocusignPrivateKey:     getEnv("DOCUSIGN_PRIVATE_KEY", ""),
 		DocusignUserID:         getEnv("DOCUSIGN_USER_ID", ""),

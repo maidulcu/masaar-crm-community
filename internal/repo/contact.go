@@ -3,10 +3,12 @@ package repo
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/maidulcu/masaar-crm/internal/domain"
+	"github.com/maidulcu/masaar-crm/internal/phone"
 	"github.com/maidulcu/masaar-crm/internal/tenant"
 )
 
@@ -90,17 +92,21 @@ func (r *ContactRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.Contac
 	return c, nil
 }
 
-func (r *ContactRepo) GetByPhone(ctx context.Context, phone string) (*domain.Contact, error) {
+func (r *ContactRepo) GetByPhone(ctx context.Context, rawPhone string) (*domain.Contact, error) {
 	cid, err := tenant.From(ctx)
 	if err != nil {
 		return nil, err
+	}
+	normalized, ok := phone.Normalize(rawPhone)
+	if !ok {
+		return nil, ErrInvalidPhone
 	}
 	const q = `
 		SELECT id, phone_wa, full_name, COALESCE(email,''), language, lead_score, assigned_to, created_at, updated_at
 		FROM contacts WHERE phone_wa = $1 AND company_id = $2
 	`
 	c := &domain.Contact{}
-	err = r.db.QueryRow(ctx, q, phone, cid).Scan(
+	err = r.db.QueryRow(ctx, q, normalized, cid).Scan(
 		&c.ID, &c.PhoneWA, &c.FullName, &c.Email,
 		&c.Language, &c.LeadScore, &c.AssignedTo,
 		&c.CreatedAt, &c.UpdatedAt,
@@ -116,6 +122,11 @@ func (r *ContactRepo) Create(ctx context.Context, c *domain.Contact) error {
 	if err != nil {
 		return err
 	}
+	normalized, ok := phone.Normalize(c.PhoneWA)
+	if !ok {
+		return ErrInvalidPhone
+	}
+	c.PhoneWA = normalized
 	const q = `
 		INSERT INTO contacts (id, company_id, phone_wa, full_name, email, language, lead_score, assigned_to)
 		SELECT $1,$2,$3,$4,$5,$6,$7,$8
@@ -168,19 +179,36 @@ func (r *ContactRepo) UpdateScore(ctx context.Context, id uuid.UUID, score int) 
 }
 
 // Upsert finds or creates a contact by WhatsApp phone number.
-func (r *ContactRepo) Upsert(ctx context.Context, phone, name string) (*domain.Contact, error) {
+// Upsert finds the contact for a phone number or creates it. The number is normalised to E.164
+// first, so "971501234567" (WhatsApp) and "+971 50 123 4567" (typed by an agent) are one contact.
+//
+// It never overwrites information a person entered: an existing contact keeps its name unless
+// that name is empty or just the phone number (a placeholder from an earlier import/message).
+func (r *ContactRepo) Upsert(ctx context.Context, rawPhone, name string) (*domain.Contact, error) {
 	cid, err := tenant.From(ctx)
 	if err != nil {
 		return nil, err
 	}
+	normalized, ok := phone.Normalize(rawPhone)
+	if !ok {
+		return nil, ErrInvalidPhone
+	}
+	name = strings.TrimSpace(name)
+	if name == "" {
+		name = normalized
+	}
 	const q = `
 		INSERT INTO contacts (id, company_id, phone_wa, full_name, email)
 		VALUES (uuid_generate_v4(), $1, $2, $3, '')
-		ON CONFLICT (company_id, phone_wa) DO UPDATE SET full_name = EXCLUDED.full_name
+		ON CONFLICT (company_id, phone_wa) DO UPDATE SET full_name = CASE
+			WHEN btrim(contacts.full_name) = ''
+			  OR regexp_replace(contacts.full_name, '[^0-9]', '', 'g') = regexp_replace(contacts.phone_wa, '[^0-9]', '', 'g')
+			THEN EXCLUDED.full_name
+			ELSE contacts.full_name END
 		RETURNING id, phone_wa, full_name, COALESCE(email,''), language, lead_score, assigned_to, created_at, updated_at
 	`
 	c := &domain.Contact{}
-	err = r.db.QueryRow(ctx, q, cid, phone, name).Scan(
+	err = r.db.QueryRow(ctx, q, cid, normalized, name).Scan(
 		&c.ID, &c.PhoneWA, &c.FullName, &c.Email,
 		&c.Language, &c.LeadScore, &c.AssignedTo,
 		&c.CreatedAt, &c.UpdatedAt,

@@ -18,8 +18,8 @@ type Config struct {
 	FromEmail    string
 	FromName     string
 	// Azure Communication Services
-	AzureEndpoint   string
-	AzureKey        string
+	AzureEndpoint    string
+	AzureKey         string
 	AzureFromAddress string
 }
 
@@ -106,7 +106,7 @@ type InvoiceData struct {
 	IssuedDate  string
 	DueDate     string
 	ContactName string
-	Lang string
+	Lang        string
 }
 
 func (d InvoiceData) IsArabic() bool { return d.Lang == "ar" }
@@ -220,9 +220,9 @@ func (s *Service) RenderInvoiceTemplate(data InvoiceData) (string, error) {
 // ─── Magic Link Email Template ───────────────────────────────────────
 
 type MagicLinkData struct {
-	LoginURL string
+	LoginURL  string
 	ExpiryMin int
-	Lang string
+	Lang      string
 }
 
 func (d MagicLinkData) IsArabic() bool { return d.Lang == "ar" }
@@ -315,4 +315,4 @@ func (s *Service) RenderMagicLinkTemplate(data MagicLinkData) (string, error) {
 		return "", err
 	}
 	return buf.String(), nil
-	}
+}

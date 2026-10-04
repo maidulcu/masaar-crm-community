@@ -70,82 +70,42 @@ type Handlers struct {
 	DocusignWebhook     *handler.DocusignWebhookHandler
 }
 
-// webhookLimiter allows Meta's burst delivery (300 req/min per IP) while
-// blocking abuse. Meta retries on 429 so legitimate messages are never lost.
-var webhookLimiter = limiter.New(limiter.Config{
-	Max:        300,
-	Expiration: 1 * time.Minute,
-	LimitReached: func(c *fiber.Ctx) error {
-		return c.Status(fiber.StatusTooManyRequests).JSON(fiber.Map{"error": "rate limit exceeded"})
-	},
-})
+// authLimiters holds the per-route rate limiters. Counters live in Redis when
+// available so the limits hold across replicas; otherwise they are per-process.
+type authLimiters struct {
+	webhook, login, magicLink, smsOTP, authVerify, refresh, registration, api fiber.Handler
+}
 
-// loginLimiter prevents brute-force on the auth endpoint.
-var loginLimiter = limiter.New(limiter.Config{
-	Max:        10,
-	Expiration: 1 * time.Minute,
-	LimitReached: func(c *fiber.Ctx) error {
-		return c.Status(fiber.StatusTooManyRequests).JSON(fiber.Map{"error": "too many login attempts"})
-	},
-})
-
-// magicLinkLimiter caps magic link requests to prevent abuse (3 requests/minute per IP).
-var magicLinkLimiter = limiter.New(limiter.Config{
-	Max:        3,
-	Expiration: 1 * time.Minute,
-	LimitReached: func(c *fiber.Ctx) error {
-		return c.Status(fiber.StatusTooManyRequests).JSON(fiber.Map{"error": "too many requests, please try again later"})
-	},
-})
-
-// smsOTPLimiter caps SMS OTP requests to 3 per minute per IP.
-var smsOTPLimiter = limiter.New(limiter.Config{
-	Max:        3,
-	Expiration: 1 * time.Minute,
-	LimitReached: func(c *fiber.Ctx) error {
-		return c.Status(fiber.StatusTooManyRequests).JSON(fiber.Map{"error": "too many requests, please try again later"})
-	},
-})
-
-// authVerifyLimiter throttles credential-redeeming endpoints (OTP / magic-link
-// verify, password reset) so tokens cannot be brute-forced. It is a separate
-// instance so it does not share a counter with loginLimiter.
-var authVerifyLimiter = limiter.New(limiter.Config{
-	Max:        10,
-	Expiration: 1 * time.Minute,
-	LimitReached: func(c *fiber.Ctx) error {
-		return c.Status(fiber.StatusTooManyRequests).JSON(fiber.Map{"error": "too many attempts, please try again later"})
-	},
-})
-
-// refreshLimiter is looser than authVerifyLimiter: the SPA refreshes silently,
-// and several users may share one office IP.
-var refreshLimiter = limiter.New(limiter.Config{
-	Max:        60,
-	Expiration: 1 * time.Minute,
-	LimitReached: func(c *fiber.Ctx) error {
-		return c.Status(fiber.StatusTooManyRequests).JSON(fiber.Map{"error": "rate limit exceeded"})
-	},
-})
-
-// registrationLimiter caps new company signups to 3 per minute per IP.
-// Tighter than loginLimiter because registration creates DB rows and sends emails.
-var registrationLimiter = limiter.New(limiter.Config{
-	Max:        3,
-	Expiration: 1 * time.Minute,
-	LimitReached: func(c *fiber.Ctx) error {
-		return c.Status(fiber.StatusTooManyRequests).JSON(fiber.Map{"error": "too many registration attempts, please try again later"})
-	},
-})
-
-// apiLimiter caps general authenticated API usage to 100 requests/min per IP.
-var apiLimiter = limiter.New(limiter.Config{
-	Max:        100,
-	Expiration: 1 * time.Minute,
-	LimitReached: func(c *fiber.Ctx) error {
-		return c.Status(fiber.StatusTooManyRequests).JSON(fiber.Map{"error": "rate limit exceeded"})
-	},
-})
+func newLimiters(rdb *redis.Client) authLimiters {
+	mk := func(name string, max int, msg string) fiber.Handler {
+		cfg := limiter.Config{
+			Max:        max,
+			Expiration: 1 * time.Minute,
+			LimitReached: func(c *fiber.Ctx) error {
+				return c.Status(fiber.StatusTooManyRequests).JSON(fiber.Map{"error": msg})
+			},
+		}
+		if rdb != nil {
+			cfg.Storage = middleware.NewRedisLimiterStorage(rdb, name)
+		}
+		return limiter.New(cfg)
+	}
+	return authLimiters{
+		// Meta's burst delivery (300 req/min per IP); Meta retries on 429.
+		webhook: mk("webhook", 300, "rate limit exceeded"),
+		// Brute-force protection on login / forgot-password.
+		login:     mk("login", 10, "too many login attempts"),
+		magicLink: mk("magic", 3, "too many requests, please try again later"),
+		smsOTP:    mk("sms", 3, "too many requests, please try again later"),
+		// Credential-redeeming endpoints (OTP / magic-link verify, password reset).
+		authVerify: mk("verify", 10, "too many attempts, please try again later"),
+		// Looser: the SPA refreshes silently and offices share an IP.
+		refresh: mk("refresh", 60, "rate limit exceeded"),
+		// Signup creates DB rows and sends email.
+		registration: mk("register", 3, "too many registration attempts, please try again later"),
+		api:          mk("api", 100, "rate limit exceeded"),
+	}
+}
 
 // apiKeyLimiter caps each API key to 300 requests/min using Redis sliding window.
 func makeAPIKeyLimiter(rdb *redis.Client) fiber.Handler {
@@ -153,20 +113,22 @@ func makeAPIKeyLimiter(rdb *redis.Client) fiber.Handler {
 }
 
 func RegisterRoutes(app *fiber.App, h *Handlers, hub *ws.Hub, cfg *config.Config, rdb *redis.Client, pool *pgxpool.Pool, apiKeyRepo *repo.ApiKeyRepo, billingRepo *repo.BillingRepo, companyRepo *repo.CompanyRepo) {
+	lim := newLimiters(rdb)
+
 	// ── Public routes ────────────────────────────────────────────────────────
-	app.Post("/api/v1/auth/login", loginLimiter, h.Auth.Login)
-	app.Post("/api/v1/auth/register", registrationLimiter, h.Auth.Register)
-	app.Post("/api/v1/auth/magic-link/request", magicLinkLimiter, h.Auth.RequestMagicLink)
-	app.Post("/api/v1/auth/magic-link/verify", authVerifyLimiter, h.Auth.VerifyMagicLink)
-	app.Post("/api/v1/auth/sms/request", smsOTPLimiter, h.Auth.RequestSMSOTP)
-	app.Post("/api/v1/auth/sms/verify", authVerifyLimiter, h.Auth.VerifySMSOTP)
-	app.Post("/api/v1/auth/refresh", refreshLimiter, h.Auth.Refresh)
-	app.Post("/api/v1/auth/forgot-password", loginLimiter, h.Auth.ForgotPassword)
-	app.Post("/api/v1/auth/reset-password", authVerifyLimiter, h.Auth.ResetPassword)
+	app.Post("/api/v1/auth/login", lim.login, h.Auth.Login)
+	app.Post("/api/v1/auth/register", lim.registration, h.Auth.Register)
+	app.Post("/api/v1/auth/magic-link/request", lim.magicLink, h.Auth.RequestMagicLink)
+	app.Post("/api/v1/auth/magic-link/verify", lim.authVerify, h.Auth.VerifyMagicLink)
+	app.Post("/api/v1/auth/sms/request", lim.smsOTP, h.Auth.RequestSMSOTP)
+	app.Post("/api/v1/auth/sms/verify", lim.authVerify, h.Auth.VerifySMSOTP)
+	app.Post("/api/v1/auth/refresh", lim.refresh, h.Auth.Refresh)
+	app.Post("/api/v1/auth/forgot-password", lim.login, h.Auth.ForgotPassword)
+	app.Post("/api/v1/auth/reset-password", lim.authVerify, h.Auth.ResetPassword)
 
 	// WhatsApp webhook — Meta calls this publicly
 	app.Get("/webhooks/whatsapp", h.WhatsApp.Verify)
-	app.Post("/webhooks/whatsapp", webhookLimiter, h.WhatsApp.Receive)
+	app.Post("/webhooks/whatsapp", lim.webhook, h.WhatsApp.Receive)
 
 	// Stripe webhook — must be public (raw body, no JWT)
 	app.Post("/webhooks/stripe", h.Billing.StripeWebhook)
@@ -177,7 +139,7 @@ func RegisterRoutes(app *fiber.App, h *Handlers, hub *ws.Hub, cfg *config.Config
 	}
 
 	// BOS24 inbound webhook — company identified by ?token=<secret>, HMAC-verified
-	app.Post("/webhooks/bos24", webhookLimiter, h.BOS24Integration.ReceiveWebhook)
+	app.Post("/webhooks/bos24", lim.webhook, h.BOS24Integration.ReceiveWebhook)
 
 	// Public listing page — no auth required (for shareable links)
 	app.Get("/api/public/listings/:id", h.Marketing.PublicListing)
@@ -189,7 +151,7 @@ func RegisterRoutes(app *fiber.App, h *Handlers, hub *ws.Hub, cfg *config.Config
 	// Public lead intake — API key auth (scope: lead:create)
 	apiKeyLimiter := makeAPIKeyLimiter(rdb)
 	app.Post("/webhooks/leads",
-		webhookLimiter,
+		lim.webhook,
 		middleware.ValidateAPIKey(apiKeyRepo),
 		apiKeyLimiter,
 		middleware.RequireAPIKeyScope("lead:create"),
@@ -216,12 +178,12 @@ func RegisterRoutes(app *fiber.App, h *Handlers, hub *ws.Hub, cfg *config.Config
 
 	// ── Authenticated API ────────────────────────────────────────────────────
 	v1 := app.Group("/api/v1",
-		apiLimiter,
+		lim.api,
 		middleware.JWT(cfg.JWTSecret),
 		middleware.CheckBlacklist(rdb),
 		trialCheck,
 		middleware.ExtractClaims(),
-		middleware.DemoGuard(), // blocks writes on demo accounts; reads is_demo from JWT
+		middleware.DemoGuard(),         // blocks writes on demo accounts; reads is_demo from JWT
 		middleware.ValidateURLFields(), // reject javascript:/data: etc. in *_url fields (stored XSS)
 	)
 
@@ -530,6 +492,7 @@ func RegisterRoutes(app *fiber.App, h *Handlers, hub *ws.Hub, cfg *config.Config
 	v1.Get("/threads", h.WhatsApp.ListThreads)
 	v1.Get("/threads/:id", h.WhatsApp.GetThread)
 	v1.Get("/threads/:id/messages", h.WhatsApp.GetMessages)
+	v1.Get("/threads/:id/messages/:mid/media", h.WhatsApp.GetMedia)
 	v1.Post("/threads/:id/close",
 		middleware.RequireRole(domain.RoleAdmin, domain.RoleAgent),
 		h.WhatsApp.CloseThread,

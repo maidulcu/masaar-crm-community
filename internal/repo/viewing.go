@@ -238,16 +238,16 @@ func (r *ViewingRepo) UpdateStatus(ctx context.Context, id uuid.UUID, status dom
 	if err != nil {
 		return err
 	}
-	var checkinClause string
-	if status == domain.ViewingCheckedIn {
-		checkinClause = ", checked_in_at = NOW()"
-	} else if status == domain.ViewingCompleted {
-		checkinClause = ", checked_out_at = NOW()"
+	var q string
+	switch status {
+	case domain.ViewingCheckedIn:
+		q = `UPDATE viewings SET status=$1, checked_in_at=NOW(), updated_at=NOW() WHERE id=$2 AND company_id=$3`
+	case domain.ViewingCompleted:
+		q = `UPDATE viewings SET status=$1, checked_out_at=NOW(), updated_at=NOW() WHERE id=$2 AND company_id=$3`
+	default:
+		q = `UPDATE viewings SET status=$1, updated_at=NOW() WHERE id=$2 AND company_id=$3`
 	}
-	_, err = r.db.Exec(ctx, fmt.Sprintf(
-		`UPDATE viewings SET status=$1%s, updated_at=NOW() WHERE id=$2 AND company_id=$3`,
-		checkinClause,
-	), status, id, cid)
+	_, err = r.db.Exec(ctx, q, status, id, cid)
 	return err
 }
 

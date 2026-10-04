@@ -1,6 +1,12 @@
 package handler
 
 import (
+	"bytes"
+	"fmt"
+	"log"
+	"strings"
+	"unicode/utf8"
+
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 	"github.com/maidulcu/masaar-crm/internal/domain"
@@ -8,17 +14,85 @@ import (
 	"github.com/maidulcu/masaar-crm/internal/whatsapp"
 )
 
+// maxWhatsAppText is WhatsApp's limit for a text message body.
+const maxWhatsAppText = 4096
+
 type WhatsAppOutboundHandler struct {
 	sender       *whatsapp.Sender
 	outboundRepo *repo.WhatsAppOutboundRepo
 	threadRepo   *repo.WhatsAppRepo
+	comms        *repo.CommunicationHistoryRepo
+	media        *WAMediaService
 }
 
-func NewWhatsAppOutboundHandler(sender *whatsapp.Sender, outboundRepo *repo.WhatsAppOutboundRepo, threadRepo *repo.WhatsAppRepo) *WhatsAppOutboundHandler {
+func NewWhatsAppOutboundHandler(sender *whatsapp.Sender, outboundRepo *repo.WhatsAppOutboundRepo, threadRepo *repo.WhatsAppRepo, comms *repo.CommunicationHistoryRepo, media *WAMediaService) *WhatsAppOutboundHandler {
 	return &WhatsAppOutboundHandler{
 		sender:       sender,
 		outboundRepo: outboundRepo,
 		threadRepo:   threadRepo,
+		comms:        comms,
+		media:        media,
+	}
+}
+
+// sentMedia describes a file that was part of a sent message.
+type sentMedia struct {
+	ID        string // WhatsApp media id (uploads)
+	Mime      string
+	Filename  string
+	LocalPath string // name in the media store, when we keep a copy
+	Size      int64
+}
+
+// recordSent makes a successfully sent message part of the conversation: it is stored in the
+// thread's message list (so summaries, AI drafts and the inbox ordering see agent replies, not
+// just the customer's side), bumps the thread's activity, and is added to the lead timeline.
+// Failures here are logged and never fail the request — the message has already been sent.
+func (h *WhatsAppOutboundHandler) recordSent(c *fiber.Ctx, thread *domain.WhatsAppThread, out *domain.WhatsAppOutbound, body, mediaURL string, media *sentMedia) {
+	ctx := c.Context()
+	msg := &domain.WhatsAppMessage{
+		ThreadID:    thread.ID,
+		Direction:   domain.DirectionOutbound,
+		Body:        body,
+		MediaURL:    mediaURL,
+		WAMessageID: out.WAMessageID,
+	}
+	if media != nil {
+		msg.MediaID, msg.MediaMime, msg.MediaFilename = media.ID, media.Mime, media.Filename
+	}
+	created, err := h.threadRepo.SaveMessage(ctx, msg)
+	if err != nil || !created {
+		if err != nil {
+			log.Printf("whatsapp: record sent message %s: %v", out.WAMessageID, err)
+		}
+		h.discardLocalCopy(media)
+		return
+	}
+	if media != nil && media.LocalPath != "" {
+		if set, err := h.threadRepo.SetMessageMedia(ctx, msg.ID, media.LocalPath, media.Size, media.Mime); err != nil || !set {
+			log.Printf("whatsapp: attach stored file to %s: set=%v err=%v", msg.ID, set, err)
+			h.discardLocalCopy(media)
+		}
+	}
+	if err := h.threadRepo.UpdateThreadMeta(ctx, thread.ID); err != nil {
+		log.Printf("whatsapp: thread meta for %s: %v", thread.ID, err)
+	}
+	if _, err := h.comms.LogWhatsApp(ctx, thread.ContactID, &domain.CommunicationHistory{
+		CommunicationType: domain.CommWhatsAppOutbound,
+		Direction:         "outbound",
+		Body:              body,
+		ToIdentifier:      out.ToNumber,
+		ExternalID:        out.WAMessageID,
+		Status:            string(out.Status),
+		CreatedBy:         out.CreatedBy,
+	}); err != nil {
+		log.Printf("whatsapp: timeline entry for %s: %v", out.WAMessageID, err)
+	}
+}
+
+func (h *WhatsAppOutboundHandler) discardLocalCopy(media *sentMedia) {
+	if media != nil && media.LocalPath != "" && h.media.Enabled() {
+		_ = h.media.Store().Remove(media.LocalPath)
 	}
 }
 
@@ -52,8 +126,12 @@ func (h *WhatsAppOutboundHandler) SendMessage(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid request"})
 	}
 
+	req.Message = strings.TrimSpace(req.Message)
 	if req.Message == "" {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "message is required"})
+	}
+	if utf8.RuneCountInString(req.Message) > maxWhatsAppText {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": fmt.Sprintf("message must be at most %d characters", maxWhatsAppText)})
 	}
 
 	// Get thread to verify it exists
@@ -93,6 +171,7 @@ func (h *WhatsAppOutboundHandler) SendMessage(c *fiber.Ctx) error {
 	h.outboundRepo.UpdateStatus(c.Context(), outbound.ID, domain.OutboundSent, waMessageID, "")
 	outbound.WAMessageID = waMessageID
 	outbound.Status = domain.OutboundSent
+	h.recordSent(c, thread, outbound, outbound.MessageBody, "", nil)
 
 	return c.Status(fiber.StatusCreated).JSON(outbound)
 }
@@ -176,6 +255,11 @@ func (h *WhatsAppOutboundHandler) SendTemplate(c *fiber.Ctx) error {
 	h.outboundRepo.UpdateStatus(c.Context(), outbound.ID, domain.OutboundSent, waMessageID, "")
 	outbound.WAMessageID = waMessageID
 	outbound.Status = domain.OutboundSent
+	label := "[Template] " + req.TemplateName
+	if len(req.Parameters) > 0 {
+		label += " (" + strings.Join(req.Parameters, ", ") + ")"
+	}
+	h.recordSent(c, thread, outbound, label, "", nil)
 
 	return c.Status(fiber.StatusCreated).JSON(outbound)
 }
@@ -215,9 +299,10 @@ func (h *WhatsAppOutboundHandler) GetOutboundMessages(c *fiber.Ctx) error {
 
 // SendMedia sends a media message (image, document, audio, video)
 // @Summary Send WhatsApp media
-// @Description Send a media message via WhatsApp
+// @Description Send an image, document, audio or video message. Either JSON with a public https `media_url`, or multipart/form-data with a `file` (plus `media_type` and `caption`).
 // @Tags WhatsApp
 // @Accept json
+// @Accept mpfd
 // @Produce json
 // @Param id path string true "Thread ID"
 // @Param request body SendMediaRequest true "Media details"
@@ -227,25 +312,25 @@ func (h *WhatsAppOutboundHandler) GetOutboundMessages(c *fiber.Ctx) error {
 // @Router /api/v1/threads/{id}/send-media [post]
 // @Security Bearer
 func (h *WhatsAppOutboundHandler) SendMedia(c *fiber.Ctx) error {
-	if !h.sender.IsConfigured() {
+	if h.sender == nil || !h.sender.IsConfigured() {
 		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{
 			"error": "WhatsApp integration not configured",
 		})
 	}
 
-	threadIDStr := c.Params("id")
-	threadID, err := uuid.Parse(threadIDStr)
+	threadID, err := uuid.Parse(c.Params("id"))
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid thread id"})
 	}
 
-	var req SendMediaRequest
-	if err := c.BodyParser(&req); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid request"})
+	var in outgoingMedia
+	if strings.HasPrefix(strings.ToLower(c.Get(fiber.HeaderContentType)), "multipart/form-data") {
+		in, err = readUploadedMedia(c)
+	} else {
+		in, err = readLinkedMedia(c)
 	}
-
-	if req.MediaURL == "" || req.MediaType == "" {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "media_url and media_type are required"})
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 	}
 
 	thread, err := h.threadRepo.GetThread(c.Context(), threadID)
@@ -257,34 +342,68 @@ func (h *WhatsAppOutboundHandler) SendMedia(c *fiber.Ctx) error {
 	outbound := &domain.WhatsAppOutbound{
 		ThreadID:    threadID,
 		ToNumber:    thread.Contact.PhoneWA,
-		MessageBody: req.Caption,
-		MediaURL:    req.MediaURL,
+		MessageBody: in.Caption,
+		MediaURL:    in.Link,
 		Status:      domain.OutboundPending,
 		CreatedBy:   &userID,
 		Metadata: map[string]any{
-			"media_type": req.MediaType,
+			"media_type": in.Type,
+			"filename":   in.Filename,
 		},
 	}
-
 	if err := h.outboundRepo.Create(c.Context(), outbound); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"error": "failed to save message",
 		})
 	}
-
-	waMessageID, err := h.sender.SendMedia(c.Context(), outbound.ToNumber, req.MediaType, req.MediaURL)
-	if err != nil {
+	fail := func(msg string, err error) error {
 		h.outboundRepo.UpdateStatus(c.Context(), outbound.ID, domain.OutboundFailed, "", err.Error())
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"error": safeMsg("failed to send media", err),
-		})
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": safeMsg(msg, err)})
+	}
+
+	ref := whatsapp.MediaRef{Link: in.Link}
+	sent := &sentMedia{Mime: in.Mime, Filename: in.Filename}
+	if in.Data != nil {
+		id, err := h.sender.UploadMedia(c.Context(), in.Filename, in.Mime, in.Data)
+		if err != nil {
+			return fail("failed to upload media", err)
+		}
+		ref = whatsapp.MediaRef{ID: id}
+		sent.ID = id
+		// Keep our own copy so the thread can show what was sent without asking Meta.
+		if h.media.Enabled() {
+			if name, size, err := h.media.Store().Save(bytes.NewReader(in.Data), int64(len(in.Data))); err == nil {
+				sent.LocalPath, sent.Size = name, size
+			} else {
+				log.Printf("whatsapp: keep copy of sent media: %v", err)
+			}
+		}
+	}
+
+	waMessageID, err := h.sender.SendMedia(c.Context(), outbound.ToNumber, in.Type, ref, in.Caption, in.Filename)
+	if err != nil {
+		h.discardLocalCopy(sent)
+		return fail("failed to send media", err)
 	}
 
 	h.outboundRepo.UpdateStatus(c.Context(), outbound.ID, domain.OutboundSent, waMessageID, "")
 	outbound.WAMessageID = waMessageID
 	outbound.Status = domain.OutboundSent
+	h.recordSent(c, thread, outbound, mediaLabel(in.Type, in.Filename, in.Caption), in.Link, sent)
 
 	return c.Status(fiber.StatusCreated).JSON(outbound)
+}
+
+// mediaLabel is the text stored for a media message, mirroring how inbound media is shown.
+func mediaLabel(mediaType, filename, caption string) string {
+	label := map[string]string{"image": "[Image]", "video": "[Video]", "audio": "[Audio]", "document": "[Document]"}[mediaType]
+	if mediaType == "document" && filename != "" {
+		label = "[Document: " + filename + "]"
+	}
+	if caption != "" {
+		label += " " + caption
+	}
+	return label
 }
 
 // Request types
@@ -303,4 +422,5 @@ type SendMediaRequest struct {
 	MediaURL  string `json:"media_url"`
 	MediaType string `json:"media_type"`
 	Caption   string `json:"caption"`
+	Filename  string `json:"filename"`
 }

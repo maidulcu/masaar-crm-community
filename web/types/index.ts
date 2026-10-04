@@ -34,7 +34,8 @@ export interface Company {
 
 export interface LoginResponse {
   access_token: string
-  refresh_token: string
+  /** Only present for non-browser clients; the web app receives it as an HttpOnly cookie. */
+  refresh_token?: string
   expires_in: number
   user: AuthUser
   company?: Company
@@ -179,6 +180,13 @@ export interface WhatsAppMessage {
   media_url: string
   wa_message_id: string
   sent_at: string
+  /** Outbound only: sent | delivered | read | failed (from WhatsApp delivery receipts). */
+  status?: string
+  error_message?: string
+  media_id?: string
+  media_mime?: string
+  media_filename?: string
+  media_size?: number
 }
 
 // ─── Deal ─────────────────────────────────────────────────────────────────────

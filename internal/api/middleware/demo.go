@@ -9,9 +9,9 @@ import (
 // demoReadOnlyPaths lists path prefixes that demo accounts ARE allowed to write to.
 // Everything else is blocked for POST / PATCH / PUT / DELETE.
 var demoAllowedWritePrefixes = []string{
-	"/api/v1/auth/logout",    // must be able to log out
-	"/api/v1/auth/refresh",   // token refresh
-	"/api/v1/notifications",  // mark-read is a PATCH but harmless
+	"/api/v1/auth/logout",   // must be able to log out
+	"/api/v1/auth/refresh",  // token refresh
+	"/api/v1/notifications", // mark-read is a PATCH but harmless
 }
 
 // DemoGuard blocks mutating HTTP methods (POST/PATCH/PUT/DELETE) for demo

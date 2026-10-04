@@ -67,6 +67,8 @@ services:
 
   api:
     restart: always
+    volumes:
+      - media_data:/app/data   # WhatsApp attachments
     environment:
       APP_ENV: production
       APP_URL: ${APP_URL}                         # e.g. https://crm.yourcompany.ae
@@ -80,6 +82,8 @@ services:
       OLLAMA_BASE_URL: http://ollama:11434
       OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}         # e.g. https://crm.yourcompany.ae
+      AUTH_COOKIE_SAMESITE: ${AUTH_COOKIE_SAMESITE:-lax}   # "none" only if web and API are on different sites
+      AUTH_COOKIE_DOMAIN: ${AUTH_COOKIE_DOMAIN:-}
       MAGIC_LINK_BASE_URL: ${APP_URL}
     ports: []                       # put behind a reverse proxy (nginx/caddy)
     networks:
@@ -129,6 +133,7 @@ networks:
     driver: bridge
 
 volumes:
+  media_data:
   postgres_data:
   redis_data:
   ollama_data:

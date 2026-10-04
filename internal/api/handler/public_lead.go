@@ -107,7 +107,7 @@ func (h *PublicLeadHandler) SubmitLead(c *fiber.Ctx) error {
 
 	ctx := c.Context()
 
-	// Upsert contact — creates if not found, updates name if phone exists
+	// Upsert contact — creates if not found; an existing contact keeps the name it already has
 	contact, err := h.contacts.Upsert(ctx, req.Phone, req.Name)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
