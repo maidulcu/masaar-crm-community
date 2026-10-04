@@ -24,6 +24,8 @@ const csp = [
   "font-src 'self' data: https://fonts.gstatic.com",
   // Listing photos come from arbitrary https hosts; map tiles/markers from OSM and cdnjs.
   "img-src 'self' data: blob: https:",
+  // WhatsApp voice notes/videos are fetched with the auth header and played from blob: URLs.
+  "media-src 'self' blob:",
   `connect-src 'self' ${[apiOrigin, wsOrigin].filter(Boolean).join(' ')}${isDev ? ' ws://localhost:3000' : ''}`,
   'frame-src https://challenges.cloudflare.com',
   "frame-ancestors 'none'",
@@ -41,19 +43,9 @@ const securityHeaders = [
   { key: 'Cross-Origin-Opener-Policy', value: 'same-origin' },
 ]
 
-import path from 'path'
-import { fileURLToPath } from 'url'
-
-const __filename = fileURLToPath(import.meta.url)
-const __dirname = path.dirname(__filename)
-
 const nextConfig = {
   output: 'standalone',
   poweredByHeader: false,
-  webpack: (config) => {
-    config.resolve.alias['@'] = __dirname
-    return config
-  },
   async headers() {
     return [{ source: '/:path*', headers: securityHeaders }]
   },

@@ -11,8 +11,9 @@ package repo
 
 import (
 	"context"
-	"database/sql"
 	"errors"
+	"fmt"
+	"math/rand"
 	"os"
 	"testing"
 	"time"
@@ -20,11 +21,10 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	_ "github.com/jackc/pgx/v5/stdlib"
-	"github.com/pressly/goose/v3"
 
 	"github.com/maidulcu/masaar-crm/internal/domain"
 	"github.com/maidulcu/masaar-crm/internal/tenant"
+	"github.com/maidulcu/masaar-crm/internal/testdb"
 )
 
 type company struct {
@@ -45,18 +45,7 @@ func setup(t *testing.T) *testEnv {
 		t.Skip("TEST_DATABASE_URL not set; skipping database isolation tests")
 	}
 
-	sqlDB, err := sql.Open("pgx", url)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := goose.SetDialect("postgres"); err != nil {
-		t.Fatal(err)
-	}
-	goose.SetLogger(goose.NopLogger())
-	if err := goose.Up(sqlDB, "../../migrations"); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
-	sqlDB.Close()
+	testdb.Migrate(t, url)
 
 	ctx := context.Background()
 	pool, err := pgxpool.New(ctx, url)
@@ -101,6 +90,11 @@ func setup(t *testing.T) *testEnv {
 		pool.Close()
 	})
 	return e
+}
+
+// testPhone returns a unique, valid E.164 number ("+" + prefix + 7 digits).
+func testPhone(prefix string) string {
+	return fmt.Sprintf("+%s%07d", prefix, rand.Intn(10_000_000))
 }
 
 func must(t *testing.T, pool *pgxpool.Pool, q string, args ...any) {
@@ -163,7 +157,7 @@ func TestFailClosedWithoutTenant(t *testing.T) {
 func TestContactsIsolated(t *testing.T) {
 	e := setup(t)
 	repo := NewContactRepo(e.pool)
-	phone := "+97150" + uuid.NewString()[:7]
+	phone := testPhone("97150")
 	ct := e.contact(t, e.a, phone)
 
 	if _, err := repo.GetByID(e.b.ctx, ct.ID); !isNotFound(err) {
@@ -204,11 +198,11 @@ func TestContactsIsolated(t *testing.T) {
 func TestContactCannotBeAssignedToAnotherCompanysAgent(t *testing.T) {
 	e := setup(t)
 	repo := NewContactRepo(e.pool)
-	bad := &domain.Contact{PhoneWA: "+97158" + uuid.NewString()[:7], FullName: "X", Language: "en", AssignedTo: &e.a.user}
+	bad := &domain.Contact{PhoneWA: testPhone("97158"), FullName: "X", Language: "en", AssignedTo: &e.a.user}
 	if err := repo.Create(e.b.ctx, bad); !isNotFound(err) {
 		t.Fatalf("B assigned a new contact to A's agent: %v", err)
 	}
-	own := e.contact(t, e.b, "+97159"+uuid.NewString()[:7])
+	own := e.contact(t, e.b, testPhone("97159"))
 	own.AssignedTo = &e.a.user
 	if err := repo.Update(e.b.ctx, own); !isNotFound(err) {
 		t.Fatalf("B reassigned a contact to A's agent: %v", err)
@@ -222,7 +216,7 @@ func TestContactCannotBeAssignedToAnotherCompanysAgent(t *testing.T) {
 func TestLeadsIsolatedAndNoCrossReferences(t *testing.T) {
 	e := setup(t)
 	leads := NewLeadRepo(e.pool)
-	ct := e.contact(t, e.a, "+97151"+uuid.NewString()[:7])
+	ct := e.contact(t, e.a, testPhone("97151"))
 	ld := e.lead(t, e.a, ct.ID)
 
 	if _, err := leads.GetByID(e.b.ctx, ld.ID); !isNotFound(err) {
@@ -256,7 +250,7 @@ func TestLeadsIsolatedAndNoCrossReferences(t *testing.T) {
 	if err := leads.Create(e.b.ctx, bad); !isNotFound(err) {
 		t.Fatalf("B created a lead on A's contact: %v", err)
 	}
-	bc := e.contact(t, e.b, "+97152"+uuid.NewString()[:7])
+	bc := e.contact(t, e.b, testPhone("97152"))
 	withForeignAgent := &domain.Lead{ContactID: bc.ID, Stage: domain.StageNew, Source: "web", Currency: "AED", AssignedTo: &e.a.user}
 	if err := leads.Create(e.b.ctx, withForeignAgent); !isNotFound(err) {
 		t.Fatalf("B assigned a lead to A's agent: %v", err)
@@ -265,7 +259,7 @@ func TestLeadsIsolatedAndNoCrossReferences(t *testing.T) {
 
 func TestDealsAndInvoicesIsolated(t *testing.T) {
 	e := setup(t)
-	ct := e.contact(t, e.a, "+97153"+uuid.NewString()[:7])
+	ct := e.contact(t, e.a, testPhone("97153"))
 	ld := e.lead(t, e.a, ct.ID)
 	deals := NewDealRepo(e.pool)
 	invoices := NewInvoiceRepo(e.pool)
@@ -317,15 +311,15 @@ func TestDealsAndInvoicesIsolated(t *testing.T) {
 func TestWhatsAppAndNotificationsIsolated(t *testing.T) {
 	e := setup(t)
 	wa := NewWhatsAppRepo(e.pool)
-	ct := e.contact(t, e.a, "+97154"+uuid.NewString()[:7])
+	ct := e.contact(t, e.a, testPhone("97154"))
 
 	thread, err := wa.UpsertThread(e.a.ctx, ct.ID, "acct")
 	if err != nil {
 		t.Fatal(err)
 	}
 	msg := &domain.WhatsAppMessage{ThreadID: thread.ID, Direction: domain.DirectionInbound, Body: "secret", WAMessageID: "wamid-" + uuid.NewString()}
-	if err := wa.SaveMessage(e.a.ctx, msg); err != nil {
-		t.Fatal(err)
+	if created, err := wa.SaveMessage(e.a.ctx, msg); err != nil || !created {
+		t.Fatalf("save message: created=%v err=%v", created, err)
 	}
 
 	if _, err := wa.GetThread(e.b.ctx, thread.ID); !isNotFound(err) {
@@ -342,7 +336,7 @@ func TestWhatsAppAndNotificationsIsolated(t *testing.T) {
 		t.Fatalf("B opened a thread on A's contact: %v", err)
 	}
 	inject := &domain.WhatsAppMessage{ThreadID: thread.ID, Direction: domain.DirectionInbound, Body: "injected", WAMessageID: "wamid-" + uuid.NewString()}
-	if err := wa.SaveMessage(e.b.ctx, inject); !isNotFound(err) {
+	if _, err := wa.SaveMessage(e.b.ctx, inject); !isNotFound(err) {
 		t.Fatalf("B injected a message into A's thread: %v", err)
 	}
 
@@ -366,7 +360,7 @@ func TestWhatsAppAndNotificationsIsolated(t *testing.T) {
 
 func TestViewingsAndOffersIsolated(t *testing.T) {
 	e := setup(t)
-	ct := e.contact(t, e.a, "+97155"+uuid.NewString()[:7])
+	ct := e.contact(t, e.a, testPhone("97155"))
 	listing := e.listing(t, e.a)
 	viewings := NewViewingRepo(e.pool)
 	offers := NewOfferRepo(e.pool)
@@ -527,8 +521,8 @@ func TestRentalDomainIsolated(t *testing.T) {
 
 func TestStatsOnlyCountOwnData(t *testing.T) {
 	e := setup(t)
-	e.contact(t, e.a, "+97156"+uuid.NewString()[:7])
-	e.contact(t, e.a, "+97157"+uuid.NewString()[:7])
+	e.contact(t, e.a, testPhone("97156"))
+	e.contact(t, e.a, testPhone("97157"))
 	stats := NewStatsRepo(e.pool)
 	a, err := stats.Overview(e.a.ctx)
 	if err != nil || a.TotalContacts != 2 {
