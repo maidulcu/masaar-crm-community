@@ -24,6 +24,9 @@ WORKDIR /app
 COPY --from=builder --chown=masaar:masaar /build/masaar .
 COPY --from=builder --chown=masaar:masaar /build/migrations ./migrations
 
+# Writable location for WhatsApp attachments (mount a volume here to keep them across upgrades)
+RUN mkdir -p /app/data/whatsapp-media && chown -R masaar:masaar /app/data
+
 # Never run the server as root
 USER masaar
 

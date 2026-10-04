@@ -7,6 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [v0.3.4] - Unreleased
+
+WhatsApp attachments (follow-up to v0.3.3). Includes migration `0062`.
+
+### Fixed / added
+- **Customer attachments are no longer lost.** Photos, documents and voice notes sent over WhatsApp are downloaded from Meta (which only keeps them ~30 days and hands out short-lived URLs), stored on the server and shown in the inbox. Files are fetched in the background when the message arrives and, if that failed, on demand when someone opens it. Expired files show a clear "no longer available" message.
+- **Send files from your computer.** The inbox can now upload an image, PDF/Office document, audio or video to WhatsApp (previously only a public link could be sent). A copy is kept so the thread shows what was sent.
+- **Captions are delivered.** The caption typed with an image/video/document was saved but never sent to the customer. Documents now carry their file name.
+- Template messages without variables no longer fail (an empty body component was sent).
+- The inbox shows errors from the send-media form instead of silently ignoring them.
+- `docker-compose.prod.override.yml` defaulted `WA_BASE_URL` to `graph.instagram.com` (the Instagram API); it is now `graph.facebook.com`.
+
+### Security
+- **Customer-supplied files are treated as hostile.** They are served only through an authenticated, company-scoped endpoint; the declared type is never trusted (only images, audio, video and PDF are shown inline — everything else, including HTML/SVG, is a forced download), with `nosniff`, a sandboxing `Content-Security-Policy`, and a sanitised file name. Stored under random names (never a customer-chosen path) through `os.Root`, with a size cap (`WA_MEDIA_MAX_MB`, default 25).
+- **The WhatsApp access token is only ever sent to Meta's own hosts.** The download URL comes from Meta's API response, so it is checked (https, Meta domains only, re-checked on redirects) and fetched through the SSRF-safe client.
+- Outgoing uploads are limited to the file types WhatsApp accepts, size-capped and content-checked (a script renamed `.png` is refused); `media_type` is validated (it used to be written straight into the request as a JSON key).
+
+### Upgrade notes
+- Attachments are stored under `WA_MEDIA_DIR` (default `./data/whatsapp-media`; the Docker images use `/app/data` and the compose files mount a `media_data` volume there). Back this volume up with the rest of your data. If the directory cannot be created the integration keeps working and attachments are simply not shown.
+- Messages received before this release have no stored file; their attachments are fetched from Meta on first open if still within Meta's 30-day window.
+
+## [v0.3.3] - Unreleased
+
+WhatsApp inbox fixes found in a pipeline audit. Includes migration `0061` (merges duplicate contacts — see upgrade notes).
+
+### Fixed
+- **Duplicate webhook deliveries no longer fail.** Meta redelivers a webhook until it gets a 2xx; a message that was already stored used to return HTTP 500, so Meta retried it for days and every later message in the same batch was lost. Processing is now idempotent, a bad item no longer stops the rest of its batch, and only genuine failures (e.g. database down) answer 5xx. A redelivery also no longer reopens a thread an agent has closed or inflates its message count.
+- **Delivery receipts are applied.** Outbound messages now move through sent → delivered → read, and a failure (e.g. outside the 24-hour window, invalid number) is recorded with Meta's error code and shown on the message. Out-of-order receipts never move a status backwards.
+- **One person, one contact.** Phone numbers are normalised to E.164 (`+971501234567`) everywhere they are written or looked up. WhatsApp reports numbers without the `+`, so a contact an agent created as `+971…` used to get a second contact and thread on the first inbound message. Contacts API/CSV import also accept `971 50 123 4567` and `00971…`.
+- **Contact names are no longer overwritten** by the sender's WhatsApp profile name (or the bare number) on every message. A name is only filled in when it is empty or just the phone number.
+- **Inbound media is no longer dropped.** Meta sends an image/document/voice-note *id*, not a URL, so these messages used to be skipped entirely. They now appear in the thread (`[Image] caption`, `[Document: passport.pdf]`, `[Voice message]`, …) with the media id and type stored for download. Locations, button/list replies, quick-reply buttons and contact cards keep their content instead of showing `[location]`; reactions are no longer stored as messages.
+- **Agent replies are part of the conversation.** Sent messages (text, template, media) are stored in the thread, update its activity time and message count, show their delivery status, and are added to the lead timeline; inbound messages are too (when the contact has a lead). Previously AI summaries/drafts and inbox ordering only saw the customer's side.
+- Auto-tagging of inbound messages ran without a company context and could never write; it now carries the company.
+- `GET /threads/:id/messages?limit=` is bounded; messages over WhatsApp's 4096-character limit are rejected with 400.
+- Message bodies are cleaned of NUL bytes/invalid UTF-8 so one malformed message cannot fail on every redelivery.
+
+### Upgrade notes
+- Migration `0061` normalises `contacts.phone_wa` to `+<digits>` and **merges contacts that differ only by formatting** within a company (oldest survives; leads, offers, viewings, timeline entries and WhatsApp threads move to it, nothing is deleted except the duplicate row). Numbers whose country cannot be determined (national format such as `0501234567`) are left untouched. The merge cannot be undone; back up before upgrading if you have many hand-entered duplicates.
+- Importing a CSV or capturing a public lead for an existing number no longer renames the existing contact.
+
 ## [v0.3.2] - Unreleased
 
 Third hardening pass: session storage and horizontal scaling. No schema changes.

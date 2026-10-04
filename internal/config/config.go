@@ -30,6 +30,10 @@ type Config struct {
 	WAAccessToken   string
 	WABaseURL       string
 	WAAppSecret     string // used to validate X-Hub-Signature-256 on inbound webhooks
+	// WAMediaDir is where WhatsApp images/documents/voice notes are stored; WAMediaMaxMB caps
+	// the size of a single file.
+	WAMediaDir   string
+	WAMediaMaxMB int
 
 	// AI provider — "ollama" (local) or "gemini" (Google Cloud)
 	AIProvider    string
@@ -132,6 +136,8 @@ func Load() *Config {
 		WAAccessToken:          getEnv("WA_ACCESS_TOKEN", ""),
 		WABaseURL:              getEnv("WA_BASE_URL", "https://graph.facebook.com/v19.0"),
 		WAAppSecret:            getEnv("WA_APP_SECRET", ""),
+		WAMediaDir:             getEnv("WA_MEDIA_DIR", "./data/whatsapp-media"),
+		WAMediaMaxMB:           getEnvInt("WA_MEDIA_MAX_MB", 25),
 		AIProvider:             getEnv("AI_PROVIDER", "ollama"),
 		OllamaBaseURL:          getEnv("OLLAMA_BASE_URL", "http://localhost:11434"),
 		OllamaModel:            getEnv("OLLAMA_MODEL", "llama3"),

@@ -170,6 +170,18 @@ type WhatsAppMessage struct {
 	MediaURL    string           `json:"media_url"`
 	WAMessageID string           `json:"wa_message_id"`
 	SentAt      time.Time        `json:"sent_at"`
+
+	// MediaID / MediaMime identify inbound media on Meta's side (Meta sends an id, not a URL);
+	// the file itself is fetched separately.
+	MediaID       string `json:"media_id,omitempty"`
+	MediaMime     string `json:"media_mime,omitempty"`
+	MediaFilename string `json:"media_filename,omitempty"`
+	MediaSize     int64  `json:"media_size,omitempty"`
+
+	// Delivery state of an outbound message ("sent", "delivered", "read", "failed"), filled in
+	// when listing a thread from the matching whatsapp_outbound row.
+	Status   string `json:"status,omitempty"`
+	ErrorMsg string `json:"error_message,omitempty"`
 }
 
 type OutboundStatus string
