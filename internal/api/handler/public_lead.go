@@ -59,6 +59,9 @@ func (h *PublicLeadHandler) SubmitLead(c *fiber.Ctx) error {
 	if req.Name == "" {
 		return c.Status(fiber.StatusUnprocessableEntity).JSON(fiber.Map{"error": "name is required"})
 	}
+	if len(req.Name) > 200 {
+		return c.Status(fiber.StatusUnprocessableEntity).JSON(fiber.Map{"error": "name is too long (max 200 characters)"})
+	}
 	if req.Phone == "" {
 		return c.Status(fiber.StatusUnprocessableEntity).JSON(fiber.Map{"error": "phone is required"})
 	}
@@ -66,6 +69,20 @@ func (h *PublicLeadHandler) SubmitLead(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusUnprocessableEntity).JSON(fiber.Map{
 			"error": "phone must be in E.164 format (e.g. +971501234567)",
 		})
+	}
+
+	// Validate input lengths to prevent DoS / payload bloat
+	if len(req.Email) > 254 {
+		return c.Status(fiber.StatusUnprocessableEntity).JSON(fiber.Map{"error": "email is too long (max 254 characters)"})
+	}
+	if len(req.Notes) > 2000 {
+		return c.Status(fiber.StatusUnprocessableEntity).JSON(fiber.Map{"error": "notes are too long (max 2000 characters)"})
+	}
+	if len(req.PropertyType) > 100 {
+		return c.Status(fiber.StatusUnprocessableEntity).JSON(fiber.Map{"error": "property_type is too long (max 100 characters)"})
+	}
+	if len(req.Area) > 100 {
+		return c.Status(fiber.StatusUnprocessableEntity).JSON(fiber.Map{"error": "area is too long (max 100 characters)"})
 	}
 
 	// Defaults
