@@ -25,7 +25,7 @@ export function Header({ title, back }: { title: string; back?: string }) {
           <Link
             href={back}
             aria-label={t('رجوع', 'Back')}
-            className="text-surface-500 hover:text-surface-900 transition-colors rtl:rotate-180"
+            className="text-surface-500 hover:text-surface-900 transition-colors rtl:rotate-180 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 rounded-md p-0.5"
           >
             <span aria-hidden="true">←</span>
           </Link>
@@ -37,7 +37,9 @@ export function Header({ title, back }: { title: string; back?: string }) {
         {/* RTL/LTR toggle */}
         <button
           onClick={() => setLang(lang === 'ar' ? 'en' : 'ar')}
-          className="text-xs px-2.5 py-1.5 rounded-lg border border-surface-200 text-surface-600 hover:bg-surface-100 hover:text-surface-900 transition-colors font-medium"
+          aria-label={lang === 'ar' ? 'تغيير اللغة إلى الإنجليزية' : 'Switch language to English'}
+          title={lang === 'ar' ? 'English' : 'عربي'}
+          className="text-xs px-2.5 py-1.5 rounded-lg border border-surface-200 text-surface-600 hover:bg-surface-100 hover:text-surface-900 transition-colors font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500"
         >
           {lang === 'ar' ? 'EN' : 'عربي'}
         </button>
@@ -49,12 +51,18 @@ export function Header({ title, back }: { title: string; back?: string }) {
 
         {/* Avatar + logout */}
         <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-primary-500 to-primary-700 text-white text-[13px] font-semibold flex items-center justify-center shadow-card">
+          <div
+            role="img"
+            title={user?.name || user?.email || t('المستخدم', 'User')}
+            aria-label={user?.name || user?.email || t('المستخدم', 'User')}
+            className="w-8 h-8 rounded-full bg-gradient-to-br from-primary-500 to-primary-700 text-white text-[13px] font-semibold flex items-center justify-center shadow-card"
+          >
             {user?.name?.[0]?.toUpperCase() ?? 'U'}
           </div>
           <button
             onClick={handleLogout}
-            className="text-xs text-surface-500 hover:text-red-500 transition-colors font-medium"
+            aria-label={t('تسجيل الخروج', 'Sign out')}
+            className="text-xs text-surface-500 hover:text-red-500 transition-colors font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 rounded px-1.5 py-1"
           >
             {t('خروج', 'Sign out')}
           </button>
