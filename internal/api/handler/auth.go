@@ -23,6 +23,7 @@ import (
 	"github.com/maidulcu/masaar-crm/internal/config"
 	"github.com/maidulcu/masaar-crm/internal/domain"
 	"github.com/maidulcu/masaar-crm/internal/email"
+	"github.com/maidulcu/masaar-crm/internal/safehttp"
 	"github.com/maidulcu/masaar-crm/internal/repo"
 	"github.com/maidulcu/masaar-crm/internal/session"
 	"github.com/maidulcu/masaar-crm/internal/sms"
@@ -513,7 +514,7 @@ func (h *AuthHandler) Register(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusUnprocessableEntity).JSON(fiber.Map{"error": "turnstile token required"})
 	}
 	if h.config.TurnstileSecretKey != "" {
-		if err := verifyTurnstile(h.config.TurnstileSecretKey, body.TurnstileToken); err != nil {
+		if err := verifyTurnstile(c.Context(), h.config.TurnstileSecretKey, body.TurnstileToken); err != nil {
 			return c.Status(fiber.StatusUnprocessableEntity).JSON(fiber.Map{"error": "captcha verification failed"})
 		}
 	}
@@ -856,11 +857,21 @@ func (h *AuthHandler) VerifyMagicLink(c *fiber.Ctx) error {
 	return c.JSON(h.attachRefresh(c, resp, refresh))
 }
 
+var (
+	turnstileEndpoint   = "https://challenges.cloudflare.com/turnstile/v0/siteverify"
+	turnstileHTTPClient = safehttp.NewClient(10 * time.Second)
+)
+
 // verifyTurnstile validates a Cloudflare Turnstile token.
-func verifyTurnstile(secret, token string) error {
-	resp, err := http.PostForm("https://challenges.cloudflare.com/turnstile/v0/siteverify",
-		url.Values{"secret": {secret}, "response": {token}},
-	)
+func verifyTurnstile(ctx context.Context, secret, token string) error {
+	formData := url.Values{"secret": {secret}, "response": {token}}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, turnstileEndpoint, strings.NewReader(formData.Encode()))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err := turnstileHTTPClient.Do(req)
 	if err != nil {
 		return err
 	}
