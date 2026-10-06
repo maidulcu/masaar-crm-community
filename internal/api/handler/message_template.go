@@ -29,6 +29,9 @@ func NewMessageTemplateHandler(templates *repo.MessageTemplateRepo) *MessageTemp
 func (h *MessageTemplateHandler) List(c *fiber.Ctx) error {
 	companyID, _ := uuid.Parse(c.Locals("company_id").(string))
 	page, _ := strconv.Atoi(c.Query("page", "1"))
+	if page < 1 {
+		page = 1 // a zero/negative page would produce a negative OFFSET and a 500
+	}
 	limit, _ := strconv.Atoi(c.Query("limit", "50"))
 	if limit < 1 || limit > 100 {
 		limit = 50

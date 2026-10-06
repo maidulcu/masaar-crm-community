@@ -1780,9 +1780,9 @@ func (h *PropertyHandler) GeneratePropertyReport(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to generate PDF"})
 	}
 
-	filename := fmt.Sprintf("property-report-%s.pdf", areaSlug)
+	filename := fmt.Sprintf("property-report-%s.pdf", safeFilenamePart(areaSlug, "area"))
 	c.Set("Content-Type", "application/pdf")
-	c.Set("Content-Disposition", fmt.Sprintf("attachment; filename=%s", filename))
+	c.Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
 	return c.Send(pdfBytes)
 }
 

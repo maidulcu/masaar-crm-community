@@ -56,6 +56,12 @@ type LeadTagRepository interface {
 	RemoveTag(ctx context.Context, leadID uuid.UUID, tag string) error
 }
 
+// Upper bounds for client-supplied page sizes, so one request cannot load a whole table.
+const (
+	maxLeadSearchLimit     = 200
+	maxCommunicationsLimit = 500
+)
+
 type LeadHandler struct {
 	leads          LeadRepository
 	contacts       ContactRepository
@@ -119,7 +125,7 @@ func (h *LeadHandler) List(c *fiber.Ctx) error {
 		}
 	}
 	if v, err := strconv.Atoi(c.Query("limit")); err == nil && v > 0 {
-		f.Limit = v
+		f.Limit = min(v, maxLeadSearchLimit)
 	}
 	if v, err := strconv.Atoi(c.Query("offset")); err == nil && v >= 0 {
 		f.Offset = v
@@ -492,8 +498,8 @@ func (h *LeadHandler) GetCommunications(c *fiber.Ctx) error {
 
 	limit := 100
 	if l := c.Query("limit"); l != "" {
-		if parsed, err := strconv.Atoi(l); err == nil {
-			limit = parsed
+		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 {
+			limit = min(parsed, maxCommunicationsLimit)
 		}
 	}
 

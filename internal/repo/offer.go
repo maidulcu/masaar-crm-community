@@ -2,10 +2,12 @@ package repo
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/maidulcu/masaar-crm/internal/domain"
 	"github.com/maidulcu/masaar-crm/internal/tenant"
@@ -243,6 +245,31 @@ func (r *OfferRepo) UpdateStatus(ctx context.Context, id uuid.UUID, status domai
 		status, id, cid,
 	)
 	return err
+}
+
+// ClaimAcceptance atomically moves an open offer to 'accepted' and returns the status it
+// had, so concurrent accept requests cannot both proceed to create a deal. ok is false when
+// the offer does not exist in the caller's company or was already accepted/rejected/expired.
+// If the caller's follow-up work fails it should restore prev with UpdateStatus.
+func (r *OfferRepo) ClaimAcceptance(ctx context.Context, id uuid.UUID) (prev domain.OfferStatus, ok bool, err error) {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return "", false, err
+	}
+	err = r.db.QueryRow(ctx, `
+		UPDATE offers o SET status = 'accepted', updated_at = NOW()
+		FROM (SELECT id, status FROM offers
+		      WHERE id = $1 AND company_id = $2 AND status NOT IN ('accepted','rejected','expired')
+		      FOR UPDATE) old
+		WHERE o.id = old.id
+		RETURNING old.status`, id, cid).Scan(&prev)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	return prev, true, nil
 }
 
 // SetDeal links an accepted offer to its created deal.

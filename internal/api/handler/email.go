@@ -2,6 +2,7 @@ package handler
 
 import (
 	"strconv"
+	"strings"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -50,11 +51,16 @@ func (h *EmailHandler) SendEmail(c *fiber.Ctx) error {
 	if req.ToEmail == "" || req.Subject == "" {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "to_email and subject required"})
 	}
+	// Reject malformed recipients and CR/LF in headers (SMTP header injection / Bcc smuggling).
+	if err := email.ValidateRecipient(req.ToEmail); err != nil || strings.ContainsAny(req.Subject, "\r\n") {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid to_email or subject"})
+	}
 
 	// Create email history record
 	userID := c.Locals("user_id").(uuid.UUID)
 	emailHist := &domain.EmailHistory{
-		FromEmail: req.FromEmail,
+		// The sender is fixed by the server configuration; a client-supplied from_email
+		// would let any agent spoof arbitrary senders through the company's mail relay.
 		ToEmail:   req.ToEmail,
 		Subject:   req.Subject,
 		Body:      req.Body,

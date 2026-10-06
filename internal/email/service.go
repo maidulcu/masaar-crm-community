@@ -2,9 +2,17 @@ package email
 
 import (
 	"bytes"
+	"crypto/tls"
+	"errors"
 	"fmt"
 	"html/template"
+	"mime"
+	"mime/quotedprintable"
+	"net"
+	"net/mail"
 	"net/smtp"
+	"strings"
+	"time"
 
 	"github.com/maidulcu/masaar-crm/internal/domain"
 )
@@ -57,42 +65,141 @@ func (s *Service) Send(email *domain.EmailHistory) error {
 	return s.sendSMTP(email)
 }
 
+// smtpTimeout bounds a whole SMTP conversation. net/smtp.SendMail has no timeouts, so an
+// unresponsive relay would otherwise hold the request goroutine (and its DB connection) forever.
+const smtpTimeout = 30 * time.Second
+
+// ErrInvalidHeader is returned when an address or subject would corrupt the message headers.
+var ErrInvalidHeader = errors.New("email: invalid header value")
+
+// parseAddress validates a single RFC 5322 mailbox. It rejects CR/LF (header injection) and
+// anything net/mail cannot parse, and returns the bare address for the SMTP envelope.
+func parseAddress(raw string) (*mail.Address, error) {
+	if raw == "" || strings.ContainsAny(raw, "\r\n") {
+		return nil, ErrInvalidHeader
+	}
+	addr, err := mail.ParseAddress(raw)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrInvalidHeader, err)
+	}
+	return addr, nil
+}
+
+// ValidateRecipient reports whether raw is a single, well-formed recipient address.
+func ValidateRecipient(raw string) error {
+	_, err := parseAddress(raw)
+	return err
+}
+
+// buildMessage assembles an RFC 5322 message. Header values are validated (never concatenated
+// raw) so user-supplied subjects or addresses cannot inject extra headers such as Bcc.
+func buildMessage(from, to *mail.Address, subject string, html bool, body string) ([]byte, error) {
+	if strings.ContainsAny(subject, "\r\n") {
+		return nil, ErrInvalidHeader
+	}
+	contentType := "text/plain"
+	if html {
+		contentType = "text/html"
+	}
+	var msg bytes.Buffer
+	fmt.Fprintf(&msg, "From: %s\r\n", from.String())
+	fmt.Fprintf(&msg, "To: %s\r\n", to.String())
+	// RFC 2047 encoding keeps non-ASCII (e.g. Arabic) subjects intact.
+	fmt.Fprintf(&msg, "Subject: %s\r\n", mime.QEncoding.Encode("utf-8", subject))
+	fmt.Fprintf(&msg, "Date: %s\r\n", time.Now().UTC().Format(time.RFC1123Z))
+	msg.WriteString("MIME-Version: 1.0\r\n")
+	fmt.Fprintf(&msg, "Content-Type: %s; charset=\"utf-8\"\r\n", contentType)
+	// Quoted-printable keeps lines under the 998-octet SMTP limit and is safe for any relay.
+	msg.WriteString("Content-Transfer-Encoding: quoted-printable\r\n\r\n")
+	qp := quotedprintable.NewWriter(&msg)
+	if _, err := qp.Write([]byte(body)); err != nil {
+		return nil, err
+	}
+	if err := qp.Close(); err != nil {
+		return nil, err
+	}
+	return msg.Bytes(), nil
+}
+
 func (s *Service) sendSMTP(email *domain.EmailHistory) error {
 	if !s.IsConfigured() {
 		return fmt.Errorf("email service not configured")
 	}
 
+	// The sender is always the configured account: letting callers pick From would allow
+	// spoofing any address through the company's SMTP relay.
+	from := &mail.Address{Name: s.cfg.FromName, Address: s.cfg.FromEmail}
+	if from.Address == "" {
+		from.Address = s.cfg.SMTPUser
+	}
 	if email.FromEmail == "" {
-		email.FromEmail = fmt.Sprintf("%s <%s>", s.cfg.FromName, s.cfg.FromEmail)
+		email.FromEmail = from.String()
+	}
+	to, err := parseAddress(email.ToEmail)
+	if err != nil {
+		return err
 	}
 
+	body := email.Body
+	if email.HTMLBody != "" {
+		body = email.HTMLBody
+	}
+	msg, err := buildMessage(from, to, email.Subject, email.HTMLBody != "", body)
+	if err != nil {
+		return err
+	}
+
+	addr := net.JoinHostPort(s.cfg.SMTPHost, s.cfg.SMTPPort)
 	auth := smtp.PlainAuth("", s.cfg.SMTPUser, s.cfg.SMTPPassword, s.cfg.SMTPHost)
-	addr := fmt.Sprintf("%s:%s", s.cfg.SMTPHost, s.cfg.SMTPPort)
+	return sendMailTimeout(addr, s.cfg.SMTPHost, auth, from.Address, to.Address, msg)
+}
 
-	var body bytes.Buffer
-
-	headers := fmt.Sprintf("From: %s\r\nTo: %s\r\nSubject: %s\r\n",
-		email.FromEmail,
-		email.ToEmail,
-		email.Subject,
-	)
-
-	if email.HTMLBody != "" {
-		headers += "MIME-Version: 1.0\r\nContent-Type: text/html; charset=\"utf-8\"\r\n"
-	} else {
-		headers += "MIME-Version: 1.0\r\nContent-Type: text/plain; charset=\"utf-8\"\r\n"
+// sendMailTimeout is net/smtp.SendMail with connect and overall deadlines.
+func sendMailTimeout(addr, host string, auth smtp.Auth, from, to string, msg []byte) error {
+	conn, err := net.DialTimeout("tcp", addr, 10*time.Second)
+	if err != nil {
+		return err
 	}
-
-	body.WriteString(headers + "\r\n")
-
-	if email.HTMLBody != "" {
-		body.WriteString(email.HTMLBody)
-	} else {
-		body.WriteString(email.Body)
+	if err := conn.SetDeadline(time.Now().Add(smtpTimeout)); err != nil {
+		conn.Close()
+		return err
 	}
+	c, err := smtp.NewClient(conn, host)
+	if err != nil {
+		conn.Close()
+		return err
+	}
+	defer c.Close()
 
-	err := smtp.SendMail(addr, auth, s.cfg.FromEmail, []string{email.ToEmail}, body.Bytes())
-	return err
+	if ok, _ := c.Extension("STARTTLS"); ok {
+		if err := c.StartTLS(&tls.Config{ServerName: host, MinVersion: tls.VersionTLS12}); err != nil {
+			return err
+		}
+	}
+	if auth != nil {
+		if ok, _ := c.Extension("AUTH"); ok {
+			if err := c.Auth(auth); err != nil {
+				return err
+			}
+		}
+	}
+	if err := c.Mail(from); err != nil {
+		return err
+	}
+	if err := c.Rcpt(to); err != nil {
+		return err
+	}
+	w, err := c.Data()
+	if err != nil {
+		return err
+	}
+	if _, err := w.Write(msg); err != nil {
+		return err
+	}
+	if err := w.Close(); err != nil {
+		return err
+	}
+	return c.Quit()
 }
 
 // ─── Email Templates ──────────────────────────────────────────────────────────

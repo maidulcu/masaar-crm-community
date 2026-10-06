@@ -4,9 +4,18 @@ import (
 	"encoding/json"
 	"log"
 	"sync"
+	"time"
 
 	fiberws "github.com/gofiber/websocket/v2"
 	"github.com/google/uuid"
+)
+
+const (
+	// maxClientMessageBytes bounds any frame a client sends (the socket is push-only).
+	maxClientMessageBytes = 512
+	writeWait             = 10 * time.Second
+	pongWait              = 60 * time.Second
+	pingPeriod            = 30 * time.Second // must be < pongWait
 )
 
 type Event struct {
@@ -129,6 +138,15 @@ func (h *Hub) Handler() func(*fiberws.Conn) {
 		// because sending to a closed channel panics even inside a select.
 		done := make(chan struct{})
 
+		// The channel is server-to-client only. Cap what a client may send, and drop
+		// connections that stop answering pings so half-open sockets (closed laptops,
+		// dropped mobile links) do not pile up in the hub forever.
+		conn.SetReadLimit(maxClientMessageBytes)
+		_ = conn.SetReadDeadline(time.Now().Add(pongWait))
+		conn.SetPongHandler(func(string) error {
+			return conn.SetReadDeadline(time.Now().Add(pongWait))
+		})
+
 		go func() {
 			defer close(done)
 			for {
@@ -138,13 +156,21 @@ func (h *Hub) Handler() func(*fiberws.Conn) {
 			}
 		}()
 
+		ping := time.NewTicker(pingPeriod)
+		defer ping.Stop()
 		for {
 			select {
 			case msg, ok := <-c.send:
 				if !ok {
 					return
 				}
+				_ = conn.SetWriteDeadline(time.Now().Add(writeWait))
 				if err := conn.WriteMessage(fiberws.TextMessage, msg); err != nil {
+					return
+				}
+			case <-ping.C:
+				_ = conn.SetWriteDeadline(time.Now().Add(writeWait))
+				if err := conn.WriteMessage(fiberws.PingMessage, nil); err != nil {
 					return
 				}
 			case <-done:

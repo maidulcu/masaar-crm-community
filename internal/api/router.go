@@ -142,11 +142,12 @@ func RegisterRoutes(app *fiber.App, h *Handlers, hub *ws.Hub, cfg *config.Config
 	app.Post("/webhooks/bos24", lim.webhook, h.BOS24Integration.ReceiveWebhook)
 
 	// Public listing page — no auth required (for shareable links)
-	app.Get("/api/public/listings/:id", h.Marketing.PublicListing)
+	// These unauthenticated routes hit the database, so they share the per-IP API limiter.
+	app.Get("/api/public/listings/:id", lim.api, h.Marketing.PublicListing)
 
 	// Public document signing — signature UUID is the access token
-	app.Get("/api/public/sign/:id", h.Document.PublicGetSignature)
-	app.Post("/api/public/sign/:id", h.Document.PublicSign)
+	app.Get("/api/public/sign/:id", lim.api, h.Document.PublicGetSignature)
+	app.Post("/api/public/sign/:id", lim.api, h.Document.PublicSign)
 
 	// Public lead intake — API key auth (scope: lead:create)
 	apiKeyLimiter := makeAPIKeyLimiter(rdb)

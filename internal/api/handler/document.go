@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"errors"
 	"strconv"
 	"time"
 
@@ -372,21 +373,26 @@ func (h *DocumentHandler) PublicGetSignature(c *fiber.Ctx) error {
 	}
 
 	doc, err := h.docs.GetDocumentForSigning(c.Context(), sigs.DocumentID)
-	if err != nil {
+	if err != nil || doc.DeletedAt != nil {
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "document not found"})
 	}
 
+	// Network details captured when the request was created belong to the sender, not the
+	// signer, and the DocuSign envelope id is internal: neither is shown on the public page.
+	sigs.IPAddress, sigs.UserAgent, sigs.EnvelopeID = "", "", ""
 	return c.JSON(fiber.Map{"signature": sigs, "document": doc})
 }
 
 // PublicSign godoc
 // @Summary      Sign a document (public)
-// @Description  Marks a signature as signed. No auth required — the signature UUID is the access token.
+// @Description  Marks a signature as signed. No auth required — the signature UUID is the access token. A signature can be signed once; DocuSign-managed signatures cannot be signed here.
 // @Tags         Public
 // @Produce      json
 // @Param        id  path      string  true  "Signature UUID"
 // @Success      200  {object}  object{status=string}
 // @Failure      400  {object}  object{error=string}
+// @Failure      404  {object}  object{error=string}
+// @Failure      409  {object}  object{error=string}
 // @Router       /public/sign/{id} [post]
 func (h *DocumentHandler) PublicSign(c *fiber.Ctx) error {
 	sigID, err := uuid.Parse(c.Params("id"))
@@ -394,11 +400,21 @@ func (h *DocumentHandler) PublicSign(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid id"})
 	}
 
-	if err := h.docs.MarkSignedByToken(c.Context(), sigID, time.Now()); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to record signature"})
+	ua := c.Get("User-Agent")
+	if len(ua) > 512 {
+		ua = ua[:512]
 	}
-
-	return c.JSON(fiber.Map{"status": "signed"})
+	switch err := h.docs.SignByToken(c.Context(), sigID, time.Now(), c.IP(), ua); {
+	case err == nil:
+		return c.JSON(fiber.Map{"status": "signed"})
+	case errors.Is(err, repo.ErrNotSignable):
+		if _, gerr := h.docs.GetSignatureByToken(c.Context(), sigID); gerr != nil {
+			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "signature not found"})
+		}
+		return c.Status(fiber.StatusConflict).JSON(fiber.Map{"error": "this signature cannot be signed (already signed or managed by DocuSign)"})
+	default:
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": safeMsg("failed to record signature", err)})
+	}
 }
 
 // DeleteDocument godoc

@@ -265,6 +265,17 @@ func (h *OfferHandler) Accept(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusConflict).JSON(fiber.Map{"error": "cannot accept a rejected or expired offer"})
 	}
 
+	// Claim the offer atomically: the checks above can race, and two concurrent accepts
+	// would otherwise each create a deal.
+	prevStatus, claimed, err := h.offerRepo.ClaimAcceptance(c.Context(), id)
+	if err != nil {
+		return serverError(c, err)
+	}
+	if !claimed {
+		return c.Status(fiber.StatusConflict).JSON(fiber.Map{"error": "offer is no longer open for acceptance"})
+	}
+	restore := func() { _ = h.offerRepo.UpdateStatus(c.Context(), id, prevStatus) }
+
 	// Auto-create a Deal for the accepted offer.
 	// Find or create a lead for the buyer contact so the deal has a lead_id.
 	leads, _ := h.leadRepo.List(c.Context(), repo.LeadFilter{
@@ -305,11 +316,13 @@ func (h *OfferHandler) Accept(c *fiber.Ctx) error {
 		OwnerID:     ownerID,
 	}
 	if err := h.dealRepo.Create(c.Context(), deal); err != nil {
+		restore()
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": safeMsg("failed to create deal", err)})
 	}
 
 	// Link offer → deal and mark as accepted
 	if err := h.offerRepo.SetDeal(c.Context(), id, deal.ID); err != nil {
+		restore()
 		return serverError(c, err)
 	}
 

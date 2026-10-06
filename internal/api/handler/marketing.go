@@ -2,6 +2,8 @@ package handler
 
 import (
 	"fmt"
+	"html"
+	"strings"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -55,8 +57,12 @@ func (h *MarketingHandler) PublicListing(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "listing not found"})
 	}
 	// Strip sensitive owner fields before returning publicly
+	listing.OwnerName = ""
 	listing.OwnerEmail = ""
 	listing.OwnerPhone = ""
+	// Internal bookkeeping that means nothing to a visitor.
+	listing.PortalSyncStatus = nil
+	listing.AssignedTo = nil
 
 	// Company branding comes from the listing's own company.
 	settings, _ := h.companySettings.Get(tenant.With(c.Context(), listing.CompanyID))
@@ -160,10 +166,7 @@ func (h *MarketingHandler) DownloadBrochure(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to generate brochure"})
 	}
 
-	filename := fmt.Sprintf("brochure-%s.pdf", listing.ReferenceNumber)
-	if listing.ReferenceNumber == "" {
-		filename = fmt.Sprintf("brochure-%s.pdf", listing.ID.String()[:8])
-	}
+	filename := fmt.Sprintf("brochure-%s.pdf", safeFilenamePart(listing.ReferenceNumber, listing.ID.String()[:8]))
 
 	c.Set("Content-Type", "application/pdf")
 	c.Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
@@ -199,14 +202,18 @@ func (h *MarketingHandler) EmailCampaign(c *fiber.Ctx) error {
 	}
 
 	settings, _ := h.companySettings.Get(c.Context())
-	companyName := "Masaar CRM"
+	companyName, businessPhone := "Masaar CRM", ""
 	if settings != nil {
 		companyName = settings.Name
+		businessPhone = settings.BusinessPhone
 	}
 
+	if strings.ContainsAny(body.Subject, "\r\n") {
+		return c.Status(fiber.StatusUnprocessableEntity).JSON(fiber.Map{"error": "subject must be a single line"})
+	}
 	subject := body.Subject
 	if subject == "" {
-		subject = fmt.Sprintf("Property Listing: %s", listing.Title)
+		subject = fmt.Sprintf("Property Listing: %s", strings.Join(strings.Fields(listing.Title), " "))
 	}
 
 	// Build a simple HTML email
@@ -243,16 +250,18 @@ func (h *MarketingHandler) EmailCampaign(c *fiber.Ctx) error {
     </p>
   </div>
 </div>`,
-		listing.Title, location,
+		// Everything interpolated into the HTML is escaped: listing and company text is
+		// user-controlled and the message is sent to third parties (HTML/phishing injection).
+		html.EscapeString(listing.Title), html.EscapeString(location),
 		coverImg(listing.CoverImageURL),
-		listing.Title,
-		priceStr,
-		listing.PropertyType, listing.ListingType,
+		html.EscapeString(listing.Title),
+		html.EscapeString(priceStr),
+		html.EscapeString(string(listing.PropertyType)), html.EscapeString(string(listing.ListingType)),
 		listing.Bedrooms, listing.Bathrooms, listing.TotalSqft,
-		location,
-		body.Message,
+		html.EscapeString(location),
+		html.EscapeString(body.Message),
 		refLink(listing.ReferenceNumber),
-		companyName, settings.BusinessPhone,
+		html.EscapeString(companyName), html.EscapeString(businessPhone),
 	)
 
 	sent, failed := 0, 0
@@ -302,34 +311,51 @@ func (h *MarketingHandler) GenerateQR(c *fiber.Ctx) error {
 	}
 
 	publicURL := fmt.Sprintf("%s/l/%s", c.BaseURL(), listing.ID.String())
-	if listing.ReferenceNumber != "" {
-		publicURL = fmt.Sprintf("%s/l/%s", c.BaseURL(), listing.ID.String())
-	}
 
 	png, err := qrcode.Encode(publicURL, qrcode.Medium, 512)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to generate QR code"})
 	}
 
-	filename := fmt.Sprintf("qr-%s.png", listing.ReferenceNumber)
-	if listing.ReferenceNumber == "" {
-		filename = fmt.Sprintf("qr-%s.png", listing.ID.String()[:8])
-	}
+	filename := fmt.Sprintf("qr-%s.png", safeFilenamePart(listing.ReferenceNumber, listing.ID.String()[:8]))
 	c.Set("Content-Type", "image/png")
 	c.Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
 	return c.Send(png)
+}
+
+// safeFilenamePart reduces a user-controlled value to [A-Za-z0-9._-] so it can sit inside a
+// quoted Content-Disposition filename without breaking out of it. fallback is used when
+// nothing usable remains.
+func safeFilenamePart(v, fallback string) string {
+	var b strings.Builder
+	for _, r := range v {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '-', r == '_', r == '.':
+			b.WriteRune(r)
+		default:
+			b.WriteRune('_')
+		}
+	}
+	if out := strings.Trim(b.String(), "._"); out != "" {
+		return out
+	}
+	return fallback
 }
 
 func coverImg(url string) string {
 	if url == "" {
 		return ""
 	}
-	return fmt.Sprintf(`<img src="%s" style="width:100%%;max-height:300px;object-fit:cover;display:block" alt="Property" />`, url)
+	// Only http(s) images are embedded; the value is attribute-escaped either way.
+	if !strings.HasPrefix(strings.ToLower(url), "https://") && !strings.HasPrefix(strings.ToLower(url), "http://") {
+		return ""
+	}
+	return fmt.Sprintf(`<img src="%s" style="width:100%%;max-height:300px;object-fit:cover;display:block" alt="Property" />`, html.EscapeString(url))
 }
 
 func refLink(ref string) string {
 	if ref == "" {
 		return ""
 	}
-	return fmt.Sprintf(`<p style="color:#666;font-size:13px">Reference: <strong>%s</strong></p>`, ref)
+	return fmt.Sprintf(`<p style="color:#666;font-size:13px">Reference: <strong>%s</strong></p>`, html.EscapeString(ref))
 }

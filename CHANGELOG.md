@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [v0.3.4] - Unreleased
 
+### Security / bug / performance audit
+- **Security — email header injection and sender spoofing.** `to_email`/`subject` were written straight into the SMTP headers, so a CR/LF could smuggle `Bcc:` headers or body content, and `POST /emails/send` accepted a client-chosen `from_email`. Recipients are now validated, header values containing CR/LF are refused, the sender is always the configured account, and subjects are RFC 2047-encoded (Arabic subjects no longer arrive garbled).
+- **Security — HTML injection in listing email campaigns.** Listing title, area, reference, company name and the free-text message were interpolated unescaped into an email sent to third parties; they are now escaped (cover images must be http(s)).
+- **Security — public e-signature.** A signature link could be used repeatedly (overwriting `signed_at`), could complete a DocuSign-managed signature, recorded the *sender's* IP/user agent instead of the signer's, and never marked the document signed. A signature now signs once, only when pending, records the signer's IP/UA, and completes the document when every signature is in. The public GET no longer returns the sender's IP/UA or the DocuSign envelope id.
+- **Security — public listing page** no longer exposes `owner_name`, portal sync state or the assigned agent id.
+- **Security — password-reset timing.** The reset email was sent synchronously only for registered addresses, revealing account existence by response time; it is now sent in the background.
+- **Security** — unauthenticated `/api/public/*` routes are rate limited; download filenames built from user data (`brochure`, `qr`, property report) are sanitised; the websocket caps client frames and reaps dead connections (ping/pong deadlines).
+- **Bug** — listing email campaign panicked (nil dereference) when the company had no settings row.
+- **Bug** — accepting an offer was check-then-act, so concurrent requests created duplicate deals; acceptance is now claimed atomically (and restored if deal creation fails).
+- **Bug** — `GET /message-templates?page=0` returned 500 (negative `OFFSET`).
+- **Performance** — the trial/suspension check hit the database on every authenticated request; company status is now cached for 15 s (a suspension or plan change takes effect within that window).
+- **Performance / robustness** — SMTP connections have connect and overall timeouts (a stalled relay used to hang the request forever); `last_used_at` on API keys is written at most once a minute instead of on every call; `GET /leads/search` (`limit` ≤ 200) and `GET /leads/:id/communications` (`limit` ≤ 500) can no longer be asked for an unbounded result.
+
 WhatsApp attachments (follow-up to v0.3.3). Includes migration `0062`.
 
 ### Fixed / added
