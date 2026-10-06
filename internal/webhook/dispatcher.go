@@ -9,8 +9,10 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -36,56 +38,118 @@ type Payload struct {
 	Data      interface{} `json:"data"`
 }
 
-// Dispatcher fires outbound webhooks for CRM events.
+const (
+	// dispatchWorkers bounds how many events are delivered at once. Each delivery can retry
+	// for several seconds, so an unbounded goroutine per event let a burst of lead changes
+	// (an import, a flood on the public intake endpoint) exhaust memory and sockets.
+	dispatchWorkers = 8
+	// dispatchQueueSize is how many events may wait for a worker. Beyond it new events are
+	// dropped (and logged): webhooks are best effort and must never block the request path.
+	dispatchQueueSize = 1024
+	// eventTimeout bounds delivery of one event to all of its subscribers, retries included.
+	eventTimeout = 60 * time.Second
+)
+
+// SubscriptionStore is the part of the webhook repository the dispatcher uses.
+type SubscriptionStore interface {
+	ListActiveForEvent(ctx context.Context, companyID uuid.UUID, event string) ([]repo.WebhookSubscription, error)
+	RecordDelivery(ctx context.Context, subscriptionID uuid.UUID, event string, payload []byte, statusCode int, success bool)
+}
+
+type job struct {
+	companyID uuid.UUID
+	event     string
+	body      []byte
+}
+
+// Dispatcher fires outbound webhooks for CRM events through a fixed pool of workers.
 type Dispatcher struct {
-	repo   *repo.WebhookRepo
+	repo   SubscriptionStore
 	client *http.Client
+
+	mu     sync.RWMutex // guards closed and sends on queue
+	closed bool
+	queue  chan job
+	wg     sync.WaitGroup
 }
 
-func NewDispatcher(webhookRepo *repo.WebhookRepo) *Dispatcher {
-	return &Dispatcher{
-		repo:   webhookRepo,
+func NewDispatcher(store SubscriptionStore) *Dispatcher {
+	d := &Dispatcher{
+		repo:   store,
 		client: safehttp.NewClient(10 * time.Second), // refuses internal addresses (SSRF)
+		queue:  make(chan job, dispatchQueueSize),
 	}
+	d.wg.Add(dispatchWorkers)
+	for i := 0; i < dispatchWorkers; i++ {
+		go d.worker()
+	}
+	return d
 }
 
-// Dispatch fires webhooks for the given event asynchronously.
+// Dispatch queues webhooks for the given event and returns immediately.
 // companyID scopes which subscriptions to notify.
-// data is JSON-serialisable and becomes the "data" field in the payload.
+// data is JSON-serialisable and becomes the "data" field in the payload; it is serialised
+// here, so later changes to the caller's value cannot leak into (or race with) the delivery.
 func (d *Dispatcher) Dispatch(companyID uuid.UUID, event string, data interface{}) {
-	go d.dispatch(companyID, event, data)
-}
-
-func (d *Dispatcher) dispatch(companyID uuid.UUID, event string, data interface{}) {
-	// 60s timeout allows for 3 retry attempts with exponential backoff (1s, 4s)
-	// plus request overhead without hitting timeout prematurely
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
-
-	subs, err := d.repo.ListActiveForEvent(ctx, companyID, event)
-	if err != nil {
-		log.Printf("webhook dispatcher: list subscriptions: %v", err)
-		return
-	}
-
-	if len(subs) == 0 {
-		return
-	}
-
-	payload := Payload{
+	body, err := json.Marshal(Payload{
 		Event:     event,
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
 		Data:      data,
-	}
-
-	body, err := json.Marshal(payload)
+	})
 	if err != nil {
 		log.Printf("webhook dispatcher: marshal payload: %v", err)
 		return
 	}
 
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	if d.closed {
+		return
+	}
+	select {
+	case d.queue <- job{companyID: companyID, event: event, body: body}:
+	default:
+		log.Printf("webhook dispatcher: queue full, dropping %s event", event)
+	}
+}
+
+// Shutdown stops accepting events, lets queued ones finish and waits up to timeout.
+func (d *Dispatcher) Shutdown(timeout time.Duration) {
+	d.mu.Lock()
+	if !d.closed {
+		d.closed = true
+		close(d.queue)
+	}
+	d.mu.Unlock()
+
+	done := make(chan struct{})
+	go func() { d.wg.Wait(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(timeout):
+		log.Printf("webhook dispatcher: shutdown timed out with deliveries still running")
+	}
+}
+
+func (d *Dispatcher) worker() {
+	defer d.wg.Done()
+	for j := range d.queue {
+		d.dispatch(j)
+	}
+}
+
+func (d *Dispatcher) dispatch(j job) {
+	// The timeout allows for 3 attempts with backoff (1s, 4s) per subscriber plus request overhead.
+	ctx, cancel := context.WithTimeout(context.Background(), eventTimeout)
+	defer cancel()
+
+	subs, err := d.repo.ListActiveForEvent(ctx, j.companyID, j.event)
+	if err != nil {
+		log.Printf("webhook dispatcher: list subscriptions: %v", err)
+		return
+	}
 	for _, sub := range subs {
-		d.send(ctx, sub, event, body)
+		d.send(ctx, sub, j.event, j.body)
 	}
 }
 
@@ -114,26 +178,37 @@ func (d *Dispatcher) send(ctx context.Context, sub repo.WebhookSubscription, eve
 		resp, err := d.client.Do(req)
 		if err != nil {
 			log.Printf("webhook [%s] %s attempt %d: %v", sub.Name, event, attempt, err)
-			if attempt < 3 {
-				time.Sleep(time.Duration(attempt*attempt) * time.Second) // 1s, 4s
+		} else {
+			// Drain (a bounded amount) so the connection can be reused.
+			_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 64<<10))
+			resp.Body.Close()
+
+			statusCode = resp.StatusCode
+			success = resp.StatusCode >= 200 && resp.StatusCode < 300
+			if success {
+				break
 			}
-			continue
+			log.Printf("webhook [%s] %s attempt %d: got HTTP %d", sub.Name, event, attempt, statusCode)
 		}
-		resp.Body.Close()
 
-		statusCode = resp.StatusCode
-		success = resp.StatusCode >= 200 && resp.StatusCode < 300
-		if success {
+		if attempt < 3 && !sleepCtx(ctx, time.Duration(attempt*attempt)*time.Second) { // 1s, 4s
 			break
-		}
-
-		log.Printf("webhook [%s] %s attempt %d: got HTTP %d", sub.Name, event, attempt, statusCode)
-		if attempt < 3 {
-			time.Sleep(time.Duration(attempt*attempt) * time.Second)
 		}
 	}
 
 	d.repo.RecordDelivery(context.Background(), sub.ID, event, body, statusCode, success)
+}
+
+// sleepCtx waits for d or until ctx is done; it reports whether the full wait elapsed.
+func sleepCtx(ctx context.Context, d time.Duration) bool {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-t.C:
+		return true
+	case <-ctx.Done():
+		return false
+	}
 }
 
 // sign computes HMAC-SHA256 of body using secret.

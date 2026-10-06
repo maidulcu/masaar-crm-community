@@ -26,6 +26,7 @@ type MarketingHandler struct {
 	companySettings *repo.CompanySettingsRepo
 	userRepo        *repo.UserRepo
 	emailService    *email.Service
+	appURL          string // public web app origin, used for links that leave the system (QR codes)
 }
 
 func NewMarketingHandler(
@@ -34,6 +35,7 @@ func NewMarketingHandler(
 	companySettings *repo.CompanySettingsRepo,
 	userRepo *repo.UserRepo,
 	emailService *email.Service,
+	appURL string,
 ) *MarketingHandler {
 	return &MarketingHandler{
 		listingRepo:     listingRepo,
@@ -41,7 +43,15 @@ func NewMarketingHandler(
 		companySettings: companySettings,
 		userRepo:        userRepo,
 		emailService:    emailService,
+		appURL:          strings.TrimRight(appURL, "/"),
 	}
+}
+
+// publicListingURL is the shareable web page for a listing. It is built from the configured
+// APP_URL, never from the request's Host header: a client-controlled Host would let anyone
+// mint a QR code (printed on brochures, signs) that points at an attacker's site.
+func (h *MarketingHandler) publicListingURL(id uuid.UUID) string {
+	return h.appURL + "/l/" + id.String()
 }
 
 // PublicListing handles GET /api/public/listings/:id
@@ -310,9 +320,7 @@ func (h *MarketingHandler) GenerateQR(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "listing not found"})
 	}
 
-	publicURL := fmt.Sprintf("%s/l/%s", c.BaseURL(), listing.ID.String())
-
-	png, err := qrcode.Encode(publicURL, qrcode.Medium, 512)
+	png, err := qrcode.Encode(h.publicListingURL(listing.ID), qrcode.Medium, 512)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to generate QR code"})
 	}

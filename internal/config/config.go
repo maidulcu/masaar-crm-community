@@ -35,6 +35,11 @@ type Config struct {
 	WAMediaDir   string
 	WAMediaMaxMB int
 
+	// BankStatementDir is where uploaded bank statements (CSV/PDF/XLSX) are stored;
+	// BankStatementMaxMB caps one file (the request body limit is 10 MB regardless).
+	BankStatementDir   string
+	BankStatementMaxMB int
+
 	// AI provider — "ollama" (local) or "gemini" (Google Cloud)
 	AIProvider    string
 	OllamaBaseURL string
@@ -138,6 +143,8 @@ func Load() *Config {
 		WAAppSecret:            getEnv("WA_APP_SECRET", ""),
 		WAMediaDir:             getEnv("WA_MEDIA_DIR", "./data/whatsapp-media"),
 		WAMediaMaxMB:           getEnvInt("WA_MEDIA_MAX_MB", 25),
+		BankStatementDir:       getEnv("BANK_STATEMENT_DIR", "./data/bank-statements"),
+		BankStatementMaxMB:     getEnvInt("BANK_STATEMENT_MAX_MB", 10),
 		AIProvider:             getEnv("AI_PROVIDER", "ollama"),
 		OllamaBaseURL:          getEnv("OLLAMA_BASE_URL", "http://localhost:11434"),
 		OllamaModel:            getEnv("OLLAMA_MODEL", "llama3"),

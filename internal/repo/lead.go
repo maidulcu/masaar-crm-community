@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -38,30 +39,54 @@ func scanLead(row interface {
 	)
 }
 
-// KanbanBoard returns active (non-deleted) leads grouped by stage with joined contact.
-func (r *LeadRepo) KanbanBoard(ctx context.Context) (map[domain.LeadStage][]domain.Lead, error) {
+// StageTotal is the full size of a Kanban column, which can exceed the cards loaded into it.
+type StageTotal struct {
+	Count int     `json:"count"`
+	Value float64 `json:"value"`
+}
+
+// KanbanBoard returns active (non-deleted) leads grouped by stage with joined contact. Each
+// stage holds at most perStage of its newest leads, so a company with a large history does not
+// ship its whole pipeline on every board load; totals carries the real count and deal value of
+// every stage, so columns can still show correct headers and a "load more" control.
+func (r *LeadRepo) KanbanBoard(ctx context.Context, perStage int) (map[domain.LeadStage][]domain.Lead, map[domain.LeadStage]StageTotal, error) {
 	cid, err := tenant.From(ctx)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
+	}
+	if perStage < 1 {
+		perStage = 1
 	}
 	const q = `
+		WITH ranked AS (
+			SELECT l.id,
+			       ROW_NUMBER() OVER (PARTITION BY l.stage ORDER BY l.created_at DESC, l.id DESC) AS rn,
+			       COUNT(*)                OVER (PARTITION BY l.stage) AS stage_count,
+			       COALESCE(SUM(l.deal_value) OVER (PARTITION BY l.stage), 0) AS stage_value
+			FROM leads l
+			WHERE l.deleted_at IS NULL AND l.company_id = $1
+		)
 		SELECT` + leadCols + `,
-		       c.id, c.phone_wa, c.full_name, COALESCE(c.email,''), c.language, c.lead_score
-		FROM leads l
+		       c.id, c.phone_wa, c.full_name, COALESCE(c.email,''), c.language, c.lead_score,
+		       r.stage_count, r.stage_value
+		FROM ranked r
+		JOIN leads l ON l.id = r.id
 		JOIN contacts c ON c.id = l.contact_id AND c.company_id = l.company_id
-		WHERE l.deleted_at IS NULL AND l.company_id = $1
-		ORDER BY l.stage, l.created_at DESC
+		WHERE r.rn <= $2
+		ORDER BY l.stage, l.created_at DESC, l.id DESC
 	`
-	rows, err := r.db.Query(ctx, q, cid)
+	rows, err := r.db.Query(ctx, q, cid, perStage)
 	if err != nil {
-		return nil, fmt.Errorf("kanban query: %w", err)
+		return nil, nil, fmt.Errorf("kanban query: %w", err)
 	}
 	defer rows.Close()
 
 	board := map[domain.LeadStage][]domain.Lead{}
+	totals := map[domain.LeadStage]StageTotal{}
 	for rows.Next() {
 		var l domain.Lead
 		var c domain.Contact
+		var t StageTotal
 		if err := rows.Scan(
 			&l.ID, &l.ContactID, &l.Stage, &l.Source,
 			&l.DealValue, &l.Currency, &l.Notes,
@@ -69,13 +94,18 @@ func (r *LeadRepo) KanbanBoard(ctx context.Context) (map[domain.LeadStage][]doma
 			&l.AssignedTo, &l.ClosedReason, &l.LastContactedAt,
 			&l.CreatedAt, &l.UpdatedAt,
 			&c.ID, &c.PhoneWA, &c.FullName, &c.Email, &c.Language, &c.LeadScore,
+			&t.Count, &t.Value,
 		); err != nil {
-			return nil, fmt.Errorf("scan kanban row: %w", err)
+			return nil, nil, fmt.Errorf("scan kanban row: %w", err)
 		}
 		l.Contact = &c
 		board[l.Stage] = append(board[l.Stage], l)
+		totals[l.Stage] = t
 	}
-	return board, nil
+	if err := rows.Err(); err != nil {
+		return nil, nil, fmt.Errorf("kanban rows: %w", err)
+	}
+	return board, totals, nil
 }
 
 // LeadFilter holds optional search/filter parameters for List.
@@ -87,6 +117,10 @@ type LeadFilter struct {
 	ContactID  *uuid.UUID       // filter by contact
 	Limit      int              // default 50
 	Offset     int
+	// Keyset cursor: only leads strictly older than (BeforeCreatedAt, BeforeID) in the
+	// list order. Unlike Offset it stays correct when cards are added or moved meanwhile.
+	BeforeCreatedAt *time.Time
+	BeforeID        *uuid.UUID
 }
 
 // List returns leads matching the filter, ordered by created_at DESC.
@@ -131,6 +165,15 @@ func (r *LeadRepo) List(ctx context.Context, f LeadFilter) ([]domain.Lead, error
 		args = append(args, *f.ContactID)
 		n++
 	}
+	if f.BeforeCreatedAt != nil {
+		beforeID := uuid.Max // no id given: everything created before that instant
+		if f.BeforeID != nil {
+			beforeID = *f.BeforeID
+		}
+		conds = append(conds, fmt.Sprintf("(l.created_at, l.id) < ($%d, $%d)", n, n+1))
+		args = append(args, *f.BeforeCreatedAt, beforeID)
+		n += 2
+	}
 
 	where := "WHERE " + strings.Join(conds, " AND ")
 	args = append(args, f.Limit, f.Offset)
@@ -141,7 +184,7 @@ func (r *LeadRepo) List(ctx context.Context, f LeadFilter) ([]domain.Lead, error
 		FROM leads l
 		JOIN contacts c ON c.id = l.contact_id AND c.company_id = l.company_id
 		%s
-		ORDER BY l.created_at DESC
+		ORDER BY l.created_at DESC, l.id DESC
 		LIMIT $%d OFFSET $%d
 	`, where, n, n+1)
 

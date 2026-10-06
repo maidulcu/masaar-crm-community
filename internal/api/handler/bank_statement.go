@@ -1,23 +1,38 @@
 package handler
 
 import (
-	"fmt"
+	"bytes"
+	"errors"
+	"io"
+	"log"
+	"mime"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
+	"unicode/utf8"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 	"github.com/maidulcu/masaar-crm/internal/domain"
+	"github.com/maidulcu/masaar-crm/internal/mediastore"
 	"github.com/maidulcu/masaar-crm/internal/repo"
 )
 
 type BankStatementHandler struct {
 	statements *repo.BankStatementRepo
+	store      *mediastore.Store // nil when the storage directory could not be opened
+	maxBytes   int64
 }
 
-func NewBankStatementHandler(statements *repo.BankStatementRepo) *BankStatementHandler {
-	return &BankStatementHandler{statements: statements}
+// NewBankStatementHandler returns the handler. store may be nil (uploads then answer 503);
+// maxMB caps one uploaded file.
+func NewBankStatementHandler(statements *repo.BankStatementRepo, store *mediastore.Store, maxMB int) *BankStatementHandler {
+	if maxMB <= 0 {
+		maxMB = 10
+	}
+	return &BankStatementHandler{statements: statements, store: store, maxBytes: int64(maxMB) << 20}
 }
 
 // List godoc
@@ -89,6 +104,9 @@ func (h *BankStatementHandler) Get(c *fiber.Ctx) error {
 // @Security     BearerAuth
 // @Router       /bank-statements/upload [post]
 func (h *BankStatementHandler) Upload(c *fiber.Ctx) error {
+	if h.store == nil {
+		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"error": "file storage is not available"})
+	}
 	file, err := c.FormFile("file")
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "file required"})
@@ -124,31 +142,130 @@ func (h *BankStatementHandler) Upload(c *fiber.Ctx) error {
 	default:
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "unsupported file format"})
 	}
+	if file.Size > h.maxBytes {
+		return c.Status(fiber.StatusRequestEntityTooLarge).JSON(fiber.Map{"error": "file is too large"})
+	}
 
-	fileURL := fmt.Sprintf("/uploads/bank-statements/%s-%s", companyID.String()[:8], sanitizedFilename)
+	f, err := file.Open()
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "cannot open file"})
+	}
+	defer f.Close()
+
+	// The extension is client-chosen: check the bytes really are that format before keeping them.
+	head := make([]byte, 512)
+	n, _ := io.ReadFull(f, head)
+	head = head[:n]
+	if !contentMatchesFormat(format, head) {
+		return c.Status(fiber.StatusUnprocessableEntity).JSON(fiber.Map{"error": "file content does not match its extension"})
+	}
+
+	key, size, err := h.store.Save(io.MultiReader(bytes.NewReader(head), f), h.maxBytes)
+	if err != nil {
+		if errors.Is(err, mediastore.ErrTooLarge) {
+			return c.Status(fiber.StatusRequestEntityTooLarge).JSON(fiber.Map{"error": "file is too large"})
+		}
+		return serverError(c, err)
+	}
 
 	statement := &domain.BankStatement{
 		CompanyID:          companyID,
 		BankIntegrationID:  integrationID,
 		FileName:           sanitizedFilename,
-		FileSizeBytes:      int(file.Size),
-		FileURL:            fileURL,
+		FileSizeBytes:      int(size),
+		StorageKey:         key,
 		FileFormat:         format,
 		UploadedBy:         userID,
+		UploadDate:         time.Now(),
 		ProcessingStatus:   domain.StatusPending,
 		DataClassification: domain.ClassConfidential,
 	}
 
 	if err := h.statements.Create(c.Context(), statement); err != nil {
+		h.removeFile(key) // do not leave an unreferenced confidential file behind
 		return serverError(c, err)
 	}
 
 	return c.Status(fiber.StatusCreated).JSON(statement)
 }
 
+// contentMatchesFormat checks the leading bytes of an upload against the format its extension
+// claims. CSV has no signature, so it must at least be text (no NUL bytes, valid UTF-8 apart
+// from a possibly truncated trailing rune).
+func contentMatchesFormat(format domain.FileFormat, head []byte) bool {
+	switch format {
+	case domain.FormatPDF:
+		return bytes.HasPrefix(head, []byte("%PDF-"))
+	case domain.FormatXLSX:
+		return bytes.HasPrefix(head, []byte("PK\x03\x04"))
+	case domain.FormatCSV:
+		if len(head) == 0 || bytes.IndexByte(head, 0) >= 0 {
+			return false
+		}
+		for i := 0; i < utf8.UTFMax && i < len(head); i++ {
+			if utf8.Valid(head[:len(head)-i]) {
+				return true
+			}
+		}
+		return false
+	}
+	return false
+}
+
+func (h *BankStatementHandler) removeFile(key string) {
+	if h.store == nil || key == "" {
+		return
+	}
+	if err := h.store.Remove(key); err != nil {
+		log.Printf("bank statements: remove stored file: %v", err)
+	}
+}
+
+// Download godoc
+// @Summary      Download bank statement file
+// @Description  Streams the originally uploaded file as an attachment.
+// @Tags         Bank Statements
+// @Param        id  path  string  true  "Statement UUID"
+// @Success      200
+// @Failure      404  {object}  object{error=string}
+// @Security     BearerAuth
+// @Router       /bank-statements/{id}/download [get]
+func (h *BankStatementHandler) Download(c *fiber.Ctx) error {
+	id, err := uuid.Parse(c.Params("id"))
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid id"})
+	}
+	statement, err := h.statements.GetByID(c.Context(), id)
+	if err != nil || statement.StorageKey == "" || h.store == nil {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "file not found"})
+	}
+	f, err := h.store.Open(statement.StorageKey)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "file not found"})
+		}
+		return serverError(c, err)
+	}
+
+	contentType := map[domain.FileFormat]string{
+		domain.FormatCSV:  "text/csv; charset=utf-8",
+		domain.FormatPDF:  "application/pdf",
+		domain.FormatXLSX: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+	}[statement.FileFormat]
+	if contentType == "" {
+		contentType = fiber.MIMEOctetStream
+	}
+	c.Set(fiber.HeaderContentType, contentType)
+	c.Set("X-Content-Type-Options", "nosniff")
+	c.Set("Content-Security-Policy", "default-src 'none'; sandbox")
+	c.Set(fiber.HeaderCacheControl, "private, no-store")
+	c.Set(fiber.HeaderContentDisposition, mime.FormatMediaType("attachment", map[string]string{"filename": safeFilename(statement.FileName)}))
+	return c.SendStream(f, statement.FileSizeBytes)
+}
+
 // Delete godoc
 // @Summary      Delete bank statement
-// @Description  Deletes a bank statement by UUID (soft delete for audit trail).
+// @Description  Deletes a bank statement by UUID. The record is kept for the audit trail (soft delete); the stored file is removed.
 // @Tags         Bank Statements
 // @Param        id  path  string  true  "Statement UUID"
 // @Success      204
@@ -162,8 +279,15 @@ func (h *BankStatementHandler) Delete(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid id"})
 	}
 
+	// Look up the stored file first: GetByID is company-scoped, so this also refuses
+	// another company's id before anything is deleted.
+	statement, err := h.statements.GetByID(c.Context(), id)
+	if err != nil {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "statement not found"})
+	}
 	if err := h.statements.Delete(c.Context(), id); err != nil {
 		return serverError(c, err)
 	}
+	h.removeFile(statement.StorageKey) // the row stays for the audit trail; the confidential file does not
 	return c.SendStatus(fiber.StatusNoContent)
 }

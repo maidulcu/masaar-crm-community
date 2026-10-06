@@ -456,6 +456,7 @@ func RegisterRoutes(app *fiber.App, h *Handlers, hub *ws.Hub, cfg *config.Config
 
 	// Leads / Pipeline — viewers: read-only; agents: create+move; admin: all
 	v1.Get("/leads", h.Lead.KanbanBoard)
+	v1.Get("/leads/board", h.Lead.Board)
 	v1.Get("/leads/search", h.Lead.List)
 	v1.Get("/leads/:id", h.Lead.Get)
 	v1.Post("/leads",
@@ -899,6 +900,10 @@ func RegisterRoutes(app *fiber.App, h *Handlers, hub *ws.Hub, cfg *config.Config
 	v1.Get("/bank-statements/:id",
 		middleware.RequireRole(domain.RoleAdmin, domain.RoleAgent),
 		h.BankStatement.Get,
+	)
+	v1.Get("/bank-statements/:id/download",
+		middleware.RequireRole(domain.RoleAdmin, domain.RoleAgent),
+		h.BankStatement.Download,
 	)
 	v1.Post("/bank-statements/upload",
 		middleware.RequireRole(domain.RoleAdmin, domain.RoleAgent),

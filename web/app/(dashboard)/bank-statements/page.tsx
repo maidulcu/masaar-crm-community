@@ -115,6 +115,14 @@ export default function BankStatementsPage() {
     }
   }
 
+  const handleDownload = async (st: BankStatement) => {
+    try {
+      await api.bankStatements.download(st.id, st.file_name)
+    } catch {
+      alert(t('الملف غير متوفر', 'File is not available'))
+    }
+  }
+
   const handleDelete = async (id: string) => {
     if (!confirm(t('هل أنت متأكد من حذف كشف الحساب هذا؟', 'Delete this statement?'))) return
     setDeleting(id)
@@ -197,7 +205,13 @@ export default function BankStatementsPage() {
                       <td className="px-5 py-3.5 text-gray-600 text-xs">
                         {st.processing_status === 'completed' ? st.transactions_imported : '—'}
                       </td>
-                      <td className="px-5 py-3.5 text-end" onClick={e => e.stopPropagation()}>
+                      <td className="px-5 py-3.5 text-end space-x-3 rtl:space-x-reverse" onClick={e => e.stopPropagation()}>
+                        <button
+                          onClick={() => handleDownload(st)}
+                          className="text-xs text-brand-600 hover:text-brand-800 font-medium"
+                        >
+                          {t('تنزيل', 'Download')}
+                        </button>
                         {isAdmin && (
                           <button
                             onClick={() => handleDelete(st.id)}

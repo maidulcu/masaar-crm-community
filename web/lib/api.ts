@@ -236,6 +236,8 @@ export const api = {
 
   leads: {
     kanban: () => request('/api/v1/leads'),
+    /** Newest `perStage` leads of every stage plus the real size of each stage. */
+    board: (perStage: number = 50) => request(`/api/v1/leads/board?per_stage=${perStage}`),
     get: (id: string) => request(`/api/v1/leads/${id}`),
     create: (data: unknown) =>
       request('/api/v1/leads', { method: 'POST', body: JSON.stringify(data) }),
@@ -266,7 +268,7 @@ export const api = {
       }),
     removeTag: (id: string, tag: string) =>
       request(`/api/v1/leads/${id}/tags/${encodeURIComponent(tag)}`, { method: 'DELETE' }),
-    search: (params: { q?: string; stage?: string; source?: string; assigned_to?: string; contact_id?: string; page?: number; limit?: number } = {}) => {
+    search: (params: { q?: string; stage?: string; source?: string; assigned_to?: string; contact_id?: string; page?: number; limit?: number; before?: string; before_id?: string } = {}) => {
       const q = new URLSearchParams()
       if (params.q) q.set('q', params.q)
       if (params.stage) q.set('stage', params.stage)
@@ -275,6 +277,9 @@ export const api = {
       if (params.contact_id) q.set('contact_id', params.contact_id)
       if (params.page) q.set('offset', String(((params.page || 1) - 1) * (params.limit || 50)))
       if (params.limit) q.set('limit', String(params.limit))
+      // Keyset cursor (created_at + id of the last lead already loaded): stays correct when cards move meanwhile.
+      if (params.before) q.set('before', params.before)
+      if (params.before_id) q.set('before_id', params.before_id)
       return request(`/api/v1/leads/search?${q}`)
     },
     assign: (id: string, userId: string | null) =>
@@ -581,6 +586,9 @@ export const api = {
         return res.json()
       })
     },
+    // Authenticated download: a plain <a href> cannot send the bearer token.
+    download: async (id: string, filename: string) =>
+      saveBlob(await requestBlob(`/api/v1/bank-statements/${id}/download`), filename),
     delete: (id: string) =>
       request(`/api/v1/bank-statements/${id}`, { method: 'DELETE' }),
   },

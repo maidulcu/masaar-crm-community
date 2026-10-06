@@ -3,6 +3,8 @@ package handler
 import (
 	"strings"
 	"testing"
+
+	"github.com/google/uuid"
 )
 
 func TestSafeFilenamePart(t *testing.T) {
@@ -37,5 +39,13 @@ func TestCampaignHTMLHelpersEscape(t *testing.T) {
 	}
 	if got := refLink(`<script>alert(1)</script>`); strings.Contains(got, "<script>") {
 		t.Errorf("refLink did not escape: %s", got)
+	}
+}
+
+func TestPublicListingURLIgnoresRequestHost(t *testing.T) {
+	h := NewMarketingHandler(nil, nil, nil, nil, nil, "https://crm.example.ae/")
+	id := uuid.MustParse("11111111-2222-3333-4444-555555555555")
+	if got, want := h.publicListingURL(id), "https://crm.example.ae/l/11111111-2222-3333-4444-555555555555"; got != want {
+		t.Fatalf("publicListingURL = %q, want %q", got, want)
 	}
 }

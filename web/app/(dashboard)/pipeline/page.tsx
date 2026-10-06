@@ -14,7 +14,11 @@ import { AgentAssist } from '@/components/agent/AgentAssist'
 import { api } from '@/lib/api'
 import { useLang } from '@/context/LangContext'
 import { useAuthStore } from '@/store/auth'
-import type { KanbanBoard, Lead, LeadStage, Contact, PaginatedResult, CommunicationHistory, User, PipelineStage } from '@/types'
+import type { KanbanBoard, KanbanBoardResponse, KanbanTotals, Lead, LeadStage, Contact, PaginatedResult, CommunicationHistory, User, PipelineStage } from '@/types'
+
+// Cards fetched per column on load, and per "load more" click.
+const BOARD_PER_STAGE = 50
+const BOARD_PAGE = 50
 
 export default function PipelinePage() {
   const { user } = useAuthStore()
@@ -23,6 +27,11 @@ export default function PipelinePage() {
 
   const [stages, setStages] = useState<PipelineStage[]>([])
   const [board, setBoard] = useState<KanbanBoard>({})
+  // Columns are capped server-side: true sizes, and per-stage paging state for "load more".
+  const [totals, setTotals] = useState<KanbanTotals>({})
+  const [cursors, setCursors] = useState<Record<string, { created_at: string; id: string }>>({})
+  const [exhausted, setExhausted] = useState<Record<string, boolean>>({})
+  const [loadingMore, setLoadingMore] = useState<string | null>(null)
   const [activeCard, setActiveCard] = useState<Lead | null>(null)
   const [loading, setLoading] = useState(true)
   const [showAddModal, setShowAddModal] = useState(false)
@@ -146,10 +155,23 @@ export default function PipelinePage() {
   const load = useCallback(async () => {
     try {
       const [boardData, stageData] = await Promise.all([
-        api.leads.kanban() as Promise<KanbanBoard>,
+        api.leads.board(BOARD_PER_STAGE) as Promise<KanbanBoardResponse>,
         api.pipelineStages.list('lead') as Promise<PipelineStage[]>,
       ])
-      setBoard(boardData ?? {})
+      const loaded = boardData?.board ?? {}
+      setBoard(loaded)
+      setTotals(boardData?.totals ?? {})
+      // Paging resumes after the last card the server sent for each stage; a stage that came
+      // back with fewer cards than the cap has nothing more to load.
+      const nextCursors: Record<string, { created_at: string; id: string }> = {}
+      const nextExhausted: Record<string, boolean> = {}
+      for (const [stage, leads] of Object.entries(loaded)) {
+        const last = leads?.[leads.length - 1]
+        if (last) nextCursors[stage] = { created_at: last.created_at, id: last.id }
+        nextExhausted[stage] = (leads?.length ?? 0) < (boardData?.per_stage ?? BOARD_PER_STAGE)
+      }
+      setCursors(nextCursors)
+      setExhausted(nextExhausted)
       setStages(stageData ?? [])
     } catch {
       // handle error silently
@@ -157,6 +179,31 @@ export default function PipelinePage() {
       setLoading(false)
     }
   }, [])
+
+  const handleLoadMore = useCallback(async (stage: string) => {
+    const cursor = cursors[stage]
+    if (!cursor || loadingMore) return
+    setLoadingMore(stage)
+    try {
+      const rows = (await api.leads.search({
+        stage,
+        limit: BOARD_PAGE,
+        before: cursor.created_at,
+        before_id: cursor.id,
+      })) as Lead[]
+      setBoard((prev) => {
+        const have = new Set((prev[stage] ?? []).map((l) => l.id))
+        return { ...prev, [stage]: [...(prev[stage] ?? []), ...rows.filter((l) => !have.has(l.id))] }
+      })
+      const last = rows[rows.length - 1]
+      if (last) setCursors((prev) => ({ ...prev, [stage]: { created_at: last.created_at, id: last.id } }))
+      if (rows.length < BOARD_PAGE) setExhausted((prev) => ({ ...prev, [stage]: true }))
+    } catch {
+      // leave the column as is; the button stays so the user can retry
+    } finally {
+      setLoadingMore(null)
+    }
+  }, [cursors, loadingMore])
 
   const loadContacts = useCallback(async () => {
     try {
@@ -257,6 +304,17 @@ export default function PipelinePage() {
       next[targetStage] = [{ ...existingCard, stage: targetStage as LeadStage, closed_reason: closedReason }, ...(next[targetStage!] ?? [])]
       return next
     })
+    // Keep the column headers (true counts/values) in step with the move.
+    setTotals((prev) => {
+      const value = card?.deal_value ?? 0
+      const from = prev[currentStage!] ?? { count: 0, value: 0 }
+      const to = prev[targetStage] ?? { count: 0, value: 0 }
+      return {
+        ...prev,
+        [currentStage!]: { count: Math.max(from.count - 1, 0), value: Math.max(from.value - value, 0) },
+        [targetStage]: { count: to.count + 1, value: to.value + value },
+      }
+    })
 
     await api.leads.updateStage(leadId, targetStage, closedReason || undefined).catch(() => load())
   }
@@ -300,6 +358,11 @@ export default function PipelinePage() {
                 stageName={s.name}
                 stageColor={s.color}
                 leads={board[s.name] ?? []}
+                total={totals[s.name]?.count}
+                totalValue={totals[s.name]?.value}
+                hasMore={!!cursors[s.name] && !exhausted[s.name]}
+                loadingMore={loadingMore === s.name}
+                onLoadMore={handleLoadMore}
                 onOpenLead={handleOpenLead}
               />
             ))}

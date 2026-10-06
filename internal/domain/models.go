@@ -1032,6 +1032,7 @@ type BankStatement struct {
 	FileName             string             `json:"file_name"`
 	FileSizeBytes        int                `json:"file_size_bytes"`
 	FileURL              string             `json:"file_url"`
+	StorageKey           string             `json:"-"` // opaque name inside the bank statement store
 	FileFormat           FileFormat         `json:"file_format"`
 	UploadedBy           uuid.UUID          `json:"uploaded_by"`
 	UploadDate           time.Time          `json:"upload_date"`

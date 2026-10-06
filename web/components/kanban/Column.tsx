@@ -22,15 +22,23 @@ interface Props {
   onOpenLead?: (lead: Lead) => void
   stageName?: string
   stageColor?: string
+  /** True number of leads in the stage; may exceed leads.length when the column is capped. */
+  total?: number
+  /** True summed deal value of the stage. */
+  totalValue?: number
+  hasMore?: boolean
+  loadingMore?: boolean
+  onLoadMore?: (stage: string) => void
 }
 
 // Memoized column to prevent unnecessary re-renders when other columns on the board update
-export const KanbanColumn = memo(function KanbanColumn({ stage, leads, onOpenLead, stageName, stageColor }: Props) {
+export const KanbanColumn = memo(function KanbanColumn({ stage, leads, onOpenLead, stageName, stageColor, total, totalValue: totalValueProp, hasMore, loadingMore, onLoadMore }: Props) {
   const { setNodeRef, isOver } = useDroppable({ id: stage })
   const { lang, t } = useLang()
   const config = stageConfig[stage as LeadStage]
 
-  const totalValue = leads.reduce((sum, l) => sum + l.deal_value, 0)
+  const totalValue = totalValueProp ?? leads.reduce((sum, l) => sum + l.deal_value, 0)
+  const count = total ?? leads.length
   const currency = leads[0]?.currency ?? 'AED'
 
   // Memoize lead ID array to prevent recreating array references on every render cycle
@@ -56,7 +64,7 @@ export const KanbanColumn = memo(function KanbanColumn({ stage, leads, onOpenLea
             </span>
           )}
           <span className="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-md text-[11px] text-surface-500 font-medium bg-surface-100">
-            {leads.length}
+            {count}
           </span>
         </div>
         {totalValue > 0 && (
@@ -84,6 +92,19 @@ export const KanbanColumn = memo(function KanbanColumn({ stage, leads, onOpenLea
           <div className="flex items-center justify-center h-24 text-xs text-surface-400 font-medium">
             {t('أفلت هنا', 'Drop here')}
           </div>
+        )}
+
+        {hasMore && onLoadMore && (
+          <button
+            type="button"
+            onClick={() => onLoadMore(stage)}
+            disabled={loadingMore}
+            className="w-full py-2 text-xs font-medium text-primary-700 bg-white/70 hover:bg-white border border-surface-200 rounded-xl disabled:opacity-50 transition-colors"
+          >
+            {loadingMore
+              ? t('جاري التحميل...', 'Loading...')
+              : t(`تحميل المزيد (${Math.max(count - leads.length, 0)})`, `Load more (${Math.max(count - leads.length, 0)} left)`)}
+          </button>
         )}
       </div>
     </div>
