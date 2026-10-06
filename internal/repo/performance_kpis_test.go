@@ -111,3 +111,39 @@ func TestGetAgentKPIsMatchesSeparateQueries(t *testing.T) {
 		t.Errorf("unknown agent: err = %v, want ErrUserNotFound", err)
 	}
 }
+
+func TestGetKPITrends(t *testing.T) {
+	e := setup(t)
+	repo := NewPerformanceRepo(e.pool)
+	agent := e.a.user
+	now := time.Date(2026, 3, 15, 12, 0, 0, 0, time.UTC)
+
+	trends, err := repo.GetKPITrends(e.a.ctx, agent, now)
+	if err != nil {
+		t.Fatalf("unexpected error fetching KPI trends: %v", err)
+	}
+
+	if len(trends) != 4 {
+		t.Fatalf("expected 4 trend metrics, got %d", len(trends))
+	}
+
+	expectedMetrics := map[string]bool{
+		"deals_won":       false,
+		"revenue":         false,
+		"listings_added":  false,
+		"leads_converted": false,
+	}
+
+	for _, tr := range trends {
+		if _, exists := expectedMetrics[tr.Metric]; !exists {
+			t.Errorf("unexpected metric in trends: %s", tr.Metric)
+		}
+		expectedMetrics[tr.Metric] = true
+	}
+
+	for metric, found := range expectedMetrics {
+		if !found {
+			t.Errorf("missing metric in trends: %s", metric)
+		}
+	}
+}
