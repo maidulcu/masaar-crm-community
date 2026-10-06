@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"strconv"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -21,7 +22,7 @@ type LeadRepository interface {
 	Assign(ctx context.Context, id uuid.UUID, userID *uuid.UUID) error
 	Delete(ctx context.Context, id uuid.UUID) error
 	List(ctx context.Context, filter repo.LeadFilter) ([]domain.Lead, error)
-	KanbanBoard(ctx context.Context) (map[domain.LeadStage][]domain.Lead, error)
+	KanbanBoard(ctx context.Context, perStage int) (map[domain.LeadStage][]domain.Lead, map[domain.LeadStage]repo.StageTotal, error)
 }
 
 // ContactRepository defines the interface for contact data access used by the lead handler.
@@ -56,6 +57,14 @@ type LeadTagRepository interface {
 	RemoveTag(ctx context.Context, leadID uuid.UUID, tag string) error
 }
 
+// Upper bounds for client-supplied page sizes, so one request cannot load a whole table.
+const (
+	maxLeadSearchLimit     = 200
+	maxCommunicationsLimit = 500
+	defaultBoardPerStage   = 100
+	maxBoardPerStage       = 500
+)
+
 type LeadHandler struct {
 	leads          LeadRepository
 	contacts       ContactRepository
@@ -72,20 +81,48 @@ func NewLeadHandler(leads LeadRepository, contacts ContactRepository, commHistRe
 	return &LeadHandler{leads: leads, contacts: contacts, commHistRepo: commHistRepo, scoringService: scoringService, tags: tags, hub: hub, audit: audit, dispatcher: dispatcher, pipelineStages: pipelineStages}
 }
 
+// parsePerStage reads ?per_stage, bounded so the board cannot be asked for a whole table.
+func parsePerStage(c *fiber.Ctx) int {
+	v, err := strconv.Atoi(c.Query("per_stage"))
+	if err != nil || v < 1 {
+		return defaultBoardPerStage
+	}
+	return min(v, maxBoardPerStage)
+}
+
 // KanbanBoard godoc
 // @Summary      Get Kanban board
-// @Description  Returns all active leads grouped by stage for the Kanban pipeline view.
+// @Description  Returns active leads grouped by stage for the Kanban pipeline view. Each stage holds at most `per_stage` (default 100, max 500) of its newest leads; use /leads/board for the full per-stage counts, or /leads/search with `stage` and `before` to page further.
 // @Tags         Leads
 // @Produce      json
+// @Param        per_stage  query  int  false  "Max leads per stage (default 100, max 500)"
 // @Success      200  {object}  object  "Map of stage → []Lead"
 // @Security     BearerAuth
 // @Router       /leads [get]
 func (h *LeadHandler) KanbanBoard(c *fiber.Ctx) error {
-	board, err := h.leads.KanbanBoard(c.Context())
+	board, _, err := h.leads.KanbanBoard(c.Context(), parsePerStage(c))
 	if err != nil {
 		return serverError(c, err)
 	}
 	return c.JSON(board)
+}
+
+// Board godoc
+// @Summary      Get Kanban board with stage totals
+// @Description  Like GET /leads, but also returns the true lead count and total deal value of every stage, so a column can show correct headers when it holds more leads than were loaded.
+// @Tags         Leads
+// @Produce      json
+// @Param        per_stage  query  int  false  "Max leads per stage (default 100, max 500)"
+// @Success      200  {object}  object{board=object,totals=object,per_stage=int}
+// @Security     BearerAuth
+// @Router       /leads/board [get]
+func (h *LeadHandler) Board(c *fiber.Ctx) error {
+	perStage := parsePerStage(c)
+	board, totals, err := h.leads.KanbanBoard(c.Context(), perStage)
+	if err != nil {
+		return serverError(c, err)
+	}
+	return c.JSON(fiber.Map{"board": board, "totals": totals, "per_stage": perStage})
 }
 
 // List godoc
@@ -97,7 +134,9 @@ func (h *LeadHandler) KanbanBoard(c *fiber.Ctx) error {
 // @Param        stage       query  string  false  "Filter by stage: new|contacted|qualified|proposal|won|lost"
 // @Param        assigned_to query  string  false  "Filter by agent UUID"
 // @Param        source      query  string  false  "Filter by source: web|whatsapp|referral|event"
-// @Param        limit       query  int     false  "Page size (default 50)"
+// @Param        before      query  string  false  "Keyset cursor: RFC 3339 created_at of the last lead already loaded"
+// @Param        before_id   query  string  false  "Keyset cursor: id of the last lead already loaded (with before)"
+// @Param        limit       query  int     false  "Page size (default 50, max 200)"
 // @Param        offset      query  int     false  "Page offset (default 0)"
 // @Success      200  {array}   domain.Lead
 // @Security     BearerAuth
@@ -118,8 +157,22 @@ func (h *LeadHandler) List(c *fiber.Ctx) error {
 			f.ContactID = &id
 		}
 	}
+	if s := c.Query("before"); s != "" {
+		ts, err := time.Parse(time.RFC3339Nano, s)
+		if err != nil {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "before must be an RFC 3339 timestamp"})
+		}
+		f.BeforeCreatedAt = &ts
+		if s := c.Query("before_id"); s != "" {
+			id, err := uuid.Parse(s)
+			if err != nil {
+				return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid before_id"})
+			}
+			f.BeforeID = &id
+		}
+	}
 	if v, err := strconv.Atoi(c.Query("limit")); err == nil && v > 0 {
-		f.Limit = v
+		f.Limit = min(v, maxLeadSearchLimit)
 	}
 	if v, err := strconv.Atoi(c.Query("offset")); err == nil && v >= 0 {
 		f.Offset = v
@@ -492,8 +545,8 @@ func (h *LeadHandler) GetCommunications(c *fiber.Ctx) error {
 
 	limit := 100
 	if l := c.Query("limit"); l != "" {
-		if parsed, err := strconv.Atoi(l); err == nil {
-			limit = parsed
+		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 {
+			limit = min(parsed, maxCommunicationsLimit)
 		}
 	}
 

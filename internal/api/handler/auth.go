@@ -395,7 +395,7 @@ func (h *AuthHandler) ForgotPassword(c *fiber.Ctx) error {
 	// Send email if configured — log token to server output as fallback for dev
 	if h.email != nil {
 		resetURL := fmt.Sprintf("%s/reset-password?token=%s", h.config.AppURL, token)
-		_ = h.email.Send(&domain.EmailHistory{
+		msg := &domain.EmailHistory{
 			ToEmail: user.Email,
 			Subject: "Reset your Masaar CRM password",
 			Body: fmt.Sprintf(
@@ -403,7 +403,14 @@ func (h *AuthHandler) ForgotPassword(c *fiber.Ctx) error {
 				resetURL,
 			),
 			RelatedTo: "password_reset",
-		})
+		}
+		// Sent in the background: a synchronous SMTP round trip only happens for registered
+		// addresses, so waiting for it would reveal (by response time) which emails exist.
+		go func() {
+			if err := h.email.Send(msg); err != nil {
+				log.Printf("password reset email: %v", err)
+			}
+		}()
 	} else {
 		// Development fallback only: never print a reset credential in production logs.
 		if !h.config.IsProduction() {

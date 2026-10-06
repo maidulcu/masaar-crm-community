@@ -104,6 +104,15 @@ export interface Lead {
 
 export type KanbanBoard = Record<string, Lead[]>
 
+/** True size of each Kanban column; a column may hold fewer cards than this until "load more". */
+export type KanbanTotals = Record<string, { count: number; value: number }>
+
+export interface KanbanBoardResponse {
+  board: KanbanBoard
+  totals: KanbanTotals
+  per_stage: number
+}
+
 // ─── Approval Workflow ────────────────────────────────────────────────────────
 
 export type ApprovalStatus = 'pending' | 'approved' | 'rejected'

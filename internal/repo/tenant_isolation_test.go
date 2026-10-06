@@ -143,7 +143,7 @@ func TestFailClosedWithoutTenant(t *testing.T) {
 	if _, err := NewContactRepo(e.pool).List(bare, "", 1, 10); !errors.Is(err, tenant.ErrMissing) {
 		t.Fatalf("List without a company must fail closed, got %v", err)
 	}
-	if _, err := NewLeadRepo(e.pool).KanbanBoard(bare); !errors.Is(err, tenant.ErrMissing) {
+	if _, _, err := NewLeadRepo(e.pool).KanbanBoard(bare, 100); !errors.Is(err, tenant.ErrMissing) {
 		t.Fatalf("KanbanBoard without a company must fail closed, got %v", err)
 	}
 	if _, err := NewStatsRepo(e.pool).Overview(bare); !errors.Is(err, tenant.ErrMissing) {
@@ -222,7 +222,7 @@ func TestLeadsIsolatedAndNoCrossReferences(t *testing.T) {
 	if _, err := leads.GetByID(e.b.ctx, ld.ID); !isNotFound(err) {
 		t.Fatalf("B read A's lead: %v", err)
 	}
-	board, err := leads.KanbanBoard(e.b.ctx)
+	board, _, err := leads.KanbanBoard(e.b.ctx, 100)
 	if err != nil {
 		t.Fatal(err)
 	}

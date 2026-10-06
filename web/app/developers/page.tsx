@@ -230,7 +230,8 @@ POST /api/v1/settings/api-keys
           <Section id="leads" title="Leads">
             <div className="mb-4 divide-y divide-gray-100 border border-gray-200 rounded-lg overflow-hidden">
               {[
-                ['GET', '/api/v1/leads', 'Kanban board (all stages)', 'all roles'],
+                ['GET', '/api/v1/leads', 'Kanban board (newest 100 per stage; ?per_stage=)', 'all roles'],
+                ['GET', '/api/v1/leads/board', 'Kanban board + true per-stage totals', 'all roles'],
                 ['GET', '/api/v1/leads/:id', 'Get lead details', 'all roles'],
                 ['POST', '/api/v1/leads', 'Create lead', 'agent+'],
                 ['PATCH', '/api/v1/leads/:id/stage', 'Move lead stage', 'agent+'],

@@ -3,10 +3,12 @@ package repo
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/maidulcu/masaar-crm/internal/domain"
 	"github.com/maidulcu/masaar-crm/internal/tenant"
@@ -311,14 +313,51 @@ func (r *DocumentRepo) MarkSigned(ctx context.Context, sigID uuid.UUID, signedAt
 	return err
 }
 
-// MarkSignedByToken records a signature from the public e-signature page, where the
-// signature UUID is the credential. Deliberately not company scoped.
-func (r *DocumentRepo) MarkSignedByToken(ctx context.Context, sigID uuid.UUID, signedAt time.Time) error {
-	_, err := r.db.Exec(ctx,
-		`UPDATE document_signatures SET signature_status=$1, signed_at=$2 WHERE id=$3`,
-		domain.SignatureSigned, signedAt, sigID,
-	)
-	return err
+// ErrNotSignable is returned by SignByToken when the signature does not exist, was already
+// signed, is handled by DocuSign, or belongs to a deleted document.
+var ErrNotSignable = errors.New("signature is not signable")
+
+// SignByToken records a signature from the public e-signature page, where the signature UUID
+// is the credential. Deliberately not company scoped. Only a pending, non-DocuSign signature
+// on a live document can be signed, exactly once; the signer's own IP and user agent replace
+// the ones captured when the request was created (the audit trail must describe the signer).
+// The document is marked signed once every one of its signatures is.
+func (r *DocumentRepo) SignByToken(ctx context.Context, sigID uuid.UUID, signedAt time.Time, ip, userAgent string) error {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	var docID uuid.UUID
+	err = tx.QueryRow(ctx, `
+		UPDATE document_signatures s
+		SET signature_status = $1, signed_at = $2, ip_address = $3, user_agent = $4
+		WHERE s.id = $5
+		  AND s.signature_status = $6
+		  AND (s.envelope_id IS NULL OR s.envelope_id = '')
+		  AND EXISTS (SELECT 1 FROM documents d WHERE d.id = s.document_id AND d.deleted_at IS NULL)
+		RETURNING s.document_id`,
+		domain.SignatureSigned, signedAt, ip, userAgent, sigID, domain.SignaturePending,
+	).Scan(&docID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrNotSignable
+	}
+	if err != nil {
+		return err
+	}
+
+	if _, err := tx.Exec(ctx, `
+		UPDATE documents SET signature_status = $1, updated_at = NOW()
+		WHERE id = $2
+		  AND NOT EXISTS (
+		        SELECT 1 FROM document_signatures o
+		        WHERE o.document_id = $2 AND o.signature_status IS DISTINCT FROM $1)`,
+		domain.SignatureSigned, docID,
+	); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 // MarkSignedByEnvelope is called by the DocuSign webhook (authenticated by its HMAC secret),

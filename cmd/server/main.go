@@ -123,6 +123,7 @@ func main() {
 	// ── Services / clients ───────────────────────────────────────────────────
 	hub := ws.NewHub()
 	dispatcher := webhook.NewDispatcher(webhookRepo)
+	defer dispatcher.Shutdown(10 * time.Second) // let queued webhooks finish on shutdown
 
 	emailSvc := email.NewService(&email.Config{
 		SMTPHost:         cfg.SMTPHost,
@@ -165,6 +166,16 @@ func main() {
 		}
 	}
 	waMedia := handler.NewWAMediaService(waSender, mediaStore, waRepo, cfg.WAMediaMaxMB)
+
+	// Uploaded bank statements are confidential; without the directory uploads answer 503
+	// rather than recording a statement whose file was never kept.
+	var bankStatementStore *mediastore.Store
+	if st, err := mediastore.New(cfg.BankStatementDir); err != nil {
+		log.Printf("WARNING: bank statement storage disabled: %v", err)
+	} else {
+		bankStatementStore = st
+		defer st.Close()
+	}
 
 	bos24Client := bos24.NewClient(cfg.BOS24Token, cfg.BOS24BaseURL, rdb)
 	bos24Sync := bos24.NewSyncService(bos24Repo, contactRepo, hub)
@@ -213,7 +224,7 @@ func main() {
 		Lease:               handler.NewLeaseHandler(leaseRepo),
 		Payment:             handler.NewPaymentHandler(paymentRepo),
 		BankIntegration:     handler.NewBankIntegrationHandler(bankIntegrationRepo),
-		BankStatement:       handler.NewBankStatementHandler(bankStatementRepo),
+		BankStatement:       handler.NewBankStatementHandler(bankStatementRepo, bankStatementStore, cfg.BankStatementMaxMB),
 		PaymentConfirmation: handler.NewPaymentConfirmationHandler(paymentConfirmationRepo, confirmationSvc),
 		Analytics:           handler.NewAnalyticsHandler(analyticsRepo),
 		Expense:             handler.NewExpenseHandler(expenseRepo),
@@ -234,7 +245,7 @@ func main() {
 		Commission:          handler.NewCommissionHandler(commissionRepo),
 		Performance:         handler.NewPerformanceHandler(performanceRepo),
 		Viewing:             handler.NewViewingHandler(viewingRepo, notificationRepo, hub),
-		Marketing:           handler.NewMarketingHandler(listingRepo, contactRepo, companySettingsRepo, userRepo, emailSvc),
+		Marketing:           handler.NewMarketingHandler(listingRepo, contactRepo, companySettingsRepo, userRepo, emailSvc, cfg.AppURL),
 		ImportExport:        handler.NewImportExportHandler(contactRepo, leadRepo, listingRepo),
 		PipelineStage:       handler.NewPipelineStageHandler(pipelineStageRepo),
 		Approval:            handler.NewApprovalHandler(approvalRepo),

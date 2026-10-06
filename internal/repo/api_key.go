@@ -78,8 +78,13 @@ func (r *ApiKeyRepo) ValidateKey(ctx context.Context, keyHash string) (*ApiKey, 
 		return nil, fmt.Errorf("api key validation failed: %w", err)
 	}
 
-	// Update last_used_at (best-effort, don't fail if this errors)
-	_, _ = r.db.Exec(ctx, `UPDATE api_keys SET last_used_at = NOW() WHERE id = $1`, key.ID)
+	// Update last_used_at (best-effort, don't fail if this errors). Throttled to once a
+	// minute per key: the column is informational, and an unconditional write on every
+	// request turns each lead-intake call into a read plus a row rewrite.
+	_, _ = r.db.Exec(ctx,
+		`UPDATE api_keys SET last_used_at = NOW()
+		 WHERE id = $1 AND (last_used_at IS NULL OR last_used_at < NOW() - INTERVAL '1 minute')`,
+		key.ID)
 
 	return key, nil
 }

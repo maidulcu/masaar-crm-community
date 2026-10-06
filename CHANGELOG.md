@@ -9,6 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [v0.3.4] - Unreleased
 
+### Security / bug / performance audit
+- **Security — email header injection and sender spoofing.** `to_email`/`subject` were written straight into the SMTP headers, so a CR/LF could smuggle `Bcc:` headers or body content, and `POST /emails/send` accepted a client-chosen `from_email`. Recipients are now validated, header values containing CR/LF are refused, the sender is always the configured account, and subjects are RFC 2047-encoded (Arabic subjects no longer arrive garbled).
+- **Security — HTML injection in listing email campaigns.** Listing title, area, reference, company name and the free-text message were interpolated unescaped into an email sent to third parties; they are now escaped (cover images must be http(s)).
+- **Security — public e-signature.** A signature link could be used repeatedly (overwriting `signed_at`), could complete a DocuSign-managed signature, recorded the *sender's* IP/user agent instead of the signer's, and never marked the document signed. A signature now signs once, only when pending, records the signer's IP/UA, and completes the document when every signature is in. The public GET no longer returns the sender's IP/UA or the DocuSign envelope id.
+- **Security — public listing page** no longer exposes `owner_name`, portal sync state or the assigned agent id.
+- **Security — password-reset timing.** The reset email was sent synchronously only for registered addresses, revealing account existence by response time; it is now sent in the background.
+- **Security** — unauthenticated `/api/public/*` routes are rate limited; download filenames built from user data (`brochure`, `qr`, property report) are sanitised; the websocket caps client frames and reaps dead connections (ping/pong deadlines).
+- **Bug** — listing email campaign panicked (nil dereference) when the company had no settings row.
+- **Bug** — accepting an offer was check-then-act, so concurrent requests created duplicate deals; acceptance is now claimed atomically (and restored if deal creation fails).
+- **Bug** — `GET /message-templates?page=0` returned 500 (negative `OFFSET`).
+- **Performance** — the trial/suspension check hit the database on every authenticated request; company status is now cached for 15 s (a suspension or plan change takes effect within that window).
+- **Kanban board is bounded.** `GET /leads` loaded every non-deleted lead on each visit. It now returns the newest 100 per stage (`?per_stage=`, max 500), the new `GET /leads/board` adds the true count and deal value of every stage, and `GET /leads/search` accepts a `before`/`before_id` keyset cursor so a column can "Load more" without skipping or repeating cards. The pipeline page shows correct column totals and a "Load more" button. Adds migration `0064` (index on `company_id, stage, created_at`).
+- **Bank statements are actually stored.** Upload used to record metadata and discard the file. Files are now kept under `BANK_STATEMENT_DIR` (default `./data/bank-statements`, on the Docker `/app/data` volume; `BANK_STATEMENT_MAX_MB`, default 10) under random names, content-checked against the extension, and served only through the new authenticated, company-scoped `GET /bank-statements/:id/download` (forced download, `nosniff`). Deleting a statement removes the file and keeps the audit row. Adds migration `0063`. Also fixes `GET /bank-statements` (list and detail) failing with a scan error once any statement existed (`import_error` is NULL), and `upload_date` being saved as year 0001.
+- **QR codes no longer trust the `Host` header.** The listing QR now encodes `APP_URL/l/<id>` instead of whatever host the request claimed (the old URL also pointed at the API rather than the public page).
+- **Outbound webhooks use a bounded worker pool** (8 workers, 1024-event queue; overflow is dropped and logged) instead of a goroutine per event, serialise the payload at dispatch time, cancel retries on timeout, reuse connections, and drain in-flight deliveries on shutdown.
+- **Performance / robustness** — SMTP connections have connect and overall timeouts (a stalled relay used to hang the request forever); `last_used_at` on API keys is written at most once a minute instead of on every call; `GET /leads/search` (`limit` ≤ 200) and `GET /leads/:id/communications` (`limit` ≤ 500) can no longer be asked for an unbounded result.
+
 WhatsApp attachments (follow-up to v0.3.3). Includes migration `0062`.
 
 ### Fixed / added

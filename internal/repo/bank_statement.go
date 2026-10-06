@@ -37,14 +37,20 @@ func (r *BankStatementRepo) Create(ctx context.Context, bs *domain.BankStatement
 	const q = `
 		INSERT INTO bank_statements (
 			id, company_id, bank_integration_id, file_name, file_size_bytes, file_url,
-			file_format, uploaded_by, upload_date, processing_status, data_classification, retention_until
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+			file_format, uploaded_by, upload_date, processing_status, data_classification, retention_until,
+			storage_key
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NULLIF($13, ''))
 		RETURNING created_at, updated_at
 	`
 	bs.ID = uuid.New()
+	if bs.StorageKey != "" {
+		// The stored file is only reachable through the authenticated download endpoint.
+		bs.FileURL = "/api/v1/bank-statements/" + bs.ID.String() + "/download"
+	}
 	return r.db.QueryRow(ctx, q,
 		bs.ID, bs.CompanyID, bs.BankIntegrationID, bs.FileName, bs.FileSizeBytes, bs.FileURL,
 		bs.FileFormat, bs.UploadedBy, bs.UploadDate, bs.ProcessingStatus, bs.DataClassification, bs.RetentionUntil,
+		bs.StorageKey,
 	).Scan(&bs.CreatedAt, &bs.UpdatedAt)
 }
 
@@ -55,8 +61,9 @@ func (r *BankStatementRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.
 	}
 	const q = `
 		SELECT id, company_id, bank_integration_id, file_name, file_size_bytes, file_url,
-		       file_format, uploaded_by, upload_date, processing_status, transactions_imported,
-		       import_error, data_classification, retention_until, created_at, updated_at, deleted_at
+		       file_format, uploaded_by, upload_date, processing_status, COALESCE(transactions_imported, 0),
+		       COALESCE(import_error, ''), data_classification, retention_until, created_at, updated_at, deleted_at,
+		       COALESCE(storage_key, '')
 		FROM bank_statements WHERE id = $1 AND company_id = $2 AND deleted_at IS NULL
 	`
 	bs := &domain.BankStatement{}
@@ -64,6 +71,7 @@ func (r *BankStatementRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.
 		&bs.ID, &bs.CompanyID, &bs.BankIntegrationID, &bs.FileName, &bs.FileSizeBytes, &bs.FileURL,
 		&bs.FileFormat, &bs.UploadedBy, &bs.UploadDate, &bs.ProcessingStatus, &bs.TransactionsImported,
 		&bs.ImportError, &bs.DataClassification, &bs.RetentionUntil, &bs.CreatedAt, &bs.UpdatedAt, &bs.DeletedAt,
+		&bs.StorageKey,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("get bank statement: %w", err)
@@ -82,8 +90,8 @@ func (r *BankStatementRepo) ListByCompany(ctx context.Context, companyID uuid.UU
 
 	const q = `
 		SELECT id, company_id, bank_integration_id, file_name, file_size_bytes, file_url,
-		       file_format, uploaded_by, upload_date, processing_status, transactions_imported,
-		       import_error, data_classification, retention_until, created_at, updated_at, deleted_at
+		       file_format, uploaded_by, upload_date, processing_status, COALESCE(transactions_imported, 0),
+		       COALESCE(import_error, ''), data_classification, retention_until, created_at, updated_at, deleted_at
 		FROM bank_statements
 		WHERE company_id = $1 AND deleted_at IS NULL
 		ORDER BY upload_date DESC
@@ -134,8 +142,8 @@ func (r *BankStatementRepo) UpdateProcessingStatus(ctx context.Context, id uuid.
 func (r *BankStatementRepo) GetPendingForProcessing(ctx context.Context, companyID uuid.UUID) ([]domain.BankStatement, error) {
 	const q = `
 		SELECT id, company_id, bank_integration_id, file_name, file_size_bytes, file_url,
-		       file_format, uploaded_by, upload_date, processing_status, transactions_imported,
-		       import_error, data_classification, retention_until, created_at, updated_at, deleted_at
+		       file_format, uploaded_by, upload_date, processing_status, COALESCE(transactions_imported, 0),
+		       COALESCE(import_error, ''), data_classification, retention_until, created_at, updated_at, deleted_at
 		FROM bank_statements
 		WHERE company_id = $1 AND processing_status = 'pending' AND deleted_at IS NULL
 		ORDER BY upload_date ASC
