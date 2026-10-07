@@ -26,7 +26,7 @@ func (r *ContactRepo) List(ctx context.Context, search string, page, limit int) 
 		return nil, err
 	}
 	offset := (page - 1) * limit
-	pattern := "%" + search + "%"
+	pattern := "%" + escapeLike(search) + "%"
 
 	const countQ = `
 		SELECT COUNT(*) FROM contacts
