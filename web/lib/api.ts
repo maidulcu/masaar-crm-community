@@ -535,10 +535,11 @@ export const api = {
   // ─── Payments ─────────────────────────────────────────────────────────────────
 
   payments: {
-    list: (params: { page?: number; limit?: number } = {}) => {
+    list: (params: { page?: number; limit?: number; lease_id?: string } = {}) => {
       const q = new URLSearchParams()
       if (params.page) q.set('page', String(params.page))
       if (params.limit) q.set('limit', String(params.limit))
+      if (params.lease_id) q.set('lease_id', params.lease_id)
       return request(`/api/v1/payments?${q}`)
     },
     get: (id: string) => request(`/api/v1/payments/${id}`),

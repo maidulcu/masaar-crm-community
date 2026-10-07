@@ -108,7 +108,7 @@ func (h *ListingHandler) publishGate(c *fiber.Ctx, companyID, userID, listingID 
 // @Router       /listings [post]
 func (h *ListingHandler) Create(c *fiber.Ctx) error {
 	var in domain.Listing
-	if err := json.Unmarshal(blankDatesToNull(c.Body(), "available_from"), &in); err != nil {
+	if err := json.Unmarshal(normalizeDateFields(c.Body(), "available_from"), &in); err != nil {
 		return badRequest(c, err)
 	}
 
@@ -183,7 +183,7 @@ func (h *ListingHandler) Update(c *fiber.Ctx) error {
 	// to be writable here, which let anyone publish a listing and skip the approval workflow;
 	// the id in the body could also redirect the update to a different listing.
 	keep := *l
-	if err := json.Unmarshal(blankDatesToNull(c.Body(), "available_from"), l); err != nil {
+	if err := json.Unmarshal(normalizeDateFields(c.Body(), "available_from"), l); err != nil {
 		return badRequest(c, err)
 	}
 	l.ID, l.CompanyID, l.Status, l.PublishedAt = keep.ID, keep.CompanyID, keep.Status, keep.PublishedAt

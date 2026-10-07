@@ -2,10 +2,12 @@ package repo
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/maidulcu/masaar-crm/internal/domain"
 	"github.com/maidulcu/masaar-crm/internal/tenant"
@@ -19,12 +21,13 @@ func NewPaymentRepo(db *pgxpool.Pool) *PaymentRepo {
 	return &PaymentRepo{db: db}
 }
 
-func (r *PaymentRepo) List(ctx context.Context, companyID uuid.UUID, page, limit int) (*domain.PaginatedResult[domain.Payment], error) {
+// List returns the company's payments, optionally only those of one lease.
+func (r *PaymentRepo) List(ctx context.Context, companyID uuid.UUID, leaseID *uuid.UUID, page, limit int) (*domain.PaginatedResult[domain.Payment], error) {
 	offset := (page - 1) * limit
 
-	const countQ = `SELECT COUNT(*) FROM payments WHERE company_id = $1`
+	const countQ = `SELECT COUNT(*) FROM payments WHERE company_id = $1 AND ($2::uuid IS NULL OR lease_id = $2)`
 	var total int
-	if err := r.db.QueryRow(ctx, countQ, companyID).Scan(&total); err != nil {
+	if err := r.db.QueryRow(ctx, countQ, companyID, leaseID).Scan(&total); err != nil {
 		return nil, fmt.Errorf("count payments: %w", err)
 	}
 
@@ -34,11 +37,11 @@ func (r *PaymentRepo) List(ctx context.Context, companyID uuid.UUID, page, limit
 		       notes, receipt_url, late_fee_applied, late_fee_amount,
 		       created_at, updated_at, created_by, updated_by
 		FROM payments
-		WHERE company_id = $1
+		WHERE company_id = $1 AND ($4::uuid IS NULL OR lease_id = $4)
 		ORDER BY due_date DESC
 		LIMIT $2 OFFSET $3
 	`
-	rows, err := r.db.Query(ctx, q, companyID, limit, offset)
+	rows, err := r.db.Query(ctx, q, companyID, limit, offset, leaseID)
 	if err != nil {
 		return nil, fmt.Errorf("list payments: %w", err)
 	}
@@ -97,13 +100,14 @@ func (r *PaymentRepo) Create(ctx context.Context, p *domain.Payment) error {
 		return err
 	}
 	p.CompanyID = cid // never trust a company id supplied by the client
-	var leaseOK bool
-	if err := r.db.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM leases WHERE id = $1 AND company_id = $2)`, p.LeaseID, cid).Scan(&leaseOK); err != nil {
+	var leaseCurrency string
+	if err := r.db.QueryRow(ctx, `SELECT COALESCE(NULLIF(currency, ''), 'AED') FROM leases WHERE id = $1 AND company_id = $2`, p.LeaseID, cid).Scan(&leaseCurrency); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrForeignReference
+		}
 		return err
 	}
-	if !leaseOK {
-		return ErrForeignReference
-	}
+	p.Currency = leaseCurrency // a rent payment is always in its lease's currency
 	const q = `
 		INSERT INTO payments (
 			id, company_id, lease_id, amount, currency, due_date, paid_date, payment_method,
@@ -147,9 +151,19 @@ func (r *PaymentRepo) Delete(ctx context.Context, id uuid.UUID) error {
 	if err != nil {
 		return err
 	}
-	_, err = r.db.Exec(ctx, `DELETE FROM payments WHERE id=$1 AND company_id=$2`, id, cid)
-	return err
+	tag, err := r.db.Exec(ctx, `DELETE FROM payments WHERE id=$1 AND company_id=$2`, id, cid)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrPaymentNotFound
+	}
+	return nil
 }
+
+// ErrPaymentNotFound is returned when a payment does not exist in the caller's company; it wraps
+// pgx.ErrNoRows so handlers answer 404.
+var ErrPaymentNotFound = fmt.Errorf("payment not found: %w", pgx.ErrNoRows)
 
 func (r *PaymentRepo) GetByLeaseID(ctx context.Context, leaseID uuid.UUID) ([]domain.Payment, error) {
 	cid, err := tenant.From(ctx)

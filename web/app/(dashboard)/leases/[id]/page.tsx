@@ -39,12 +39,11 @@ export default function LeaseDetailPage() {
     try {
       const [leaseData, paymentsData] = await Promise.all([
         api.leases.get(id) as Promise<Lease>,
-        api.payments.list({ limit: 100 }) as Promise<PaginatedResult<Payment>>,
+        api.payments.list({ limit: 100, lease_id: id }) as Promise<PaginatedResult<Payment>>,
       ])
       setLease(leaseData)
-      // filter payments to only this lease
-      const leasePayments = (paymentsData.data ?? []).filter((p) => p.lease_id === id)
-      setPayments(leasePayments)
+      // the server filters by lease, so older leases are no longer cut off by the page size
+      setPayments(paymentsData.data ?? [])
     } catch (err) {
       console.error('Failed to load lease:', err)
     } finally {

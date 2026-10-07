@@ -16,13 +16,15 @@ type LeaseRenewalHandler struct {
 	renewalRepo  *repo.LeaseRenewalRepo
 	templateRepo *repo.RenewalTemplateRepo
 	logRepo      *repo.RenewalCommunicationLogRepo
+	leases       *repo.LeaseRepo
 }
 
-func NewLeaseRenewalHandler(renewalRepo *repo.LeaseRenewalRepo, templateRepo *repo.RenewalTemplateRepo, logRepo *repo.RenewalCommunicationLogRepo) *LeaseRenewalHandler {
+func NewLeaseRenewalHandler(renewalRepo *repo.LeaseRenewalRepo, templateRepo *repo.RenewalTemplateRepo, logRepo *repo.RenewalCommunicationLogRepo, leases *repo.LeaseRepo) *LeaseRenewalHandler {
 	return &LeaseRenewalHandler{
 		renewalRepo:  renewalRepo,
 		templateRepo: templateRepo,
 		logRepo:      logRepo,
+		leases:       leases,
 	}
 }
 
@@ -108,18 +110,32 @@ func (h *LeaseRenewalHandler) Initiate(c *fiber.Ctx) error {
 		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": "Invalid lease ID"})
 	}
 
+	// The renewal date is when the lease ends (the lease must exist, in this company), not "90 days
+	// from today", which had nothing to do with the lease. Leases that already ended or are not
+	// active cannot be renewed.
+	lease, err := h.leases.GetByID(c.Context(), leaseID)
+	if err != nil {
+		return c.Status(http.StatusNotFound).JSON(fiber.Map{"error": "Lease not found"})
+	}
+	if lease.Status != domain.LeaseStatusActive {
+		return c.Status(http.StatusConflict).JSON(fiber.Map{"error": "only an active lease can be renewed"})
+	}
+
 	renewal := &domain.LeaseRenewalWorkflow{
 		ID:               uuid.New(),
 		CompanyID:        companyID,
 		LeaseID:          leaseID,
-		RenewalDate:      time.Now().AddDate(0, 0, 90),
+		RenewalDate:      lease.EndDate,
 		RenewalStatus:    domain.RenewalPending,
 		DaysBeforeExpiry: 90,
 		TenantResponse:   domain.ResponsePending,
 	}
 
 	if err := h.renewalRepo.Create(c.Context(), renewal); err != nil {
-		return c.Status(http.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to initiate renewal"})
+		if isUniqueViolation(err) { // lease_renewal_workflows.lease_id is unique
+			return c.Status(http.StatusConflict).JSON(fiber.Map{"error": "a renewal has already been started for this lease"})
+		}
+		return serverError(c, err)
 	}
 
 	return c.Status(http.StatusCreated).JSON(fiber.Map{"data": renewal})
@@ -152,7 +168,13 @@ func (h *LeaseRenewalHandler) Propose(c *fiber.Ctx) error {
 		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": "Invalid request"})
 	}
 
+	if renewalClosed(renewal) {
+		return c.Status(http.StatusConflict).JSON(fiber.Map{"error": "this renewal is already closed"})
+	}
 	if req.ProposedRentAmount != nil {
+		if *req.ProposedRentAmount <= 0 || badMoney(*req.ProposedRentAmount) {
+			return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": "proposed_rent_amount must be greater than 0"})
+		}
 		renewal.ProposedRentAmount = req.ProposedRentAmount
 	}
 	if req.ProposedTerms != nil {
@@ -193,6 +215,18 @@ func (h *LeaseRenewalHandler) SendOffer(c *fiber.Ctx) error {
 		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": "Invalid request"})
 	}
 
+	if renewalClosed(renewal) {
+		return c.Status(http.StatusConflict).JSON(fiber.Map{"error": "this renewal is already closed"})
+	}
+	// A missing template is recorded as none; a zero uuid used to violate the log's foreign key
+	// AFTER the renewal had been marked "offer sent", leaving a 500 and a renewal in the wrong state.
+	var templateID *uuid.UUID
+	if req.TemplateID != uuid.Nil {
+		if _, err := h.templateRepo.Get(c.Context(), req.TemplateID); err != nil {
+			return c.Status(http.StatusNotFound).JSON(fiber.Map{"error": "Template not found"})
+		}
+		templateID = &req.TemplateID
+	}
 	renewal.RenewalStatus = domain.RenewalOfferSent
 	if err := h.renewalRepo.Update(c.Context(), renewal); err != nil {
 		return c.Status(http.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to send offer"})
@@ -212,7 +246,7 @@ func (h *LeaseRenewalHandler) SendOffer(c *fiber.Ctx) error {
 		ID:                uuid.New(),
 		RenewalID:         renewal.ID,
 		CommunicationType: commType,
-		TemplateID:        &req.TemplateID,
+		TemplateID:        templateID,
 		DeliveryStatus:    domain.DeliverySent,
 	}
 	now := time.Now()
@@ -243,6 +277,9 @@ func (h *LeaseRenewalHandler) Accept(c *fiber.Ctx) error {
 		return c.Status(http.StatusNotFound).JSON(fiber.Map{"error": "Renewal not found"})
 	}
 
+	if renewalClosed(renewal) {
+		return c.Status(http.StatusConflict).JSON(fiber.Map{"error": "this renewal is already closed"})
+	}
 	renewal.RenewalStatus = domain.RenewalAccepted
 	renewal.TenantResponse = domain.ResponseAccepted
 
@@ -271,6 +308,9 @@ func (h *LeaseRenewalHandler) Reject(c *fiber.Ctx) error {
 		return c.Status(http.StatusNotFound).JSON(fiber.Map{"error": "Renewal not found"})
 	}
 
+	if renewalClosed(renewal) {
+		return c.Status(http.StatusConflict).JSON(fiber.Map{"error": "this renewal is already closed"})
+	}
 	renewal.RenewalStatus = domain.RenewalRejected
 	renewal.TenantResponse = domain.ResponseRejected
 
@@ -307,6 +347,12 @@ func (h *LeaseRenewalHandler) CounterOffer(c *fiber.Ctx) error {
 		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": "Invalid request"})
 	}
 
+	if renewalClosed(renewal) {
+		return c.Status(http.StatusConflict).JSON(fiber.Map{"error": "this renewal is already closed"})
+	}
+	if req.CounterOfferAmount <= 0 || badMoney(req.CounterOfferAmount) {
+		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": "counter_offer_amount must be greater than 0"})
+	}
 	renewal.TenantResponse = domain.ResponseCounterOffer
 	renewal.TenantCounterOffer = &req.CounterOfferAmount
 	now := time.Now()
@@ -442,4 +488,10 @@ func (h *LeaseRenewalHandler) DeleteTemplate(c *fiber.Ctx) error {
 		return c.Status(http.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to delete template"})
 	}
 	return c.SendStatus(http.StatusNoContent)
+}
+
+// renewalClosed reports whether a renewal has reached a final state; accepted and rejected
+// renewals could previously be accepted, rejected or countered again at will.
+func renewalClosed(r *domain.LeaseRenewalWorkflow) bool {
+	return r.RenewalStatus == domain.RenewalAccepted || r.RenewalStatus == domain.RenewalRejected
 }

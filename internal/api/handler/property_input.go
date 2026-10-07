@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"math"
@@ -28,18 +27,32 @@ const (
 	maxCountField    = 100000               // generous cap for unit counts
 )
 
-// blankDatesToNull rewrites `"key": ""` to `"key": null` for the given keys. The forms send an
-// empty string for an empty date input, which encoding/json refuses to parse into *time.Time, so
-// every save of a record without that date failed with "invalid request body".
-func blankDatesToNull(body []byte, keys ...string) []byte {
+// normalizeDateFields makes date inputs parseable by encoding/json for the named keys:
+// an empty string becomes null and a plain "YYYY-MM-DD" (what <input type="date"> sends) becomes
+// an RFC 3339 timestamp. Without this, saving any form with an empty or date-only value failed with
+// "invalid request body": leases, payments, tenants, listings and rental properties could not be
+// created or edited from the web app.
+func normalizeDateFields(body []byte, keys ...string) []byte {
 	var m map[string]json.RawMessage
 	if err := json.Unmarshal(body, &m); err != nil {
 		return body
 	}
 	changed := false
 	for _, k := range keys {
-		if raw, ok := m[k]; ok && string(bytes.TrimSpace(raw)) == `""` {
+		raw, ok := m[k]
+		if !ok {
+			continue
+		}
+		var str string
+		if json.Unmarshal(raw, &str) != nil {
+			continue
+		}
+		switch {
+		case strings.TrimSpace(str) == "":
 			m[k] = json.RawMessage("null")
+			changed = true
+		case len(str) == 10 && str[4] == '-' && str[7] == '-':
+			m[k] = json.RawMessage(`"` + str + `T00:00:00Z"`)
 			changed = true
 		}
 	}

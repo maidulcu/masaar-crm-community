@@ -90,7 +90,7 @@ func (h *RentalPropertyHandler) Get(c *fiber.Ctx) error {
 // @Router       /rental-properties [post]
 func (h *RentalPropertyHandler) Create(c *fiber.Ctx) error {
 	var in domain.RentalProperty
-	if err := json.Unmarshal(blankDatesToNull(c.Body(), "purchase_date"), &in); err != nil {
+	if err := json.Unmarshal(normalizeDateFields(c.Body(), "purchase_date"), &in); err != nil {
 		return badRequest(c, err)
 	}
 	// Server-owned fields are never taken from the client.
@@ -143,7 +143,7 @@ func (h *RentalPropertyHandler) Update(c *fiber.Ctx) error {
 	// The id in the body must not redirect the update to another property, and the record's
 	// identity and audit fields are not the client's to edit.
 	keep := *p
-	if err := json.Unmarshal(blankDatesToNull(c.Body(), "purchase_date"), p); err != nil {
+	if err := json.Unmarshal(normalizeDateFields(c.Body(), "purchase_date"), p); err != nil {
 		return badRequest(c, err)
 	}
 	p.ID, p.CompanyID, p.CreatedAt, p.CreatedBy = keep.ID, keep.CompanyID, keep.CreatedAt, keep.CreatedBy
