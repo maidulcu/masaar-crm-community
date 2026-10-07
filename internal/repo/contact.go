@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/maidulcu/masaar-crm/internal/domain"
 	"github.com/maidulcu/masaar-crm/internal/phone"
@@ -130,7 +131,7 @@ func (r *ContactRepo) Create(ctx context.Context, c *domain.Contact) error {
 	const q = `
 		INSERT INTO contacts (id, company_id, phone_wa, full_name, email, language, lead_score, assigned_to)
 		SELECT $1,$2,$3,$4,$5,$6,$7,$8
-		WHERE $8::uuid IS NULL OR EXISTS (SELECT 1 FROM users WHERE id = $8 AND company_id = $2)
+		WHERE $8::uuid IS NULL OR EXISTS (SELECT 1 FROM users WHERE id = $8 AND company_id = $2 AND is_active AND role IN ('admin','agent'))
 		RETURNING created_at, updated_at
 	`
 	c.ID = uuid.New()
@@ -149,7 +150,7 @@ func (r *ContactRepo) Update(ctx context.Context, c *domain.Contact) error {
 		UPDATE contacts
 		SET full_name=$1, email=$2, language=$3, lead_score=$4, assigned_to=$5, updated_at=NOW()
 		WHERE id=$6 AND company_id=$7
-		  AND ($5::uuid IS NULL OR EXISTS (SELECT 1 FROM users WHERE id = $5 AND company_id = $7))
+		  AND ($5::uuid IS NULL OR EXISTS (SELECT 1 FROM users WHERE id = $5 AND company_id = $7 AND is_active AND role IN ('admin','agent')))
 		RETURNING updated_at
 	`
 	return r.db.QueryRow(ctx, q,
@@ -157,13 +158,59 @@ func (r *ContactRepo) Update(ctx context.Context, c *domain.Contact) error {
 	).Scan(&c.UpdatedAt)
 }
 
+// ErrContactNotFound is returned when a contact does not exist in the caller's company. It wraps
+// pgx.ErrNoRows so handlers answer 404.
+var ErrContactNotFound = fmt.Errorf("contact not found: %w", pgx.ErrNoRows)
+
+// LinkedRecords counts what deleting a contact would take with it: leads, the deals and invoices
+// under those leads, offers, viewings and WhatsApp threads all cascade from the contact row.
+type LinkedRecords struct {
+	Leads    int `json:"leads"`
+	Deals    int `json:"deals"`
+	Invoices int `json:"invoices"`
+	Offers   int `json:"offers"`
+	Viewings int `json:"viewings"`
+	Threads  int `json:"threads"`
+}
+
+// Any reports whether the contact has records that a delete would cascade to.
+func (l LinkedRecords) Any() bool {
+	return l.Leads+l.Deals+l.Invoices+l.Offers+l.Viewings+l.Threads > 0
+}
+
+// LinkedRecords returns the counts for one contact (zero for an unknown or foreign id).
+func (r *ContactRepo) LinkedRecords(ctx context.Context, id uuid.UUID) (LinkedRecords, error) {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return LinkedRecords{}, err
+	}
+	var l LinkedRecords
+	err = r.db.QueryRow(ctx, `
+		SELECT
+		  (SELECT COUNT(*) FROM leads    WHERE contact_id = $1 AND company_id = $2),
+		  (SELECT COUNT(*) FROM deals d  JOIN leads l ON l.id = d.lead_id WHERE l.contact_id = $1 AND d.company_id = $2),
+		  (SELECT COUNT(*) FROM vat_invoices i JOIN deals d ON d.id = i.deal_id JOIN leads l ON l.id = d.lead_id
+		     WHERE l.contact_id = $1 AND i.company_id = $2),
+		  (SELECT COUNT(*) FROM offers   WHERE contact_id = $1 AND company_id = $2),
+		  (SELECT COUNT(*) FROM viewings WHERE contact_id = $1 AND company_id = $2),
+		  (SELECT COUNT(*) FROM whatsapp_threads WHERE contact_id = $1 AND company_id = $2)`,
+		id, cid).Scan(&l.Leads, &l.Deals, &l.Invoices, &l.Offers, &l.Viewings, &l.Threads)
+	return l, err
+}
+
 func (r *ContactRepo) Delete(ctx context.Context, id uuid.UUID) error {
 	cid, err := tenant.From(ctx)
 	if err != nil {
 		return err
 	}
-	_, err = r.db.Exec(ctx, `DELETE FROM contacts WHERE id=$1 AND company_id=$2`, id, cid)
-	return err
+	tag, err := r.db.Exec(ctx, `DELETE FROM contacts WHERE id=$1 AND company_id=$2`, id, cid)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrContactNotFound
+	}
+	return nil
 }
 
 func (r *ContactRepo) UpdateScore(ctx context.Context, id uuid.UUID, score int) error {
