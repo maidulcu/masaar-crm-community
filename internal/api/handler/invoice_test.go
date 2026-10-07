@@ -33,7 +33,7 @@ func (f *fakeInvoices) GetByID(_ context.Context, id uuid.UUID) (*domain.VATInvo
 	}
 	return nil, io.EOF
 }
-func (f *fakeInvoices) ListAll(context.Context, int, int) ([]domain.VATInvoice, int, error) {
+func (f *fakeInvoices) ListAll(context.Context, int, int, domain.InvoiceStatus) ([]domain.VATInvoice, int, error) {
 	return nil, 0, nil
 }
 func (f *fakeInvoices) ListCreditNotes(context.Context, uuid.UUID) ([]domain.VATInvoice, error) {

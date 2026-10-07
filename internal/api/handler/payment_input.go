@@ -34,7 +34,7 @@ func validatePayment(p *domain.Payment) error {
 	}
 	p.PaymentMethod = domain.PaymentMethod(strings.ToLower(strings.TrimSpace(string(p.PaymentMethod))))
 	if !validPaymentMethods[p.PaymentMethod] {
-		return errors.New("payment_method must be one of: transfer, check, cash, card, online, other")
+		return errors.New("payment_method must be one of: transfer, bank_transfer, check, cheque, cash, card, credit_card, online, other")
 	}
 	if p.Status == "" {
 		p.Status = domain.PaymentPending
@@ -55,10 +55,14 @@ func validatePayment(p *domain.Payment) error {
 	if tooLong(p.PaymentReference, 255) || tooLong(p.Notes, 10000) {
 		return errors.New("a field is too long")
 	}
-	// A payment that has been received has a date it was received on.
+	// A payment that has been received has a date it was received on; one that has not (any more)
+	// must not keep a paid date, or it reads as both unpaid and paid.
 	if p.Status == domain.PaymentReceived && p.PaidDate == nil {
 		now := time.Now()
 		p.PaidDate = &now
+	}
+	if p.Status == domain.PaymentPending || p.Status == domain.PaymentOverdue {
+		p.PaidDate = nil
 	}
 	return nil
 }
