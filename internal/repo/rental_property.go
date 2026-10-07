@@ -2,9 +2,11 @@ package repo
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/maidulcu/masaar-crm/internal/domain"
 	"github.com/maidulcu/masaar-crm/internal/tenant"
@@ -123,6 +125,10 @@ func (r *RentalPropertyRepo) Create(ctx context.Context, p *domain.RentalPropert
 	).Scan(&p.CreatedAt, &p.UpdatedAt)
 }
 
+// ErrRentalPropertyNotFound is returned when a property does not exist in the caller's company. It
+// wraps pgx.ErrNoRows so handlers answer 404.
+var ErrRentalPropertyNotFound = fmt.Errorf("rental property not found: %w", pgx.ErrNoRows)
+
 func (r *RentalPropertyRepo) Update(ctx context.Context, p *domain.RentalProperty) error {
 	cid, err := tenant.From(ctx)
 	if err != nil {
@@ -134,17 +140,23 @@ func (r *RentalPropertyRepo) Update(ctx context.Context, p *domain.RentalPropert
 		    building_number=$7, unit_number=$8, city=$9, emirate=$10, postal_code=$11, total_sqft=$12,
 		    bedrooms=$13, bathrooms=$14, parking_spaces=$15, amenities=$16, market_value=$17, status=$18,
 		    occupancy_status=$19, total_occupied_units=$20, property_deed_url=$21, title_deed_number=$22,
-		    municipality_registration=$23, updated_by=$24, updated_at=NOW()
+		    municipality_registration=$23, updated_by=$24, updated_at=NOW(),
+		    currency=$27, purchase_price=$28, purchase_date=$29
 		WHERE id=$25 AND company_id=$26
 		RETURNING updated_at
 	`
-	return r.db.QueryRow(ctx, q,
+	err = r.db.QueryRow(ctx, q,
 		p.Name, p.Description, p.PropertyType, p.UnitsCount, p.Area, p.StreetAddress,
 		p.BuildingNumber, p.UnitNumber, p.City, p.Emirate, p.PostalCode, p.TotalSqft,
 		p.Bedrooms, p.Bathrooms, p.ParkingSpaces, p.Amenities, p.MarketValue, p.Status,
 		p.OccupancyStatus, p.TotalOccupiedUnits, p.PropertyDeedURL, p.TitleDeedNumber,
 		p.MunicipalityRegNum, p.UpdatedBy, p.ID, cid,
+		p.Currency, p.PurchasePrice, p.PurchaseDate,
 	).Scan(&p.UpdatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrRentalPropertyNotFound
+	}
+	return err
 }
 
 func (r *RentalPropertyRepo) Delete(ctx context.Context, id uuid.UUID) error {
@@ -152,8 +164,14 @@ func (r *RentalPropertyRepo) Delete(ctx context.Context, id uuid.UUID) error {
 	if err != nil {
 		return err
 	}
-	_, err = r.db.Exec(ctx, `DELETE FROM rental_properties WHERE id=$1 AND company_id=$2`, id, cid)
-	return err
+	tag, err := r.db.Exec(ctx, `DELETE FROM rental_properties WHERE id=$1 AND company_id=$2`, id, cid)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrRentalPropertyNotFound
+	}
+	return nil
 }
 
 func (r *RentalPropertyRepo) ListByArea(ctx context.Context, companyID uuid.UUID, area string, page, limit int) (*domain.PaginatedResult[domain.RentalProperty], error) {

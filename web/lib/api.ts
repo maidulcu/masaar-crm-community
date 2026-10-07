@@ -911,8 +911,9 @@ export const api = {
       request(`/api/v1/listings/${id}/permit-override`, { method: 'POST', body: JSON.stringify({ reason }) }),
     clearPermitOverride: (id: string) =>
       request(`/api/v1/listings/${id}/permit-override`, { method: 'DELETE' }),
-    delete: (id: string) =>
-      request(`/api/v1/listings/${id}`, { method: 'DELETE' }),
+    // force: also delete the offers on the listing
+    delete: (id: string, force = false) =>
+      request(`/api/v1/listings/${id}${force ? '?force=true' : ''}`, { method: 'DELETE' }),
   },
 
   // ─── Tenants ──────────────────────────────────────────────────────────────────
