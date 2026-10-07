@@ -53,14 +53,14 @@ func (r *UserRepo) FindByEmail(ctx context.Context, email string) (*domain.User,
 
 func (r *UserRepo) FindByID(ctx context.Context, id uuid.UUID) (*domain.User, error) {
 	const q = `
-		SELECT id, company_id, name, email, password_hash, role, lang_pref, COALESCE(wa_number, ''), is_active, created_at
+		SELECT id, company_id, name, email, password_hash, role, lang_pref, COALESCE(wa_number, ''), COALESCE(phone, ''), is_active, created_at
 		FROM users
 		WHERE id = $1
 	`
 	u := &domain.User{}
 	err := r.db.QueryRow(ctx, q, id).Scan(
 		&u.ID, &u.CompanyID, &u.Name, &u.Email, &u.PasswordHash,
-		&u.Role, &u.LangPref, &u.WANumber, &u.IsActive, &u.CreatedAt,
+		&u.Role, &u.LangPref, &u.WANumber, &u.Phone, &u.IsActive, &u.CreatedAt,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("find user by id: %w", err)
@@ -346,41 +346,4 @@ func (r *UserRepo) ListByCompany(ctx context.Context, companyID uuid.UUID, page,
 		users = append(users, u)
 	}
 	return users, total, nil
-}
-
-func (r *UserRepo) InviteUser(ctx context.Context, email, name string, companyID uuid.UUID, role domain.Role) (*domain.User, string, error) {
-	token, err := r.CreatePasswordResetToken(ctx, uuid.Nil)
-	if err != nil {
-		return nil, "", fmt.Errorf("generate invite token: %w", err)
-	}
-
-	u := &domain.User{
-		ID:           uuid.New(),
-		CompanyID:    companyID,
-		Name:         name,
-		Email:        strings.ToLower(strings.TrimSpace(email)),
-		PasswordHash: "",
-		Role:         role,
-		LangPref:     "en",
-		IsActive:     true,
-	}
-
-	const q = `
-		INSERT INTO users (id, company_id, name, email, password_hash, role, lang_pref, is_active)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-		RETURNING created_at
-	`
-	err = r.db.QueryRow(ctx, q,
-		u.ID, u.CompanyID, u.Name, u.Email, u.PasswordHash,
-		u.Role, u.LangPref, u.IsActive,
-	).Scan(&u.CreatedAt)
-	if err != nil {
-		return nil, "", fmt.Errorf("create invited user: %w", err)
-	}
-
-	// Store the invite as a password reset token
-	_ = r.db.QueryRow(ctx, `UPDATE password_reset_tokens SET user_id = $1 WHERE token_hash = $2`,
-		u.ID, sha256.Sum256([]byte(token)))
-
-	return u, token, nil
 }

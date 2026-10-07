@@ -2,6 +2,7 @@ package handler
 
 import (
 	"strconv"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -85,13 +86,14 @@ func (h *LeaseTemplateHandler) Get(c *fiber.Ctx) error {
 // @Security     BearerAuth
 // @Router       /lease-templates [post]
 func (h *LeaseTemplateHandler) Create(c *fiber.Ctx) error {
-	var t domain.LeaseTemplate
-	if err := c.BodyParser(&t); err != nil {
+	var in domain.LeaseTemplate
+	if err := c.BodyParser(&in); err != nil {
 		return badRequest(c, err)
 	}
-
-	if t.Name == "" || t.PaymentFrequency == "" {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "name and payment_frequency are required"})
+	t := in
+	t.ID, t.CreatedAt, t.UpdatedAt = uuid.Nil, time.Time{}, time.Time{}
+	if err := validateLeaseTemplate(&t); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 	}
 
 	userID := c.Locals("user_id").(uuid.UUID)
@@ -134,8 +136,14 @@ func (h *LeaseTemplateHandler) Update(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "template not found"})
 	}
 
+	// An id in the body must not redirect the update to another template.
+	keep := *t
 	if err := c.BodyParser(t); err != nil {
 		return badRequest(c, err)
+	}
+	t.ID, t.CompanyID, t.CreatedAt, t.CreatedBy = keep.ID, keep.CompanyID, keep.CreatedAt, keep.CreatedBy
+	if err := validateLeaseTemplate(t); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 	}
 
 	userID := c.Locals("user_id").(uuid.UUID)
@@ -164,6 +172,9 @@ func (h *LeaseTemplateHandler) Delete(c *fiber.Ctx) error {
 	}
 
 	if err := h.templates.Delete(c.Context(), id); err != nil {
+		if isForeignKeyViolation(err) {
+			return c.Status(fiber.StatusConflict).JSON(fiber.Map{"error": "this template is used by leases and cannot be deleted; mark it inactive instead"})
+		}
 		return serverError(c, err)
 	}
 	return c.SendStatus(fiber.StatusNoContent)

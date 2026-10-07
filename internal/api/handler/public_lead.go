@@ -1,7 +1,10 @@
 package handler
 
 import (
+	"net/mail"
 	"regexp"
+	"strings"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -16,7 +19,15 @@ type PublicLeadHandler struct {
 	contacts   *repo.ContactRepo
 	leads      *repo.LeadRepo
 	dispatcher *webhook.Dispatcher
+	assigner   NewLeadAssigner
 }
+
+// SetAssigner enables automatic assignment of newly created leads (see NewLeadAssigner).
+func (h *PublicLeadHandler) SetAssigner(a NewLeadAssigner) { h.assigner = a }
+
+// duplicateWindow is how long a repeated submission for the same contact and source is treated
+// as a retry of the first one instead of a new lead.
+const duplicateWindow = 10 * time.Minute
 
 func NewPublicLeadHandler(contacts *repo.ContactRepo, leads *repo.LeadRepo, dispatcher *webhook.Dispatcher) *PublicLeadHandler {
 	return &PublicLeadHandler{contacts: contacts, leads: leads, dispatcher: dispatcher}
@@ -85,21 +96,23 @@ func (h *PublicLeadHandler) SubmitLead(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusUnprocessableEntity).JSON(fiber.Map{"error": "area is too long (max 100 characters)"})
 	}
 
-	// Defaults
-	if req.Language == "" {
-		req.Language = "ar"
+	// Language: only "ar"/"en" exist, and it is only applied when the caller actually sent it
+	// (an existing contact's preference must not be reset to a default by every submission).
+	lang := strings.ToLower(strings.TrimSpace(req.Language))
+	if lang != "" && lang != "ar" && lang != "en" {
+		return c.Status(fiber.StatusUnprocessableEntity).JSON(fiber.Map{"error": "language must be ar or en"})
 	}
-	if req.Source == "" {
-		req.Source = "web"
-	}
-	if req.Currency == "" {
-		req.Currency = "AED"
+	email := strings.TrimSpace(req.Email)
+	if email != "" {
+		if addr, err := mail.ParseAddress(email); err != nil || addr.Address != email {
+			return c.Status(fiber.StatusUnprocessableEntity).JSON(fiber.Map{"error": "email is not a valid address"})
+		}
 	}
 
-	// Validate source
-	validSources := map[string]bool{"web": true, "referral": true, "event": true, "whatsapp": true}
-	if !validSources[req.Source] {
-		req.Source = "web"
+	// Unknown sources are coerced to "web" (existing behaviour for integrations)
+	source := strings.ToLower(strings.TrimSpace(req.Source))
+	if !leadSources[source] {
+		source = "web"
 	}
 
 	// Enrich notes with property metadata if provided
@@ -122,6 +135,11 @@ func (h *PublicLeadHandler) SubmitLead(c *fiber.Ctx) error {
 		}
 	}
 
+	lead := &domain.Lead{ContactID: uuid.Nil, Stage: domain.StageNew}
+	if msg := applyLeadInput(lead, string(domain.StageNew), source, req.Currency, req.DealValue, notes); msg != "" {
+		return c.Status(fiber.StatusUnprocessableEntity).JSON(fiber.Map{"error": msg})
+	}
+
 	ctx := c.Context()
 
 	// Upsert contact — creates if not found; an existing contact keeps the name it already has
@@ -132,31 +150,40 @@ func (h *PublicLeadHandler) SubmitLead(c *fiber.Ctx) error {
 		})
 	}
 
-	// Patch email/language onto the contact if provided
-	if req.Email != "" || req.Language != "" {
-		if req.Email != "" {
-			contact.Email = req.Email
-		}
-		if req.Language != "" {
-			contact.Language = req.Language
-		}
+	// Fill in what the contact is missing. An integration must not overwrite details people (or
+	// the customer) already set: email only when empty, language only when explicitly sent.
+	changed := false
+	if email != "" && contact.Email == "" {
+		contact.Email, changed = email, true
+	}
+	if lang != "" && contact.Language != lang {
+		contact.Language, changed = lang, true
+	}
+	if changed {
 		_ = h.contacts.Update(ctx, contact)
 	}
 
-	// Create lead
-	lead := &domain.Lead{
-		ContactID: contact.ID,
-		Stage:     domain.StageNew,
-		Source:    domain.LeadSource(req.Source),
-		DealValue: req.DealValue,
-		Currency:  req.Currency,
-		Notes:     notes,
+	// A retry / double submit within a few minutes returns the lead it already created.
+	if dup, err := h.leads.RecentDuplicate(ctx, contact.ID, lead.Source, duplicateWindow); err == nil && dup != nil {
+		return c.Status(fiber.StatusOK).JSON(fiber.Map{
+			"lead_id":    dup.ID,
+			"contact_id": contact.ID,
+			"stage":      dup.Stage,
+			"source":     dup.Source,
+			"duplicate":  true,
+			"message":    "Lead already submitted recently",
+		})
 	}
 
+	lead.ContactID = contact.ID
 	if err := h.leads.Create(ctx, lead); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"error": "failed to create lead",
 		})
+	}
+	if h.assigner != nil {
+		companyID, _ := uuid.Parse(c.Locals("company_id").(string))
+		lead.AssignedTo = h.assigner.AssignNewLead(companyID, lead.ID)
 	}
 
 	// Fire outbound webhook asynchronously

@@ -2,10 +2,12 @@ package repo
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/maidulcu/masaar-crm/internal/domain"
 	"github.com/maidulcu/masaar-crm/internal/tenant"
@@ -33,9 +35,9 @@ func (r *LeaseRepo) List(ctx context.Context, companyID uuid.UUID, page, limit i
 		       renewal_start_date, renewal_end_date, monthly_rent, currency, security_deposit,
 		       utility_charges, late_fee_percent, payment_frequency, payment_day_of_month,
 		       auto_generate_payments, last_generated_payment_date, notice_period_days,
-		       move_out_date, move_out_inspection_date, lease_document_url,
-		       signed_by_landlord_date, signed_by_tenant_date, ejari_number, ejari_url,
-		       status, termination_reason, termination_date, notes,
+		       move_out_date, move_out_inspection_date, COALESCE(lease_document_url,''),
+		       signed_by_landlord_date, signed_by_tenant_date, COALESCE(ejari_number,''), COALESCE(ejari_url,''),
+		       status, COALESCE(termination_reason, ''), termination_date, COALESCE(notes, ''),
 		       created_at, updated_at, created_by, updated_by
 		FROM leases
 		WHERE company_id = $1
@@ -84,9 +86,9 @@ func (r *LeaseRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.Lease, e
 		       renewal_start_date, renewal_end_date, monthly_rent, currency, security_deposit,
 		       utility_charges, late_fee_percent, payment_frequency, payment_day_of_month,
 		       auto_generate_payments, last_generated_payment_date, notice_period_days,
-		       move_out_date, move_out_inspection_date, lease_document_url,
-		       signed_by_landlord_date, signed_by_tenant_date, ejari_number, ejari_url,
-		       status, termination_reason, termination_date, notes,
+		       move_out_date, move_out_inspection_date, COALESCE(lease_document_url,''),
+		       signed_by_landlord_date, signed_by_tenant_date, COALESCE(ejari_number,''), COALESCE(ejari_url,''),
+		       status, COALESCE(termination_reason, ''), termination_date, COALESCE(notes, ''),
 		       created_at, updated_at, created_by, updated_by
 		FROM leases WHERE id = $1 AND company_id = $2
 	`
@@ -107,6 +109,33 @@ func (r *LeaseRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.Lease, e
 	return l, nil
 }
 
+// ErrLeaseOverlap is returned by Create when the property already has an active lease covering
+// part of the requested period.
+var ErrLeaseOverlap = errors.New("property has an overlapping active lease")
+
+// ErrLeaseNotFound is returned when a lease does not exist in the caller's company; it wraps
+// pgx.ErrNoRows so handlers answer 404.
+var ErrLeaseNotFound = fmt.Errorf("lease not found: %w", pgx.ErrNoRows)
+
+// HasActiveOverlap reports whether the property has another active lease whose dates overlap
+// [start, end]. It only applies to single-unit properties: a building with several units can
+// legitimately have concurrent leases and a lease does not say which unit it is for.
+func (r *LeaseRepo) HasActiveOverlap(ctx context.Context, propertyID uuid.UUID, start, end time.Time, excludeID uuid.UUID) (bool, error) {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return false, err
+	}
+	var clash bool
+	err = r.db.QueryRow(ctx, `
+		SELECT COALESCE((SELECT units_count FROM rental_properties WHERE id = $1 AND company_id = $2), 1) <= 1
+		   AND EXISTS (
+		        SELECT 1 FROM leases
+		        WHERE property_id = $1 AND company_id = $2 AND status = 'active' AND id <> $5
+		          AND start_date <= $4 AND end_date >= $3)`,
+		propertyID, cid, start, end, excludeID).Scan(&clash)
+	return clash, err
+}
+
 func (r *LeaseRepo) Create(ctx context.Context, l *domain.Lease) error {
 	cid, err := tenant.From(ctx)
 	if err != nil {
@@ -115,6 +144,13 @@ func (r *LeaseRepo) Create(ctx context.Context, l *domain.Lease) error {
 	l.CompanyID = cid // never trust a company id supplied by the client
 	if err := r.assertOwned(ctx, cid, l.PropertyID, l.TenantID, l.TemplateID); err != nil {
 		return err
+	}
+	if l.Status == domain.LeaseStatusActive {
+		if clash, err := r.HasActiveOverlap(ctx, l.PropertyID, l.StartDate, l.EndDate, uuid.Nil); err != nil {
+			return err
+		} else if clash {
+			return ErrLeaseOverlap
+		}
 	}
 	const q = `
 		INSERT INTO leases (
@@ -174,8 +210,14 @@ func (r *LeaseRepo) Delete(ctx context.Context, id uuid.UUID) error {
 	if err != nil {
 		return err
 	}
-	_, err = r.db.Exec(ctx, `DELETE FROM leases WHERE id=$1 AND company_id=$2`, id, cid)
-	return err
+	tag, err := r.db.Exec(ctx, `DELETE FROM leases WHERE id=$1 AND company_id=$2`, id, cid)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrLeaseNotFound
+	}
+	return nil
 }
 
 func (r *LeaseRepo) GetActiveByProperty(ctx context.Context, propertyID uuid.UUID) ([]domain.Lease, error) {
@@ -188,9 +230,9 @@ func (r *LeaseRepo) GetActiveByProperty(ctx context.Context, propertyID uuid.UUI
 		       renewal_start_date, renewal_end_date, monthly_rent, currency, security_deposit,
 		       utility_charges, late_fee_percent, payment_frequency, payment_day_of_month,
 		       auto_generate_payments, last_generated_payment_date, notice_period_days,
-		       move_out_date, move_out_inspection_date, lease_document_url,
-		       signed_by_landlord_date, signed_by_tenant_date, ejari_number, ejari_url,
-		       status, termination_reason, termination_date, notes,
+		       move_out_date, move_out_inspection_date, COALESCE(lease_document_url,''),
+		       signed_by_landlord_date, signed_by_tenant_date, COALESCE(ejari_number,''), COALESCE(ejari_url,''),
+		       status, COALESCE(termination_reason, ''), termination_date, COALESCE(notes, ''),
 		       created_at, updated_at, created_by, updated_by
 		FROM leases
 		WHERE property_id = $1 AND company_id = $2 AND status = 'active'
@@ -232,9 +274,9 @@ func (r *LeaseRepo) GetByTenant(ctx context.Context, tenantID uuid.UUID) ([]doma
 		       renewal_start_date, renewal_end_date, monthly_rent, currency, security_deposit,
 		       utility_charges, late_fee_percent, payment_frequency, payment_day_of_month,
 		       auto_generate_payments, last_generated_payment_date, notice_period_days,
-		       move_out_date, move_out_inspection_date, lease_document_url,
-		       signed_by_landlord_date, signed_by_tenant_date, ejari_number, ejari_url,
-		       status, termination_reason, termination_date, notes,
+		       move_out_date, move_out_inspection_date, COALESCE(lease_document_url,''),
+		       signed_by_landlord_date, signed_by_tenant_date, COALESCE(ejari_number,''), COALESCE(ejari_url,''),
+		       status, COALESCE(termination_reason, ''), termination_date, COALESCE(notes, ''),
 		       created_at, updated_at, created_by, updated_by
 		FROM leases
 		WHERE tenant_id = $1 AND company_id = $2

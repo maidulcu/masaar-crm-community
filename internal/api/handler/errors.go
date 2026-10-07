@@ -32,6 +32,8 @@ func apiError(err error) (int, string) {
 		switch pgErr.Code {
 		case "23505": // unique_violation
 			return fiber.StatusConflict, "already exists"
+		case "22001": // string_data_right_truncation: a value longer than its varchar column
+			return fiber.StatusUnprocessableEntity, "a value is too long"
 		case "23502", "23503", "23514", "22P02", "22007", "22003": // not-null, FK, check, bad text/date/number
 			return fiber.StatusUnprocessableEntity, "invalid data"
 		}
@@ -90,4 +92,17 @@ func pageParams(c *fiber.Ctx, defaultLimit, maxLimit int) (page, limit int) {
 		limit = maxLimit
 	}
 	return page, limit
+}
+
+// isUniqueViolation reports whether err is a PostgreSQL unique_violation.
+func isUniqueViolation(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == "23505"
+}
+
+// isForeignKeyViolation reports whether err is a PostgreSQL foreign_key_violation (e.g. deleting a
+// row that other records still reference).
+func isForeignKeyViolation(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == "23503"
 }

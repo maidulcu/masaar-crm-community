@@ -2,23 +2,30 @@ package handler
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"math"
 	"strconv"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/maidulcu/masaar-crm/internal/domain"
 	"github.com/maidulcu/masaar-crm/internal/pdf"
+	"github.com/maidulcu/masaar-crm/internal/repo"
 )
 
 // InvoiceRepository defines the interface for invoice data access.
 type InvoiceRepository interface {
-	Create(ctx context.Context, inv *domain.VATInvoice) error
+	CreateNumbered(ctx context.Context, inv *domain.VATInvoice) error
+	MarkSent(ctx context.Context, id uuid.UUID) error
 	GetByID(ctx context.Context, id uuid.UUID) (*domain.VATInvoice, error)
-	ListAll(ctx context.Context, page, limit int) ([]domain.VATInvoice, int, error)
+	ListAll(ctx context.Context, page, limit int, status domain.InvoiceStatus) ([]domain.VATInvoice, int, error)
 	UpdateStatus(ctx context.Context, id uuid.UUID, status domain.InvoiceStatus) error
-	NextInvoiceNo(ctx context.Context) (string, error)
 }
+
+// maxInvoiceSubtotal keeps subtotal + 5% VAT inside the numeric(12,2) total column.
+const maxInvoiceSubtotal = 9_000_000_000.0
 
 // DealRepository defines the interface for deal data access used by the invoice handler.
 type DealRepository interface {
@@ -50,14 +57,28 @@ func NewInvoiceHandler(invoices InvoiceRepository, deals DealRepository, company
 // @Produce      json
 // @Param        page  query  int  false  "Page (default 1)"
 // @Param        limit query  int  false  "Limit (default 50)"
+// @Param        status query string false "draft, sent or paid"
 // @Success      200  {object}  object{data=[]domain.VATInvoice,total=int}
 // @Security     BearerAuth
 // @Router       /invoices [get]
 func (h *InvoiceHandler) List(c *fiber.Ctx) error {
 	page, _ := strconv.Atoi(c.Query("page", "1"))
 	limit, _ := strconv.Atoi(c.Query("limit", "50"))
+	if page < 1 {
+		page = 1
+	}
+	if limit < 1 || limit > 100 {
+		limit = 50
+	}
 
-	invoices, total, err := h.invoices.ListAll(c.Context(), page, limit)
+	// ?status filters on the server: the page filtered the one page it had fetched, so the other
+	// invoices of that status were invisible whenever there was more than one page.
+	status := domain.InvoiceStatus(c.Query("status"))
+	if status != "" && status != domain.InvoiceDraft && status != domain.InvoiceSent && status != domain.InvoicePaid {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid status"})
+	}
+
+	invoices, total, err := h.invoices.ListAll(c.Context(), page, limit, status)
 	if err != nil {
 		return serverError(c, err)
 	}
@@ -92,24 +113,25 @@ func (h *InvoiceHandler) Create(c *fiber.Ctx) error {
 	if _, err := h.deals.GetByID(c.Context(), body.DealID); err != nil {
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "deal not found"})
 	}
-	if body.Subtotal <= 0 {
+	if body.Subtotal <= 0 || math.IsNaN(body.Subtotal) || math.IsInf(body.Subtotal, 0) {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "subtotal must be positive"})
 	}
 
-	invoiceNo, err := h.invoices.NextInvoiceNo(c.Context())
-	if err != nil {
-		return serverError(c, err)
+	// Whole fils only: 10.005 would otherwise be stored as 10.01 while the PDF/total uses the float.
+	subtotal := math.Round(body.Subtotal*100) / 100
+	if subtotal <= 0 || subtotal > maxInvoiceSubtotal {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "subtotal must be between 0.01 and 9,000,000,000"})
 	}
 
 	inv := domain.VATInvoice{
-		DealID:    body.DealID,
-		InvoiceNo: invoiceNo,
-		Subtotal:  body.Subtotal,
-		VATRate:   0.05,
-		Status:    domain.InvoiceDraft,
+		DealID:   body.DealID,
+		Subtotal: subtotal,
+		VATRate:  0.05,
+		Status:   domain.InvoiceDraft,
 	}
 
-	if err := h.invoices.Create(c.Context(), &inv); err != nil {
+	// The number is assigned inside the insert transaction, so concurrent invoices cannot collide.
+	if err := h.invoices.CreateNumbered(c.Context(), &inv); err != nil {
 		return serverError(c, err)
 	}
 	return c.Status(fiber.StatusCreated).JSON(inv)
@@ -132,7 +154,10 @@ func (h *InvoiceHandler) Get(c *fiber.Ctx) error {
 	}
 	inv, err := h.invoices.GetByID(c.Context(), id)
 	if err != nil {
-		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "invoice not found"})
+		if errors.Is(err, pgx.ErrNoRows) {
+			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "invoice not found"})
+		}
+		return serverError(c, err)
 	}
 	return c.JSON(inv)
 }
@@ -152,7 +177,10 @@ func (h *InvoiceHandler) Send(c *fiber.Ctx) error {
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid id"})
 	}
-	if err := h.invoices.UpdateStatus(c.Context(), id, domain.InvoiceSent); err != nil {
+	if err := h.invoices.MarkSent(c.Context(), id); err != nil {
+		if errors.Is(err, repo.ErrInvoiceNotDraft) {
+			return c.Status(fiber.StatusConflict).JSON(fiber.Map{"error": "only a draft invoice can be sent"})
+		}
 		return serverError(c, err)
 	}
 	return c.JSON(fiber.Map{"id": id, "status": domain.InvoiceSent})
@@ -192,6 +220,9 @@ func (h *InvoiceHandler) UpdateStatus(c *fiber.Ctx) error {
 	}
 
 	if err := h.invoices.UpdateStatus(c.Context(), id, body.Status); err != nil {
+		if errors.Is(err, repo.ErrInvoiceIssued) {
+			return c.Status(fiber.StatusConflict).JSON(fiber.Map{"error": "an issued invoice cannot go back to draft"})
+		}
 		return serverError(c, err)
 	}
 	return c.JSON(fiber.Map{"id": id, "status": body.Status})
@@ -249,12 +280,15 @@ func (h *InvoiceHandler) DownloadPDF(c *fiber.Ctx) error {
 	}
 
 	pdfBytes, err := pdf.GenerateInvoice(pdfData)
+	if errors.Is(err, pdf.ErrProOnly) {
+		return c.Status(fiber.StatusNotImplemented).JSON(fiber.Map{"error": "invoice PDFs are not available in this edition"})
+	}
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to generate PDF"})
 	}
 
-	filename := fmt.Sprintf("invoice-%s.pdf", inv.InvoiceNo)
+	filename := fmt.Sprintf("invoice-%s.pdf", safeFilenamePart(inv.InvoiceNo, inv.ID.String()[:8]))
 	c.Set("Content-Type", "application/pdf")
-	c.Set("Content-Disposition", "attachment; filename="+filename)
+	c.Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
 	return c.Send(pdfBytes)
 }

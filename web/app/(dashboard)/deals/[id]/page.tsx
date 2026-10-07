@@ -50,7 +50,8 @@ export default function DealDetailPage() {
       setInvoices(Array.isArray(invs) ? invs : [])
       setEditAmount(d.amount?.toString() || '')
       setEditProbability(d.probability?.toString() || '')
-      setEditCloseDate(d.close_date || '')
+      // The API returns a full timestamp; a date input and the PATCH both want YYYY-MM-DD.
+      setEditCloseDate((d.close_date || '').slice(0, 10))
       if (d.lead_id) {
         api.leads.get(d.lead_id).then((lead: any) => {
           const c = lead?.contact
@@ -85,8 +86,8 @@ export default function DealDetailPage() {
       await api.deals.update(id, {
         title: deal.title,
         amount: editAmount !== '' ? parseFloat(editAmount) : 0,
-        probability: editProbability !== '' ? parseInt(editProbability) : 0,
-        close_date: editCloseDate || null,
+        probability: editProbability !== '' ? parseInt(editProbability) : (deal.probability ?? 0),
+        close_date: editCloseDate, // '' clears the date
       })
       setShowEditForm(false)
       load()

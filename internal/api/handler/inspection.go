@@ -1,12 +1,15 @@
 package handler
 
 import (
+	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/maidulcu/masaar-crm/internal/domain"
 	"github.com/maidulcu/masaar-crm/internal/repo"
@@ -35,7 +38,7 @@ func (h *InspectionHandler) ListTemplates(c *fiber.Ctx) error {
 
 	templates, err := h.templateRepo.List(c.Context(), companyID)
 	if err != nil {
-		return c.Status(http.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to fetch templates"})
+		return serverError(c, err)
 	}
 
 	return c.Status(http.StatusOK).JSON(fiber.Map{"data": templates})
@@ -58,7 +61,7 @@ func (h *InspectionHandler) CreateTemplate(c *fiber.Ctx) error {
 		EstimatedDurationMinutes int                    `json:"estimated_duration_minutes"`
 	}
 	if err := c.BodyParser(&req); err != nil {
-		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": "Invalid request"})
+		return badRequest(c, err)
 	}
 
 	template := &domain.InspectionTemplate{
@@ -70,8 +73,14 @@ func (h *InspectionHandler) CreateTemplate(c *fiber.Ctx) error {
 		EstimatedDurationMinutes: req.EstimatedDurationMinutes,
 	}
 
+	if err := validateInspectionTemplate(template); err != nil {
+		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+	}
 	if err := h.templateRepo.Create(c.Context(), template); err != nil {
-		return c.Status(http.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to create template"})
+		if isUniqueViolation(err) {
+			return c.Status(http.StatusConflict).JSON(fiber.Map{"error": "a template with this name already exists"})
+		}
+		return serverError(c, err)
 	}
 
 	return c.Status(http.StatusCreated).JSON(fiber.Map{"data": template})
@@ -99,7 +108,7 @@ func (h *InspectionHandler) ListInspections(c *fiber.Ctx) error {
 
 	inspections, total, err := h.inspectionRepo.List(c.Context(), companyID, limit, offset)
 	if err != nil {
-		return c.Status(http.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to fetch inspections"})
+		return serverError(c, err)
 	}
 
 	return c.Status(http.StatusOK).JSON(fiber.Map{
@@ -127,7 +136,7 @@ func (h *InspectionHandler) GetInspection(c *fiber.Ctx) error {
 
 	inspection, err := h.inspectionRepo.Get(c.Context(), id)
 	if err != nil {
-		return c.Status(http.StatusNotFound).JSON(fiber.Map{"error": "Inspection not found"})
+		return inspectionLookupError(c, err)
 	}
 
 	return c.Status(http.StatusOK).JSON(fiber.Map{"data": inspection})
@@ -152,8 +161,12 @@ func (h *InspectionHandler) CreateInspection(c *fiber.Ctx) error {
 		InspectorID    *uuid.UUID `json:"inspector_id"`
 		TenantID       *uuid.UUID `json:"tenant_id"`
 	}
-	if err := c.BodyParser(&req); err != nil {
-		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": "Invalid request"})
+	// Optional references arrive as "" when unset in the form, and the date may be date-only.
+	if err := json.Unmarshal(normalizeDateFields(c.Body(), "scheduled_date", "template_id", "inspector_id", "tenant_id"), &req); err != nil {
+		return badRequest(c, err)
+	}
+	if req.PropertyID == uuid.Nil {
+		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": "property_id is required"})
 	}
 
 	inspection := &domain.Inspection{
@@ -169,8 +182,14 @@ func (h *InspectionHandler) CreateInspection(c *fiber.Ctx) error {
 		CreatedBy:      userID,
 	}
 
+	if err := validateInspection(inspection); err != nil {
+		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+	}
 	if err := h.inspectionRepo.Create(c.Context(), inspection); err != nil {
-		return c.Status(http.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to create inspection"})
+		if errors.Is(err, pgx.ErrNoRows) { // property, template, inspector or tenant is not this company's
+			return c.Status(http.StatusUnprocessableEntity).JSON(fiber.Map{"error": "property, template, inspector or tenant not found"})
+		}
+		return serverError(c, err)
 	}
 
 	return c.Status(http.StatusCreated).JSON(fiber.Map{"data": inspection})
@@ -192,7 +211,7 @@ func (h *InspectionHandler) UpdateInspection(c *fiber.Ctx) error {
 
 	inspection, err := h.inspectionRepo.Get(c.Context(), id)
 	if err != nil {
-		return c.Status(http.StatusNotFound).JSON(fiber.Map{"error": "Inspection not found"})
+		return inspectionLookupError(c, err)
 	}
 
 	var req struct {
@@ -203,8 +222,8 @@ func (h *InspectionHandler) UpdateInspection(c *fiber.Ctx) error {
 		ChecklistResults *map[string]domain.ChecklistResult `json:"checklist_results"`
 		CompletedDate    *time.Time                         `json:"completed_date"`
 	}
-	if err := c.BodyParser(&req); err != nil {
-		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": "Invalid request"})
+	if err := json.Unmarshal(normalizeDateFields(c.Body(), "completed_date"), &req); err != nil {
+		return badRequest(c, err)
 	}
 
 	if req.Status != nil {
@@ -216,7 +235,7 @@ func (h *InspectionHandler) UpdateInspection(c *fiber.Ctx) error {
 	if req.SeverityLevel != nil {
 		inspection.SeverityLevel = domain.SeverityLevel(*req.SeverityLevel)
 	}
-	if len(req.PhotosURLs) > 0 {
+	if req.PhotosURLs != nil { // an empty list clears the photos
 		inspection.PhotosURLs = req.PhotosURLs
 	}
 	if req.ChecklistResults != nil {
@@ -226,8 +245,11 @@ func (h *InspectionHandler) UpdateInspection(c *fiber.Ctx) error {
 		inspection.CompletedDate = req.CompletedDate
 	}
 
+	if err := validateInspection(inspection); err != nil {
+		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+	}
 	if err := h.inspectionRepo.Update(c.Context(), inspection); err != nil {
-		return c.Status(http.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to update inspection"})
+		return serverError(c, err)
 	}
 
 	return c.Status(http.StatusOK).JSON(fiber.Map{"data": inspection})
@@ -249,16 +271,30 @@ func (h *InspectionHandler) CompleteInspection(c *fiber.Ctx) error {
 
 	inspection, err := h.inspectionRepo.Get(c.Context(), id)
 	if err != nil {
-		return c.Status(http.StatusNotFound).JSON(fiber.Map{"error": "Inspection not found"})
+		return inspectionLookupError(c, err)
+	}
+	// Completing twice used to overwrite the original completion time; a cancelled inspection
+	// cannot be completed.
+	if inspection.Status == domain.InspectionCompleted || inspection.Status == domain.InspectionCancelled {
+		return c.Status(http.StatusConflict).JSON(fiber.Map{"error": "this inspection is already " + string(inspection.Status)})
 	}
 
 	inspection.Status = domain.InspectionCompleted
-	now := time.Now()
-	inspection.CompletedDate = &now
-
+	if err := validateInspection(inspection); err != nil {
+		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+	}
 	if err := h.inspectionRepo.Update(c.Context(), inspection); err != nil {
-		return c.Status(http.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to complete inspection"})
+		return serverError(c, err)
 	}
 
 	return c.Status(http.StatusOK).JSON(fiber.Map{"data": inspection})
+}
+
+// inspectionLookupError answers 404 for an inspection that does not exist in the caller's company
+// and a generic error for anything else.
+func inspectionLookupError(c *fiber.Ctx, err error) error {
+	if errors.Is(err, pgx.ErrNoRows) {
+		return c.Status(http.StatusNotFound).JSON(fiber.Map{"error": "Inspection not found"})
+	}
+	return serverError(c, err)
 }

@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"math/big"
@@ -38,6 +39,9 @@ func validatePasswordStrength(p string) string {
 	if len(p) < 8 {
 		return "password must be at least 8 characters"
 	}
+	if len(p) > maxPasswordBytes {
+		return "password must be at most 72 bytes"
+	}
 	var hasUpper, hasDigit bool
 	for _, r := range p {
 		switch {
@@ -55,6 +59,9 @@ func validatePasswordStrength(p string) string {
 	}
 	return ""
 }
+
+// forgotPasswordPerHour caps reset emails per address.
+const forgotPasswordPerHour = 5
 
 type AuthHandler struct {
 	users       *repo.UserRepo
@@ -96,7 +103,6 @@ func (h *AuthHandler) Login(c *fiber.Ctx) error {
 
 	// Check lockout before touching the database
 	lockKey := fmt.Sprintf("lockout:%s", body.Email)
-	failKey := fmt.Sprintf("loginfail:%s", body.Email)
 	ctx := context.Background()
 
 	if locked, _ := h.redis.Exists(ctx, lockKey).Result(); locked > 0 {
@@ -110,22 +116,11 @@ func (h *AuthHandler) Login(c *fiber.Ctx) error {
 		// Burn the same bcrypt time as a real check so response time does not reveal whether
 		// the email is registered, and count the failure like any other.
 		_ = bcrypt.CompareHashAndPassword(dummyPasswordHash, []byte(body.Password))
-		h.redis.Incr(ctx, failKey)
-		h.redis.Expire(ctx, failKey, 15*time.Minute)
-		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "invalid credentials"})
+		return h.loginFailed(c, ctx, body.Email)
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(body.Password)); err != nil {
-		count, _ := h.redis.Incr(ctx, failKey).Result()
-		h.redis.Expire(ctx, failKey, 15*time.Minute)
-		if count >= 5 {
-			h.redis.Set(ctx, lockKey, "1", 15*time.Minute)
-			h.redis.Del(ctx, failKey)
-			return c.Status(fiber.StatusTooManyRequests).JSON(fiber.Map{
-				"error": "account locked for 15 minutes after too many failed attempts",
-			})
-		}
-		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "invalid credentials"})
+		return h.loginFailed(c, ctx, body.Email)
 	}
 
 	if !user.IsActive {
@@ -133,30 +128,13 @@ func (h *AuthHandler) Login(c *fiber.Ctx) error {
 	}
 
 	// Load company and check active/trial
-	var company *domain.Company
-	var daysRemaining int
-	if h.companyRepo != nil {
-		comp, cerr := h.companyRepo.GetByID(c.Context(), user.CompanyID)
-		if cerr != nil {
-			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "company not found"})
-		}
-		company = comp
-		if !company.IsActive {
-			return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "account_suspended"})
-		}
-		if company.OnTrial && company.TrialEndsAt != nil {
-			if company.TrialEndsAt.Before(time.Now()) {
-				h.companyRepo.EndTrial(c.Context(), user.CompanyID)
-				company.Plan = "community"
-				company.OnTrial = false
-			} else {
-				daysRemaining = int(time.Until(*company.TrialEndsAt).Hours() / 24)
-			}
-		}
+	company, daysRemaining, cerr := h.loadCompany(c.Context(), user)
+	if cerr != nil {
+		return companyError(c, cerr)
 	}
 
 	// Successful login — clear failure counter
-	h.redis.Del(ctx, failKey, lockKey)
+	h.clearLoginFailures(ctx, body.Email)
 
 	access, refresh, err := h.generateTokenPair(user)
 	if err != nil {
@@ -186,17 +164,20 @@ func (h *AuthHandler) Login(c *fiber.Ctx) error {
 		},
 	}
 	if company != nil {
-		resp["company"] = fiber.Map{
-			"id":             company.ID,
-			"name":           company.Name,
-			"plan":           company.Plan,
-			"on_trial":       company.OnTrial,
-			"trial_ends_at":  company.TrialEndsAt,
-			"days_remaining": daysRemaining,
-			"is_demo":        company.IsDemo,
-		}
+		resp["company"] = companyPayload(company, daysRemaining)
 	}
 	return c.JSON(h.attachRefresh(c, resp, refresh))
+}
+
+// loginFailed counts a failed attempt and answers with the same response whether or not the
+// email is registered (see recordLoginFailure).
+func (h *AuthHandler) loginFailed(c *fiber.Ctx, ctx context.Context, email string) error {
+	if h.recordLoginFailure(ctx, email) {
+		return c.Status(fiber.StatusTooManyRequests).JSON(fiber.Map{
+			"error": "account locked for 15 minutes after too many failed attempts",
+		})
+	}
+	return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "invalid credentials"})
 }
 
 // Refresh godoc
@@ -256,10 +237,9 @@ func (h *AuthHandler) Refresh(c *fiber.Ctx) error {
 			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "session expired, please login again"})
 		}
 	}
-	if h.companyRepo != nil {
-		if comp, cerr := h.companyRepo.GetByID(c.Context(), user.CompanyID); cerr != nil || !comp.IsActive {
-			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "account not found or deactivated"})
-		}
+	company, daysRemaining, cerr := h.loadCompany(c.Context(), user)
+	if cerr != nil {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "account not found or deactivated"})
 	}
 
 	// Issue a new token pair (rotated refresh token)
@@ -274,8 +254,9 @@ func (h *AuthHandler) Refresh(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "session error"})
 	}
 
-	// The profile is returned so a reloaded browser tab can rebuild its session from the cookie alone.
-	return c.JSON(h.attachRefresh(c, fiber.Map{
+	// The profile is returned so a reloaded browser tab can rebuild its session from the cookie
+	// alone; the company keeps its plan/trial state from going stale.
+	resp := fiber.Map{
 		"access_token": access,
 		"expires_in":   h.config.JWTAccessExpiryMin * 60,
 		"user": fiber.Map{
@@ -286,7 +267,11 @@ func (h *AuthHandler) Refresh(c *fiber.Ctx) error {
 			"lang_pref": user.LangPref,
 			"phone":     user.Phone,
 		},
-	}, newRefresh))
+	}
+	if company != nil {
+		resp["company"] = companyPayload(company, daysRemaining)
+	}
+	return c.JSON(h.attachRefresh(c, resp, newRefresh))
 }
 
 // refreshIssuedAt reads the iat of one of our own refresh tokens (HS256, signed with the JWT
@@ -383,6 +368,13 @@ func (h *AuthHandler) ForgotPassword(c *fiber.Ctx) error {
 	// Always return success — never reveal whether email exists
 	const successMsg = "If that email is registered, a reset link has been sent"
 
+	// Per-address cap: the per-IP limiter alone lets a botnet flood one inbox with reset mail, and
+	// every new token invalidates the previous one, so it would also keep a real reset link dead.
+	// Over the cap the answer is still the generic success.
+	if ok, err := allowRate(context.Background(), h.redis, "forgot_rate:"+body.Email, forgotPasswordPerHour, time.Hour); err != nil || !ok {
+		return c.JSON(fiber.Map{"message": successMsg})
+	}
+
 	user, err := h.users.FindByEmail(c.Context(), body.Email)
 	if err != nil {
 		return c.JSON(fiber.Map{"message": successMsg})
@@ -462,6 +454,11 @@ func (h *AuthHandler) ResetPassword(c *fiber.Ctx) error {
 	if err := session.RevokeAll(c.Context(), h.redis, userID); err != nil {
 		log.Printf("password reset: revoke sessions for %s: %v", userID, err)
 	}
+	// Someone who forgot their password has usually also been locked out by failed attempts; the
+	// new password must work straight away.
+	if u, err := h.users.FindByID(c.Context(), userID); err == nil {
+		h.clearLoginFailures(context.Background(), u.Email)
+	}
 
 	h.audit.Log(c.Context(), userID, repo.AuditPasswordChange, repo.AuditUser, userID, fiber.Map{
 		"method": "password_reset",
@@ -497,7 +494,6 @@ func (h *AuthHandler) Register(c *fiber.Ctx) error {
 	// the first admin, so signup stays open until a user exists. The first signup also
 	// adopts this deployment's own company (APP_COMPANY_ID) rather than creating a new one.
 	userCount, countErr := h.users.Count(c.Context())
-	firstRun := countErr == nil && userCount == 0
 	if !registrationAllowed(h.config.AllowRegistration, userCount, countErr) {
 		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{
 			"error": "public registration is disabled on this instance",
@@ -527,54 +523,45 @@ func (h *AuthHandler) Register(c *fiber.Ctx) error {
 	}
 
 	// Validate inputs
-	if body.Name == "" || body.Email == "" || body.Password == "" {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "name, email, and password are required"})
-	}
-	if body.CompanyName == "" || body.Subdomain == "" {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "company_name and subdomain are required"})
-	}
-	if msg := validatePasswordStrength(body.Password); msg != "" {
+	f, msg := normalizeRegistration(body.Name, body.Email, body.Password, body.CompanyName, body.Subdomain)
+	switch msg {
+	case "":
+	case "subdomain_taken":
+		return c.Status(fiber.StatusConflict).JSON(fiber.Map{"error": "subdomain_taken"})
+	default:
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": msg})
 	}
 
-	// Check email uniqueness
-	exists, err := h.users.EmailExists(c.Context(), body.Email)
-	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "internal error"})
-	}
-	if exists {
-		return c.Status(fiber.StatusConflict).JSON(fiber.Map{"error": "email_taken"})
-	}
-
-	// Check subdomain uniqueness
-	if h.companyRepo != nil {
-		existing, _ := h.companyRepo.GetBySubdomain(c.Context(), body.Subdomain)
-		if existing != nil {
-			return c.Status(fiber.StatusConflict).JSON(fiber.Map{"error": "subdomain_taken"})
-		}
-	}
-
 	// Hash password
-	hash, err := bcrypt.GenerateFromPassword([]byte(body.Password), bcrypt.DefaultCost)
+	hash, err := bcrypt.GenerateFromPassword([]byte(f.Password), bcrypt.DefaultCost)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to hash password"})
 	}
 
-	// Create company with trial
-	var company *domain.Company
-	if appCompanyID, perr := uuid.Parse(h.config.AppCompanyID); firstRun && perr == nil {
-		company, err = h.companyRepo.Bootstrap(c.Context(), appCompanyID, body.CompanyName, body.Subdomain, h.config.TrialDurationDays)
-	} else {
-		company, err = h.companyRepo.Create(c.Context(), body.CompanyName, body.Subdomain, h.config.TrialDurationDays)
-	}
-	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to create company"})
-	}
-
-	// Create admin user
-	user, err := h.users.CreateWithCompany(c.Context(), body.Name, body.Email, string(hash), company.ID, domain.RoleAdmin)
-	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to create user"})
+	// Company and admin are created in one transaction; the email/subdomain checks happen inside
+	// it, so concurrent sign-ups cannot slip past them and a failure leaves nothing behind.
+	bootstrapID, _ := uuid.Parse(h.config.AppCompanyID) // zero value (no bootstrap) if unset/invalid
+	company, user, err := h.companyRepo.RegisterTenant(c.Context(), repo.RegistrationInput{
+		CompanyName:        f.CompanyName,
+		Subdomain:          f.Subdomain,
+		TrialDurationDays:  h.config.TrialDurationDays,
+		AdminName:          f.Name,
+		AdminEmail:         f.Email,
+		AdminPasswordHash:  string(hash),
+		OpenRegistration:   h.config.AllowRegistration,
+		BootstrapCompanyID: bootstrapID,
+	})
+	switch {
+	case err == nil:
+	case errors.Is(err, repo.ErrEmailTaken):
+		return c.Status(fiber.StatusConflict).JSON(fiber.Map{"error": "email_taken"})
+	case errors.Is(err, repo.ErrSubdomainTaken):
+		return c.Status(fiber.StatusConflict).JSON(fiber.Map{"error": "subdomain_taken"})
+	case errors.Is(err, repo.ErrRegistrationClosed):
+		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"error": "public registration is disabled on this instance"})
+	default:
+		log.Printf("register: %v", err)
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to create account"})
 	}
 
 	// Audit log
@@ -590,9 +577,11 @@ func (h *AuthHandler) Register(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "token generation failed"})
 	}
 
-	// Store refresh token
+	// Store refresh token: without it the session would die at the first refresh.
 	ttl := time.Duration(h.config.JWTRefreshExpiryDays) * 24 * time.Hour
-	h.redis.Set(context.Background(), fmt.Sprintf("refresh:%s", refresh), user.ID.String(), ttl)
+	if err := h.redis.Set(context.Background(), fmt.Sprintf("refresh:%s", refresh), user.ID.String(), ttl).Err(); err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "session error"})
+	}
 
 	daysRemaining := 0
 	if company.TrialEndsAt != nil {
@@ -609,16 +598,7 @@ func (h *AuthHandler) Register(c *fiber.Ctx) error {
 			"role":      user.Role,
 			"lang_pref": user.LangPref,
 		},
-		"company": fiber.Map{
-			"id":             company.ID,
-			"name":           company.Name,
-			"subdomain":      company.Subdomain,
-			"plan":           company.Plan,
-			"on_trial":       company.OnTrial,
-			"trial_ends_at":  company.TrialEndsAt,
-			"days_remaining": daysRemaining,
-			"is_demo":        company.IsDemo,
-		},
+		"company": companyPayload(company, daysRemaining),
 	}
 	return c.Status(fiber.StatusCreated).JSON(h.attachRefresh(c, resp, refresh))
 }
@@ -704,22 +684,15 @@ func (h *AuthHandler) RequestMagicLink(c *fiber.Ctx) error {
 
 	ctx := context.Background()
 
-	// Rate limiting: 3 requests per email per hour
-	rateKey := fmt.Sprintf("magic_rate:%s", body.Email)
-	count, err := h.redis.Get(ctx, rateKey).Int()
-	if err != nil && err != redis.Nil {
+	// Rate limiting: MagicLinkRateLimit requests per email per hour (atomic count-then-check)
+	allowed, err := allowRate(ctx, h.redis, fmt.Sprintf("magic_rate:%s", body.Email), h.config.MagicLinkRateLimit, time.Hour)
+	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "internal error"})
 	}
-	if count >= h.config.MagicLinkRateLimit {
+	if !allowed {
 		return c.Status(fiber.StatusTooManyRequests).JSON(fiber.Map{
 			"error": "too many requests, please try again later",
 		})
-	}
-
-	// Increment rate limit counter
-	h.redis.Incr(ctx, rateKey)
-	if count == 0 {
-		h.redis.Expire(ctx, rateKey, 1*time.Hour)
 	}
 
 	// Only registered, active accounts get a link. Anything else gets the same generic response
@@ -824,6 +797,13 @@ func (h *AuthHandler) VerifyMagicLink(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "account is deactivated"})
 	}
 
+	// Same company checks as password login: suspended workspaces are refused and an expired
+	// trial is downgraded; the trial countdown is reported instead of a hard-coded 0.
+	company, daysRemaining, cerr := h.loadCompany(ctx, user)
+	if cerr != nil {
+		return companyError(c, cerr)
+	}
+
 	// Generate JWT tokens
 	access, refresh, err := h.generateTokenPair(user)
 	if err != nil {
@@ -848,18 +828,8 @@ func (h *AuthHandler) VerifyMagicLink(c *fiber.Ctx) error {
 			"lang_pref": user.LangPref,
 		},
 	}
-	if h.companyRepo != nil {
-		if company, cerr := h.companyRepo.GetByID(ctx, user.CompanyID); cerr == nil {
-			resp["company"] = fiber.Map{
-				"id":             company.ID,
-				"name":           company.Name,
-				"plan":           company.Plan,
-				"on_trial":       company.OnTrial,
-				"trial_ends_at":  company.TrialEndsAt,
-				"days_remaining": 0,
-				"is_demo":        company.IsDemo,
-			}
-		}
+	if company != nil {
+		resp["company"] = companyPayload(company, daysRemaining)
 	}
 	return c.JSON(h.attachRefresh(c, resp, refresh))
 }
@@ -1019,11 +989,22 @@ func (h *AuthHandler) RequestSMSOTP(c *fiber.Ctx) error {
 
 	ctx := context.Background()
 
-	// Rate limit: 3 OTPs per phone per hour
-	rateKey := fmt.Sprintf("sms_rate:%s", phone)
-	count, _ := h.redis.Get(ctx, rateKey).Int()
-	if count >= 3 {
+	// Rate limit: 3 OTPs per phone per hour (atomic: concurrent requests cannot all pass the
+	// check and each trigger a paid SMS).
+	allowed, err := allowRate(ctx, h.redis, fmt.Sprintf("sms_rate:%s", phone), 3, time.Hour)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "internal error"})
+	}
+	if !allowed {
 		return c.Status(fiber.StatusTooManyRequests).JSON(fiber.Map{"error": "too many OTP requests, please try again later"})
+	}
+
+	// Only registered, active accounts are texted. Sending to any number made this endpoint a way
+	// to run up the SMS bill and to spam arbitrary people; unknown numbers get the same generic
+	// answer as known ones, so it is not an account oracle either (verify can only succeed for
+	// a number that actually received a code).
+	if u, uerr := h.users.FindByPhone(ctx, phone); uerr != nil || !u.IsActive {
+		return c.JSON(fiber.Map{"message": "OTP sent"})
 	}
 
 	otp, err := generateOTP()
@@ -1041,10 +1022,6 @@ func (h *AuthHandler) RequestSMSOTP(c *fiber.Ctx) error {
 	if err := h.redis.Set(ctx, otpKey, otp+"|"+lang, 10*time.Minute).Err(); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "session error"})
 	}
-
-	// Increment rate counter
-	h.redis.Incr(ctx, rateKey)
-	h.redis.Expire(ctx, rateKey, 1*time.Hour)
 
 	if err := h.sms.SendOTP(ctx, phone, otp); err != nil {
 		h.redis.Del(ctx, otpKey)
@@ -1103,6 +1080,11 @@ func (h *AuthHandler) VerifySMSOTP(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "account is deactivated"})
 	}
 
+	company, daysRemaining, cerr := h.loadCompany(ctx, user)
+	if cerr != nil {
+		return companyError(c, cerr)
+	}
+
 	access, refresh, err := h.generateTokenPair(user)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "token generation failed"})
@@ -1126,18 +1108,8 @@ func (h *AuthHandler) VerifySMSOTP(c *fiber.Ctx) error {
 			"phone":     user.Phone,
 		},
 	}
-	if h.companyRepo != nil {
-		if company, cerr := h.companyRepo.GetByID(ctx, user.CompanyID); cerr == nil {
-			resp["company"] = fiber.Map{
-				"id":             company.ID,
-				"name":           company.Name,
-				"plan":           company.Plan,
-				"on_trial":       company.OnTrial,
-				"trial_ends_at":  company.TrialEndsAt,
-				"days_remaining": 0,
-				"is_demo":        company.IsDemo,
-			}
-		}
+	if company != nil {
+		resp["company"] = companyPayload(company, daysRemaining)
 	}
 	return c.JSON(h.attachRefresh(c, resp, refresh))
 }

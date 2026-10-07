@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/maidulcu/masaar-crm/internal/domain"
 	"github.com/maidulcu/masaar-crm/internal/tenant"
@@ -158,9 +159,19 @@ func (r *TenantRepo) Delete(ctx context.Context, id uuid.UUID) error {
 	if err != nil {
 		return err
 	}
-	_, err = r.db.Exec(ctx, `DELETE FROM tenants WHERE id=$1 AND company_id=$2`, id, cid)
-	return err
+	tag, err := r.db.Exec(ctx, `DELETE FROM tenants WHERE id=$1 AND company_id=$2`, id, cid)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrTenantNotFound
+	}
+	return nil
 }
+
+// ErrTenantNotFound is returned when a tenant does not exist in the caller's company. It wraps
+// pgx.ErrNoRows so handlers answer 404.
+var ErrTenantNotFound = fmt.Errorf("tenant not found: %w", pgx.ErrNoRows)
 
 func (r *TenantRepo) GetByIDNumber(ctx context.Context, idNumber string) (*domain.Tenant, error) {
 	cid, err := tenant.From(ctx)

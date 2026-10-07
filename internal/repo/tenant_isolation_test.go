@@ -234,7 +234,7 @@ func TestLeadsIsolatedAndNoCrossReferences(t *testing.T) {
 		}
 	}
 
-	_ = leads.UpdateStage(e.b.ctx, ld.ID, domain.StageWon, "stolen")
+	_, _ = leads.UpdateStage(e.b.ctx, ld.ID, domain.StageWon, "stolen")
 	_ = leads.UpdateNotes(e.b.ctx, ld.ID, "pwned")
 	_ = leads.Assign(e.b.ctx, ld.ID, &e.b.user)
 	if err := leads.Delete(e.b.ctx, ld.ID); err == nil {

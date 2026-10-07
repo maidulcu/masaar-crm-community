@@ -11,16 +11,6 @@ import type { LoginResponse } from '@/types'
 
 const TURNSTILE_SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? ''
 
-async function verifyTurnstile(token: string): Promise<boolean> {
-  const res = await fetch('/api/verify-turnstile', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ token }),
-  })
-  const data = await res.json()
-  return data.success === true
-}
-
 export default function SignupPage() {
   const { setSession } = useAuthStore()
   const router = useRouter()
@@ -44,19 +34,13 @@ export default function SignupPage() {
       return
     }
 
-    // Verify Turnstile before hitting the backend (only when configured)
-    if (TURNSTILE_SITE_KEY) {
-      if (!turnstileToken) {
-        setError('Please complete the security check')
-        return
-      }
-      const ok = await verifyTurnstile(turnstileToken)
-      if (!ok) {
-        setError('Security check failed — please try again')
-        turnstileRef.current?.reset()
-        setTurnstileToken(null)
-        return
-      }
+    // A Turnstile token can be redeemed with Cloudflare only once. The API verifies it itself
+    // (when it has a secret key), so it is only required here and must NOT be pre-verified
+    // through /api/verify-turnstile: that spent the token and made the API's check fail with
+    // "timeout-or-duplicate", so signup never succeeded when captcha was enabled on both sides.
+    if (TURNSTILE_SITE_KEY && !turnstileToken) {
+      setError('Please complete the security check')
+      return
     }
 
     setLoading(true)

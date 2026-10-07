@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"errors"
+
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 	"github.com/maidulcu/masaar-crm/internal/domain"
@@ -122,9 +124,11 @@ func (h *ApprovalHandler) ReviewRequest(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid id"})
 	}
 
-	userID, err := uuid.Parse(c.Locals("user_id").(string))
-	if err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid user_id"})
+	// user_id is a uuid.UUID in the request locals; asserting it as a string panicked, so no
+	// approval request could ever be reviewed.
+	userID, ok := c.Locals("user_id").(uuid.UUID)
+	if !ok {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "unauthorized"})
 	}
 
 	var body struct {
@@ -139,6 +143,9 @@ func (h *ApprovalHandler) ReviewRequest(c *fiber.Ctx) error {
 	}
 
 	if err := h.repo.Review(c.Context(), id, userID, domain.ApprovalStatus(body.Status), body.Note); err != nil {
+		if errors.Is(err, repo.ErrApprovalNotPending) {
+			return c.Status(fiber.StatusConflict).JSON(fiber.Map{"error": "this request has already been reviewed"})
+		}
 		return serverError(c, err)
 	}
 

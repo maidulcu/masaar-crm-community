@@ -20,7 +20,11 @@ type MessageHandler struct {
 	tagRepo        *repo.LeadTagRepo
 	scoringService *ai.ScoringService
 	hub            *ws.Hub
+	assigner       NewLeadAssigner
 }
+
+// SetAssigner enables automatic assignment of newly created leads (see NewLeadAssigner).
+func (h *MessageHandler) SetAssigner(a NewLeadAssigner) { h.assigner = a }
 
 func NewMessageHandler(aiClient *ai.Client, waRepo *repo.WhatsAppRepo, contactRepo *repo.ContactRepo, leadRepo *repo.LeadRepo, commHistRepo *repo.CommunicationHistoryRepo, tagRepo *repo.LeadTagRepo, scoringService *ai.ScoringService, hub *ws.Hub) *MessageHandler {
 	return &MessageHandler{
@@ -220,7 +224,8 @@ func (h *MessageHandler) AutoCreateLead(c *fiber.Ctx) error {
 
 	// Extract deal value if available
 	if budget, ok := enrichment["budget"].(map[string]interface{}); ok {
-		if maxBudget, ok := budget["max_aed"].(float64); ok && maxBudget > 0 {
+		// Model output is untrusted: ignore amounts the column cannot hold (they made the insert fail).
+		if maxBudget, ok := budget["max_aed"].(float64); ok && maxBudget > 0 && maxBudget <= maxDealValue {
 			lead.DealValue = maxBudget
 		}
 	}
@@ -237,6 +242,12 @@ func (h *MessageHandler) AutoCreateLead(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"error": "failed to create lead",
 		})
+	}
+
+	if h.assigner != nil {
+		if companyID, perr := uuid.Parse(localsCompanyID(c)); perr == nil {
+			lead.AssignedTo = h.assigner.AssignNewLead(companyID, lead.ID)
+		}
 	}
 
 	// Calculate initial lead score

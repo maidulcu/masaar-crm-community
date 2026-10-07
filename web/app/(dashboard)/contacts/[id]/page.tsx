@@ -109,8 +109,22 @@ export default function ContactDetailPage() {
 
   const handleDelete = async () => {
     if (!confirm(t('حذف جهة الاتصال؟', 'Delete this contact?'))) return
-    try { await api.contacts.delete(id); router.push('/contacts') }
-    catch { setError(t('فشل الحذف', 'Delete failed')) }
+    try { await api.contacts.delete(id); router.push('/contacts'); return }
+    catch (err) {
+      const d = (err as { details?: { error?: string; linked?: Record<string, number> } }).details
+      if (!d?.linked) { setError((err as Error).message || t('فشل الحذف', 'Delete failed')); return }
+      // The API refuses to silently take the contact's leads, deals and chats with it.
+      const L = d.linked
+      if (L.invoices > 0) { setError(d.error || t('فشل الحذف', 'Delete failed')); return }
+      const summary = [
+        L.leads && `${L.leads} ${t('عميل محتمل', 'leads')}`, L.deals && `${L.deals} ${t('صفقات', 'deals')}`,
+        L.offers && `${L.offers} ${t('عروض', 'offers')}`, L.viewings && `${L.viewings} ${t('معاينات', 'viewings')}`,
+        L.threads && `${L.threads} ${t('محادثات', 'conversations')}`,
+      ].filter(Boolean).join(', ')
+      if (!confirm(t(`سيتم أيضاً حذف: ${summary}. هل تريد المتابعة؟`, `This will also permanently delete: ${summary}. Continue?`))) return
+      try { await api.contacts.delete(id, true); router.push('/contacts') }
+      catch (e2) { setError((e2 as Error).message || t('فشل الحذف', 'Delete failed')) }
+    }
   }
 
   const assignedUser = contact?.assigned_to ? users.find(u => u.id === contact.assigned_to) : null

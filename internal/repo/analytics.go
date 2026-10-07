@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/google/uuid"
@@ -62,8 +63,8 @@ func (r *AnalyticsRepository) computeTenantAnalytics(ctx context.Context, compan
 			(SELECT COUNT(*) FROM rental_properties rp WHERE rp.company_id = $1 AND rp.occupancy_status = 'vacant'),
 			(SELECT COUNT(*) FROM rental_properties rp WHERE rp.company_id = $1 AND rp.occupancy_status = 'occupied'),
 			(SELECT COUNT(*) FROM leases l WHERE l.company_id = $1 AND l.status = 'active'),
-			(SELECT COUNT(*) FROM payments WHERE company_id = $1 AND status = 'overdue'),
-			COALESCE((SELECT SUM(amount) FROM payments WHERE company_id = $1 AND status = 'overdue'), 0),
+			(SELECT COUNT(*) FROM payments WHERE company_id = $1 AND (status = 'overdue' OR (status = 'pending' AND due_date < CURRENT_DATE))),
+			COALESCE((SELECT SUM(amount) FROM payments WHERE company_id = $1 AND (status = 'overdue' OR (status = 'pending' AND due_date < CURRENT_DATE))), 0),
 			COALESCE((SELECT AVG(monthly_rent) FROM leases WHERE company_id = $1 AND status = 'active'), 0),
 			COALESCE((SELECT SUM(monthly_rent) FROM leases WHERE company_id = $1 AND status = 'active'), 0),
 			(SELECT COUNT(*) FROM leases WHERE company_id = $1 AND end_date BETWEEN NOW() AND NOW() + INTERVAL '60 days' AND status = 'active')
@@ -415,19 +416,21 @@ func (r *AnalyticsRepository) ListTenantsPerformance(ctx context.Context, compan
 }
 
 func (r *AnalyticsRepository) GetFinancialAnalytics(ctx context.Context, companyID uuid.UUID, startDate, endDate time.Time) (*domain.FinancialAnalytics, error) {
+	// Rent comes from payments; expenses carry their type on the category (there is no
+	// expenses.category_type column, so the old query failed outright and the endpoint always
+	// answered 500). Soft-deleted expenses are excluded, and a payment past its due date counts as
+	// overdue even though nothing ever flips its stored status.
 	query := `
 		SELECT
-			COALESCE(SUM(CASE WHEN status = 'received' THEN amount ELSE 0 END), 0) as rent_collected,
-			COALESCE(SUM(CASE WHEN status = 'pending' THEN amount ELSE 0 END), 0) as rent_pending,
-			COALESCE(SUM(CASE WHEN status = 'overdue' THEN amount ELSE 0 END), 0) as rent_overdue,
-			COALESCE(SUM(amount) FILTER (WHERE category_type = 'utilities'), 0) as utilities_expense,
-			COALESCE(SUM(amount) FILTER (WHERE category_type IN ('plumbing', 'electrical', 'hvac', 'flooring', 'painting', 'structural')), 0) as maintenance_expense,
-			COALESCE(SUM(amount) FILTER (WHERE category_type NOT IN ('utilities', 'plumbing', 'electrical', 'hvac', 'flooring', 'painting', 'structural')), 0) as other_expense
-		FROM (
-			SELECT amount, NULL::VARCHAR as category_type, status FROM payments WHERE company_id = $1 AND due_date BETWEEN $2 AND $3
-			UNION ALL
-			SELECT amount, category_type, NULL::VARCHAR as status FROM expenses WHERE company_id = $1 AND expense_date BETWEEN $2 AND $3
-		) combined_data
+			COALESCE((SELECT SUM(amount) FROM payments WHERE company_id = $1 AND due_date BETWEEN $2 AND $3 AND status = 'received'), 0),
+			COALESCE((SELECT SUM(amount) FROM payments WHERE company_id = $1 AND due_date BETWEEN $2 AND $3 AND status = 'pending' AND due_date >= CURRENT_DATE), 0),
+			COALESCE((SELECT SUM(amount) FROM payments WHERE company_id = $1 AND due_date BETWEEN $2 AND $3 AND (status = 'overdue' OR (status = 'pending' AND due_date < CURRENT_DATE))), 0),
+			COALESCE(SUM(e.amount) FILTER (WHERE c.category_type = 'utilities'), 0),
+			COALESCE(SUM(e.amount) FILTER (WHERE c.category_type IN ('property_maintenance', 'repairs', 'plumbing', 'electrical', 'hvac', 'flooring', 'painting', 'structural')), 0),
+			COALESCE(SUM(e.amount) FILTER (WHERE c.category_type NOT IN ('utilities', 'property_maintenance', 'repairs', 'plumbing', 'electrical', 'hvac', 'flooring', 'painting', 'structural')), 0)
+		FROM expenses e
+		JOIN expense_categories c ON c.id = e.category_id
+		WHERE e.company_id = $1 AND e.deleted_at IS NULL AND e.expense_date BETWEEN $2 AND $3
 	`
 
 	var rentCollected, rentPending, rentOverdue, utilitiesExp, maintenanceExp, otherExp float64
@@ -461,6 +464,7 @@ func (r *AnalyticsRepository) GetFinancialAnalytics(ctx context.Context, company
 		ProfitMargin:       profitMargin,
 		RentCollected:      rentCollected,
 		RentPending:        rentPending,
+		RentOverdue:        rentOverdue,
 		UtilitiesExpense:   utilitiesExp,
 		MaintenanceExpense: maintenanceExp,
 		OtherExpenses:      otherExp,
@@ -468,27 +472,30 @@ func (r *AnalyticsRepository) GetFinancialAnalytics(ctx context.Context, company
 }
 
 func (r *AnalyticsRepository) GetMaintenanceAnalytics(ctx context.Context, companyID uuid.UUID) (*domain.MaintenanceAnalytics, error) {
+	// Soft-deleted tasks are excluded; open high-priority work is what the number is for.
 	query := `
 		SELECT
 			COUNT(*) as total_tasks,
 			COUNT(*) FILTER (WHERE status = 'completed') as completed_tasks,
 			COUNT(*) FILTER (WHERE status IN ('pending', 'scheduled', 'in_progress')) as pending_tasks,
-			COUNT(*) FILTER (WHERE priority = 'high' OR priority = 'urgent') as high_priority,
-			COALESCE(AVG(EXTRACT(DAY FROM (completion_date - created_at))) FILTER (WHERE status = 'completed'), 0) as avg_completion_days
+			COUNT(*) FILTER (WHERE priority IN ('high', 'urgent') AND status IN ('pending', 'scheduled', 'in_progress')) as high_priority,
+			COALESCE(AVG(GREATEST(completion_date - created_at::date, 0)) FILTER (WHERE status = 'completed' AND completion_date IS NOT NULL), 0)::float8 as avg_completion_days
 		FROM maintenance_tasks
-		WHERE company_id = $1
+		WHERE company_id = $1 AND deleted_at IS NULL
 	`
 
+	// The columns used to be scanned in a different order than selected (average days into the
+	// high-priority count and vice versa) and the average into an int.
 	var analytics domain.MaintenanceAnalytics
-	var completedTasks, pendingTasks, avgDays int
-	var highPriority int
+	var completedTasks, pendingTasks, highPriority int
+	var avgDays float64
 
 	err := r.conn.QueryRow(ctx, query, companyID).Scan(
 		&analytics.TotalTasks,
 		&completedTasks,
 		&pendingTasks,
-		&avgDays,
 		&highPriority,
+		&avgDays,
 	)
 	if err != nil {
 		return nil, err
@@ -497,7 +504,7 @@ func (r *AnalyticsRepository) GetMaintenanceAnalytics(ctx context.Context, compa
 	analytics.CompletedTasks = completedTasks
 	analytics.PendingTasks = pendingTasks
 	analytics.HighPriorityTasks = highPriority
-	analytics.AvgCompletionDays = float64(avgDays)
+	analytics.AvgCompletionDays = math.Round(avgDays*10) / 10
 
 	if analytics.TotalTasks > 0 {
 		analytics.CompletionRate = (float64(completedTasks) / float64(analytics.TotalTasks)) * 100
