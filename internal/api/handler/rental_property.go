@@ -177,6 +177,9 @@ func (h *RentalPropertyHandler) Delete(c *fiber.Ctx) error {
 	}
 
 	if err := h.properties.Delete(c.Context(), id); err != nil {
+		if errors.Is(err, repo.ErrPropertyHasWork) {
+			return c.Status(fiber.StatusConflict).JSON(fiber.Map{"error": "this property has maintenance tasks or inspections and cannot be deleted; mark it inactive instead"})
+		}
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23503" {
 			// leases (RESTRICT) and expenses reference the property: they are financial records.

@@ -129,6 +129,9 @@ func (r *RentalPropertyRepo) Create(ctx context.Context, p *domain.RentalPropert
 // wraps pgx.ErrNoRows so handlers answer 404.
 var ErrRentalPropertyNotFound = fmt.Errorf("rental property not found: %w", pgx.ErrNoRows)
 
+// ErrPropertyHasWork is returned by Delete when maintenance tasks or inspections still refer to the property.
+var ErrPropertyHasWork = errors.New("property has maintenance tasks or inspections")
+
 func (r *RentalPropertyRepo) Update(ctx context.Context, p *domain.RentalProperty) error {
 	cid, err := tenant.From(ctx)
 	if err != nil {
@@ -163,6 +166,17 @@ func (r *RentalPropertyRepo) Delete(ctx context.Context, id uuid.UUID) error {
 	cid, err := tenant.From(ctx)
 	if err != nil {
 		return err
+	}
+	// Maintenance tasks and inspections have no foreign key to the property, so deleting it left
+	// them orphaned (still listed, pointing at nothing).
+	var busy bool
+	if err := r.db.QueryRow(ctx, `
+		SELECT EXISTS (SELECT 1 FROM maintenance_tasks WHERE property_id = $1 AND company_id = $2 AND deleted_at IS NULL)
+		    OR EXISTS (SELECT 1 FROM inspections WHERE property_id = $1 AND company_id = $2)`, id, cid).Scan(&busy); err != nil {
+		return err
+	}
+	if busy {
+		return ErrPropertyHasWork
 	}
 	tag, err := r.db.Exec(ctx, `DELETE FROM rental_properties WHERE id=$1 AND company_id=$2`, id, cid)
 	if err != nil {

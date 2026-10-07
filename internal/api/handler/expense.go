@@ -1,12 +1,16 @@
 package handler
 
 import (
+	"encoding/json"
+	"errors"
+	"math"
 	"net/http"
 	"strconv"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/maidulcu/masaar-crm/internal/domain"
 	"github.com/maidulcu/masaar-crm/internal/repo"
@@ -56,7 +60,7 @@ func (h *ExpenseHandler) CreateCategory(c *fiber.Ctx) error {
 		Description  string `json:"description"`
 	}
 	if err := c.BodyParser(&req); err != nil {
-		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": "Invalid request"})
+		return badRequest(c, err)
 	}
 
 	cat := &domain.ExpenseCategory{
@@ -67,8 +71,14 @@ func (h *ExpenseHandler) CreateCategory(c *fiber.Ctx) error {
 		Description:  req.Description,
 	}
 
+	if err := validateExpenseCategory(cat); err != nil {
+		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+	}
 	if err := h.expenseRepo.CreateCategory(c.Context(), cat); err != nil {
-		return c.Status(http.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to create category"})
+		if isUniqueViolation(err) {
+			return c.Status(http.StatusConflict).JSON(fiber.Map{"error": "a category with this name already exists"})
+		}
+		return serverError(c, err)
 	}
 
 	return c.Status(http.StatusCreated).JSON(fiber.Map{"data": cat})
@@ -125,7 +135,10 @@ func (h *ExpenseHandler) GetExpense(c *fiber.Ctx) error {
 
 	expense, err := h.expenseRepo.GetExpense(c.Context(), expenseID)
 	if err != nil {
-		return c.Status(http.StatusNotFound).JSON(fiber.Map{"error": "Expense not found"})
+		if errors.Is(err, pgx.ErrNoRows) {
+			return c.Status(http.StatusNotFound).JSON(fiber.Map{"error": "Expense not found"})
+		}
+		return serverError(c, err)
 	}
 
 	return c.Status(http.StatusOK).JSON(fiber.Map{"data": expense})
@@ -142,9 +155,12 @@ func (h *ExpenseHandler) CreateExpense(c *fiber.Ctx) error {
 	companyID, _ := uuid.Parse(c.Locals("company_id").(string))
 	userID := c.Locals("user_id").(uuid.UUID)
 
+	// The expense form sends a date-only expense_date and "" for "no property", neither of which
+	// time.Time / *uuid.UUID accept: creating an expense from the web app always answered 400.
 	var req struct {
 		CategoryID    uuid.UUID  `json:"category_id"`
 		PropertyID    *uuid.UUID `json:"property_id"`
+		TenantID      *uuid.UUID `json:"tenant_id"`
 		Amount        float64    `json:"amount"`
 		ExpenseDate   time.Time  `json:"expense_date"`
 		Description   string     `json:"description"`
@@ -154,8 +170,11 @@ func (h *ExpenseHandler) CreateExpense(c *fiber.Ctx) error {
 		ReceiptURL    string     `json:"receipt_url"`
 		Notes         string     `json:"notes"`
 	}
-	if err := c.BodyParser(&req); err != nil {
-		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": "Invalid request"})
+	if err := json.Unmarshal(normalizeDateFields(c.Body(), "expense_date", "property_id", "tenant_id"), &req); err != nil {
+		return badRequest(c, err)
+	}
+	if req.CategoryID == uuid.Nil {
+		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": "category_id is required"})
 	}
 
 	expense := &domain.Expense{
@@ -163,7 +182,8 @@ func (h *ExpenseHandler) CreateExpense(c *fiber.Ctx) error {
 		CompanyID:     companyID,
 		CategoryID:    req.CategoryID,
 		PropertyID:    req.PropertyID,
-		Amount:        req.Amount,
+		TenantID:      req.TenantID,
+		Amount:        math.Round(req.Amount*100) / 100,
 		Currency:      "AED",
 		ExpenseDate:   req.ExpenseDate,
 		Description:   req.Description,
@@ -175,9 +195,15 @@ func (h *ExpenseHandler) CreateExpense(c *fiber.Ctx) error {
 		Notes:         req.Notes,
 		CreatedBy:     userID,
 	}
+	if err := validateExpense(expense); err != nil {
+		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+	}
 
 	if err := h.expenseRepo.CreateExpense(c.Context(), expense); err != nil {
-		return c.Status(http.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to create expense"})
+		if errors.Is(err, pgx.ErrNoRows) { // the INSERT only happens when the references are this company's
+			return c.Status(http.StatusUnprocessableEntity).JSON(fiber.Map{"error": "category, property or tenant not found"})
+		}
+		return serverError(c, err)
 	}
 
 	return c.Status(http.StatusCreated).JSON(fiber.Map{"data": expense})
@@ -199,30 +225,74 @@ func (h *ExpenseHandler) UpdateExpense(c *fiber.Ctx) error {
 
 	expense, err := h.expenseRepo.GetExpense(c.Context(), expenseID)
 	if err != nil {
-		return c.Status(http.StatusNotFound).JSON(fiber.Map{"error": "Expense not found"})
+		if errors.Is(err, pgx.ErrNoRows) {
+			return c.Status(http.StatusNotFound).JSON(fiber.Map{"error": "Expense not found"})
+		}
+		return serverError(c, err)
 	}
 
 	var req struct {
-		Amount        *float64 `json:"amount"`
-		Description   *string  `json:"description"`
-		PaymentStatus *string  `json:"payment_status"`
+		CategoryID    *uuid.UUID `json:"category_id"`
+		Amount        *float64   `json:"amount"`
+		ExpenseDate   *time.Time `json:"expense_date"`
+		Description   *string    `json:"description"`
+		VendorName    *string    `json:"vendor_name"`
+		VendorContact *string    `json:"vendor_contact"`
+		PaymentMethod *string    `json:"payment_method"`
+		PaymentStatus *string    `json:"payment_status"`
+		ReceiptURL    *string    `json:"receipt_url"`
+		Notes         *string    `json:"notes"`
 	}
-	if err := c.BodyParser(&req); err != nil {
-		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": "Invalid request"})
+	if err := json.Unmarshal(normalizeDateFields(c.Body(), "expense_date"), &req); err != nil {
+		return badRequest(c, err)
 	}
 
+	before := expense.Amount
+	if req.CategoryID != nil && *req.CategoryID != uuid.Nil {
+		expense.CategoryID = *req.CategoryID
+	}
 	if req.Amount != nil {
-		expense.Amount = *req.Amount
+		expense.Amount = math.Round(*req.Amount*100) / 100
+	}
+	if req.ExpenseDate != nil {
+		expense.ExpenseDate = *req.ExpenseDate
 	}
 	if req.Description != nil {
 		expense.Description = *req.Description
 	}
+	if req.VendorName != nil {
+		expense.VendorName = *req.VendorName
+	}
+	if req.VendorContact != nil {
+		expense.VendorContact = *req.VendorContact
+	}
+	if req.PaymentMethod != nil {
+		expense.PaymentMethod = domain.ExpensePaymentMethod(*req.PaymentMethod)
+	}
 	if req.PaymentStatus != nil {
 		expense.PaymentStatus = domain.ExpensePaymentStatus(*req.PaymentStatus)
 	}
+	if req.ReceiptURL != nil {
+		expense.ReceiptURL = *req.ReceiptURL
+	}
+	if req.Notes != nil {
+		expense.Notes = *req.Notes
+	}
+	if err := validateExpense(expense); err != nil {
+		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+	}
+	// An approved expense is what the approver saw: its amount can no longer change.
+	if expense.Amount != before {
+		if ap, err := h.expenseRepo.GetApprovalByExpense(c.Context(), expenseID); err == nil && ap.ApprovalStatus == domain.ExpenseApprovalApproved {
+			return c.Status(http.StatusConflict).JSON(fiber.Map{"error": "this expense has been approved; its amount can no longer be changed"})
+		}
+	}
 
 	if err := h.expenseRepo.UpdateExpense(c.Context(), expense); err != nil {
-		return c.Status(http.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to update expense"})
+		if errors.Is(err, pgx.ErrNoRows) {
+			return c.Status(http.StatusUnprocessableEntity).JSON(fiber.Map{"error": "category not found"})
+		}
+		return serverError(c, err)
 	}
 
 	return c.Status(http.StatusOK).JSON(fiber.Map{"data": expense})
@@ -241,7 +311,7 @@ func (h *ExpenseHandler) DeleteExpense(c *fiber.Ctx) error {
 	}
 
 	if err := h.expenseRepo.DeleteExpense(c.Context(), expenseID); err != nil {
-		return c.Status(http.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to delete expense"})
+		return serverError(c, err)
 	}
 
 	return c.SendStatus(http.StatusNoContent)
@@ -264,11 +334,23 @@ func (h *ExpenseHandler) ApproveExpense(c *fiber.Ctx) error {
 
 	userID := c.Locals("user_id").(uuid.UUID)
 
+	// The web client posts no body at all; an empty body used to be "invalid request body".
 	var req struct {
 		Comments string `json:"comments"`
 	}
-	if err := c.BodyParser(&req); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid request body"})
+	if len(c.Body()) > 0 {
+		if err := c.BodyParser(&req); err != nil {
+			return badRequest(c, err)
+		}
+	}
+	if tooLong(req.Comments, 5000) {
+		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": "comments are too long"})
+	}
+	if _, err := h.expenseRepo.GetExpense(c.Context(), expenseID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return c.Status(http.StatusNotFound).JSON(fiber.Map{"error": "Expense not found"})
+		}
+		return serverError(c, err)
 	}
 
 	approval := &domain.ExpenseApproval{
@@ -281,7 +363,10 @@ func (h *ExpenseHandler) ApproveExpense(c *fiber.Ctx) error {
 	}
 
 	if err := h.expenseRepo.CreateApproval(c.Context(), approval); err != nil {
-		return c.Status(http.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to approve"})
+		if isUniqueViolation(err) { // expense_approvals.expense_id is unique
+			return c.Status(http.StatusConflict).JSON(fiber.Map{"error": "this expense has already been reviewed"})
+		}
+		return serverError(c, err)
 	}
 
 	return c.Status(http.StatusOK).JSON(fiber.Map{"data": approval})

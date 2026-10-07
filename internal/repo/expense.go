@@ -2,9 +2,11 @@ package repo
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/maidulcu/masaar-crm/internal/domain"
@@ -104,7 +106,7 @@ func (r *ExpenseRepository) ListExpenses(ctx context.Context, companyID uuid.UUI
 		SELECT id, company_id, category_id, property_id, tenant_id, amount, currency, expense_date, description, vendor_name, vendor_contact, payment_method, payment_status, receipt_url, notes, created_by, created_at, updated_at, deleted_at
 		FROM expenses
 		WHERE company_id = $1 AND deleted_at IS NULL
-		ORDER BY expense_date DESC
+		ORDER BY expense_date DESC, created_at DESC, id
 		LIMIT $2 OFFSET $3
 	`, companyID, limit, offset)
 	if err != nil {
@@ -145,13 +147,23 @@ func (r *ExpenseRepository) DeleteExpense(ctx context.Context, expenseID uuid.UU
 	if err != nil {
 		return err
 	}
-	_, err = r.conn.Exec(ctx, `
+	tag, err := r.conn.Exec(ctx, `
 		UPDATE expenses
 		SET deleted_at = CURRENT_TIMESTAMP
 		WHERE id = $1 AND company_id = $2 AND deleted_at IS NULL
 	`, expenseID, cid)
-	return err
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrExpenseNotFound
+	}
+	return nil
 }
+
+// ErrExpenseNotFound is returned when an expense does not exist in the caller's company; it wraps
+// pgx.ErrNoRows so handlers answer 404.
+var ErrExpenseNotFound = fmt.Errorf("expense not found: %w", pgx.ErrNoRows)
 
 // Approvals
 func (r *ExpenseRepository) CreateApproval(ctx context.Context, approval *domain.ExpenseApproval) error {
