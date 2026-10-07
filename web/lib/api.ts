@@ -1,5 +1,5 @@
-import { getToken, saveSession, getUser, clearSession } from './auth'
-import type { AuthUser } from '@/types'
+import { getToken, saveSession, getUser, clearSession, saveCompany } from './auth'
+import type { AuthUser, Company } from '@/types'
 
 const BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080'
 
@@ -30,6 +30,8 @@ async function doRefresh(): Promise<string | null> {
     const user = (data.user as AuthUser | undefined) ?? getUser()
     if (!user) return null
     saveSession(data.access_token, user)
+    // Keeps plan / trial state current across reloads instead of frozen at the last login.
+    if (data.company) saveCompany(data.company as Company)
     return data.access_token as string
   } catch {
     return null
@@ -204,7 +206,8 @@ export const api = {
     resetPassword: (token: string, password: string) =>
       request('/api/v1/auth/reset-password', {
         method: 'POST',
-        body: JSON.stringify({ token, password }),
+        // The API field is new_password; sending `password` made every reset/invite fail validation.
+        body: JSON.stringify({ token, new_password: password }),
       }),
     register: (data: { name: string; email: string; password: string; company_name: string; subdomain: string; turnstile_token?: string }) =>
       request('/api/v1/auth/register', {
