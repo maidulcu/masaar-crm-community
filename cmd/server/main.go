@@ -250,6 +250,12 @@ func main() {
 		PipelineStage:       handler.NewPipelineStageHandler(pipelineStageRepo),
 		Approval:            handler.NewApprovalHandler(approvalRepo),
 	}
+	// Leads created through the API, the public intake endpoint, imports and AI auto-create are
+	// handed to an agent when lead rotation is enabled (before this, enabling it did nothing).
+	h.Lead.SetAssigner(h.LeadRotation)
+	h.PublicLead.SetAssigner(h.LeadRotation)
+	h.ImportExport.SetAssigner(h.LeadRotation)
+	h.Message.SetAssigner(h.LeadRotation)
 	if cfg.DocusignWebhookSecret != "" {
 		h.DocusignWebhook = handler.NewDocusignWebhookHandler(documentRepo, cfg.DocusignWebhookSecret)
 	}

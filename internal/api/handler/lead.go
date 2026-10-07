@@ -2,8 +2,11 @@ package handler
 
 import (
 	"context"
+	"errors"
 	"strconv"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -17,7 +20,7 @@ import (
 type LeadRepository interface {
 	GetByID(ctx context.Context, id uuid.UUID) (*domain.Lead, error)
 	Create(ctx context.Context, lead *domain.Lead) error
-	UpdateStage(ctx context.Context, id uuid.UUID, stage domain.LeadStage, reason string) error
+	UpdateStage(ctx context.Context, id uuid.UUID, stage domain.LeadStage, reason string) (domain.LeadStage, error)
 	UpdateNotes(ctx context.Context, id uuid.UUID, notes string) error
 	Assign(ctx context.Context, id uuid.UUID, userID *uuid.UUID) error
 	Delete(ctx context.Context, id uuid.UUID) error
@@ -61,6 +64,8 @@ type LeadTagRepository interface {
 const (
 	maxLeadSearchLimit     = 200
 	maxCommunicationsLimit = 500
+	maxLeadNotesRunes      = 10000
+	maxClosedReasonRunes   = 500
 	defaultBoardPerStage   = 100
 	maxBoardPerStage       = 500
 )
@@ -75,7 +80,17 @@ type LeadHandler struct {
 	audit          AuditLogRepository
 	dispatcher     WebhookDispatcher
 	pipelineStages *repo.PipelineStageRepo
+	assigner       NewLeadAssigner
 }
+
+// NewLeadAssigner hands a freshly created lead to an agent when lead rotation is enabled. It
+// returns the chosen agent, or nil when rotation is off or nobody is available.
+type NewLeadAssigner interface {
+	AssignNewLead(companyID, leadID uuid.UUID) *uuid.UUID
+}
+
+// SetAssigner enables automatic assignment of newly created leads (see NewLeadAssigner).
+func (h *LeadHandler) SetAssigner(a NewLeadAssigner) { h.assigner = a }
 
 func NewLeadHandler(leads LeadRepository, contacts ContactRepository, commHistRepo CommunicationHistoryRepository, scoringService ScoringService, tags LeadTagRepository, hub *ws.Hub, audit AuditLogRepository, dispatcher WebhookDispatcher, pipelineStages *repo.PipelineStageRepo) *LeadHandler {
 	return &LeadHandler{leads: leads, contacts: contacts, commHistRepo: commHistRepo, scoringService: scoringService, tags: tags, hub: hub, audit: audit, dispatcher: dispatcher, pipelineStages: pipelineStages}
@@ -213,15 +228,35 @@ func (h *LeadHandler) Create(c *fiber.Ctx) error {
 	if lead.ContactID == uuid.Nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "contact_id is required"})
 	}
-	if lead.Stage == "" {
-		lead.Stage = domain.StageNew
+	companyID, err := uuid.Parse(c.Locals("company_id").(string))
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid company_id"})
 	}
-	if lead.Currency == "" {
-		lead.Currency = "AED"
+
+	// Only these client fields are honoured; ids, scores and timestamps are server-owned.
+	in := lead
+	lead = domain.Lead{ContactID: in.ContactID, AssignedTo: in.AssignedTo}
+	if msg := applyLeadInput(&lead, string(in.Stage), string(in.Source), in.Currency, in.DealValue, in.Notes); msg != "" {
+		return c.Status(fiber.StatusUnprocessableEntity).JSON(fiber.Map{"error": msg})
+	}
+
+	// The stage must be one of the company's pipeline stages; an empty one means its default.
+	stage, err := h.resolveStage(c.Context(), companyID, lead.Stage)
+	if errors.Is(err, errUnknownStage) {
+		return c.Status(fiber.StatusUnprocessableEntity).JSON(fiber.Map{"error": "invalid stage"})
+	} else if err != nil {
+		return serverError(c, err)
+	}
+	lead.Stage = domain.LeadStage(stage.Name)
+	if stage.IsWon || stage.IsLost {
+		lead.ClosedReason = ""
 	}
 
 	if err := h.leads.Create(c.Context(), &lead); err != nil {
 		return serverError(c, err)
+	}
+	if lead.AssignedTo == nil && h.assigner != nil {
+		lead.AssignedTo = h.assigner.AssignNewLead(companyID, lead.ID)
 	}
 
 	h.hub.BroadcastToCompany(localsCompanyID(c), ws.Event{
@@ -230,7 +265,6 @@ func (h *LeadHandler) Create(c *fiber.Ctx) error {
 	})
 
 	if h.dispatcher != nil {
-		companyID, _ := uuid.Parse(c.Locals("company_id").(string))
 		h.dispatcher.Dispatch(companyID, webhook.EventLeadCreated, fiber.Map{
 			"lead_id":    lead.ID,
 			"contact_id": lead.ContactID,
@@ -244,6 +278,40 @@ func (h *LeadHandler) Create(c *fiber.Ctx) error {
 	h.audit.Log(c.Context(), actorID, repo.AuditCreate, repo.AuditLead, lead.ID, lead)
 	return c.Status(fiber.StatusCreated).JSON(lead)
 }
+
+// resolveStage finds the company pipeline stage called name, or its default stage when name is
+// empty (falling back to the first stage, then to "new" for a company with no stages yet).
+func (h *LeadHandler) resolveStage(ctx context.Context, companyID uuid.UUID, name domain.LeadStage) (domain.PipelineStage, error) {
+	if h.pipelineStages == nil {
+		if name == "" {
+			name = domain.StageNew
+		}
+		return domain.PipelineStage{Name: string(name)}, nil
+	}
+	stages, err := h.pipelineStages.ListByCompany(ctx, companyID, "lead")
+	if err != nil {
+		return domain.PipelineStage{}, err
+	}
+	if name == "" {
+		for _, s := range stages {
+			if s.IsDefault {
+				return s, nil
+			}
+		}
+		if len(stages) > 0 {
+			return stages[0], nil
+		}
+		return domain.PipelineStage{Name: string(domain.StageNew)}, nil
+	}
+	for _, s := range stages {
+		if s.Name == string(name) {
+			return s, nil
+		}
+	}
+	return domain.PipelineStage{}, errUnknownStage
+}
+
+var errUnknownStage = errors.New("unknown pipeline stage")
 
 // UpdateStage godoc
 // @Summary      Move lead to stage
@@ -275,24 +343,32 @@ func (h *LeadHandler) UpdateStage(c *fiber.Ctx) error {
 	if err := c.BodyParser(&body); err != nil || body.Stage == "" {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "stage is required"})
 	}
+	if utf8.RuneCountInString(body.ClosedReason) > maxClosedReasonRunes {
+		return c.Status(fiber.StatusUnprocessableEntity).JSON(fiber.Map{"error": "closed_reason is too long"})
+	}
 
-	stages, err := h.pipelineStages.ListByCompany(c.Context(), companyID, "lead")
-	if err != nil {
+	stage, err := h.resolveStage(c.Context(), companyID, body.Stage)
+	if errors.Is(err, errUnknownStage) {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid stage"})
+	} else if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to validate stage"})
 	}
-	valid := false
-	for _, s := range stages {
-		if s.Name == string(body.Stage) {
-			valid = true
-			break
-		}
-	}
-	if !valid {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid stage"})
+	closed := stage.IsWon || stage.IsLost || body.Stage == domain.StageWon || body.Stage == domain.StageLost
+
+	// A reason only makes sense on a closed (won/lost) stage; moving a lead back to an open
+	// stage clears it instead of leaving a stale "lost because..." on an active lead.
+	reason := ""
+	if closed {
+		reason = strings.TrimSpace(body.ClosedReason)
 	}
 
-	if err := h.leads.UpdateStage(c.Context(), id, body.Stage, body.ClosedReason); err != nil {
+	prev, err := h.leads.UpdateStage(c.Context(), id, body.Stage, reason)
+	if err != nil {
 		return serverError(c, err)
+	}
+	if prev == body.Stage {
+		// Nothing moved (e.g. a repeated request): no events, webhooks or audit noise.
+		return c.JSON(fiber.Map{"lead_id": id, "stage": body.Stage})
 	}
 
 	if h.scoringService != nil {
@@ -308,23 +384,20 @@ func (h *LeadHandler) UpdateStage(c *fiber.Ctx) error {
 	})
 
 	if h.dispatcher != nil {
-		h.dispatcher.Dispatch(companyID, webhook.EventLeadStageChanged, fiber.Map{
-			"lead_id": id,
-			"stage":   body.Stage,
-		})
-		if body.Stage == domain.StageWon {
-			h.dispatcher.Dispatch(companyID, webhook.EventLeadWon, fiber.Map{
-				"lead_id": id,
-				"stage":   body.Stage,
-			})
-		} else if body.Stage == domain.StageLost {
-			h.dispatcher.Dispatch(companyID, webhook.EventLeadLost, fiber.Map{
-				"lead_id": id,
-				"stage":   body.Stage,
-			})
+		payload := fiber.Map{"lead_id": id, "stage": body.Stage, "previous_stage": prev}
+		h.dispatcher.Dispatch(companyID, webhook.EventLeadStageChanged, payload)
+		// Custom pipelines name their closing stages freely; the stage flags decide, not the name.
+		if stage.IsWon || body.Stage == domain.StageWon {
+			h.dispatcher.Dispatch(companyID, webhook.EventLeadWon, payload)
+		} else if stage.IsLost || body.Stage == domain.StageLost {
+			h.dispatcher.Dispatch(companyID, webhook.EventLeadLost, payload)
 		}
 	}
 
+	if actorID, ok := c.Locals("user_id").(uuid.UUID); ok {
+		h.audit.Log(c.Context(), actorID, repo.AuditUpdate, repo.AuditLead, id,
+			fiber.Map{"stage": body.Stage, "previous_stage": prev, "closed_reason": reason})
+	}
 	return c.JSON(fiber.Map{"lead_id": id, "stage": body.Stage})
 }
 
@@ -351,6 +424,9 @@ func (h *LeadHandler) UpdateNotes(c *fiber.Ctx) error {
 	}
 	if err := c.BodyParser(&body); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid request"})
+	}
+	if utf8.RuneCountInString(body.Notes) > maxLeadNotesRunes {
+		return c.Status(fiber.StatusUnprocessableEntity).JSON(fiber.Map{"error": "notes are too long"})
 	}
 
 	if err := h.leads.UpdateNotes(c.Context(), id, body.Notes); err != nil {
@@ -386,7 +462,18 @@ func (h *LeadHandler) Assign(c *fiber.Ctx) error {
 	}
 
 	if err := h.leads.Assign(c.Context(), id, body.UserID); err != nil {
+		if errors.Is(err, repo.ErrForeignReference) {
+			return c.Status(fiber.StatusUnprocessableEntity).JSON(fiber.Map{"error": "assignee must be an active admin or agent of this company"})
+		}
 		return serverError(c, err)
+	}
+
+	h.hub.BroadcastToCompany(localsCompanyID(c), ws.Event{
+		Type:    "lead.assigned",
+		Payload: fiber.Map{"lead_id": id, "agent_id": body.UserID},
+	})
+	if actorID, ok := c.Locals("user_id").(uuid.UUID); ok {
+		h.audit.Log(c.Context(), actorID, repo.AuditUpdate, repo.AuditLead, id, fiber.Map{"assigned_to": body.UserID})
 	}
 
 	return c.JSON(fiber.Map{"lead_id": id, "assigned_to": body.UserID})
@@ -446,17 +533,6 @@ func (h *LeadHandler) Get(c *fiber.Ctx) error {
 	return c.JSON(lead)
 }
 
-// GetCommunications godoc
-// @Summary      Get lead communications
-// @Description  Returns all communications (WhatsApp, email, calls) for a lead, ordered by date.
-// @Tags         Leads
-// @Produce      json
-// @Param        id    path      string  true  "Lead UUID"
-// @Param        limit query     int     false  "Max communications to return (default 100)"
-// @Success      200   {array}   domain.CommunicationHistory
-// @Failure      400   {object}  object{error=string}
-// @Security     BearerAuth
-// @Router       /leads/{id}/communications [get]
 // GetTags godoc
 // @Summary      Get lead tags
 // @Description  Returns all tags attached to a lead.
@@ -537,6 +613,17 @@ func (h *LeadHandler) RemoveTag(c *fiber.Ctx) error {
 	return c.SendStatus(fiber.StatusNoContent)
 }
 
+// GetCommunications godoc
+// @Summary      Get lead communications
+// @Description  Returns communications (WhatsApp, email, calls) for a lead, newest first (max 500).
+// @Tags         Leads
+// @Produce      json
+// @Param        id    path      string  true  "Lead UUID"
+// @Param        limit query     int     false  "Max communications to return (default 100, max 500)"
+// @Success      200   {array}   domain.CommunicationHistory
+// @Failure      400   {object}  object{error=string}
+// @Security     BearerAuth
+// @Router       /leads/{id}/communications [get]
 func (h *LeadHandler) GetCommunications(c *fiber.Ctx) error {
 	id, err := uuid.Parse(c.Params("id"))
 	if err != nil {
@@ -553,6 +640,9 @@ func (h *LeadHandler) GetCommunications(c *fiber.Ctx) error {
 	comms, err := h.commHistRepo.GetByLead(c.Context(), id, limit)
 	if err != nil {
 		return serverError(c, err)
+	}
+	if comms == nil {
+		comms = []domain.CommunicationHistory{}
 	}
 
 	return c.JSON(comms)
