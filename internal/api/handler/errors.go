@@ -32,6 +32,8 @@ func apiError(err error) (int, string) {
 		switch pgErr.Code {
 		case "23505": // unique_violation
 			return fiber.StatusConflict, "already exists"
+		case "22001": // string_data_right_truncation: a value longer than its varchar column
+			return fiber.StatusUnprocessableEntity, "a value is too long"
 		case "23502", "23503", "23514", "22P02", "22007", "22003": // not-null, FK, check, bad text/date/number
 			return fiber.StatusUnprocessableEntity, "invalid data"
 		}

@@ -2,10 +2,11 @@ package repo
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/maidulcu/masaar-crm/internal/domain"
 	"github.com/maidulcu/masaar-crm/internal/tenant"
@@ -195,17 +196,54 @@ func (r *ApprovalRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.Appro
 	return a, nil
 }
 
-// Review approves or rejects a request, sets reviewer + timestamp.
+// ErrApprovalNotFound is returned when the request does not exist in the caller's company; it wraps
+// pgx.ErrNoRows so handlers answer 404.
+var ErrApprovalNotFound = fmt.Errorf("approval request not found: %w", pgx.ErrNoRows)
+
+// ErrApprovalNotPending is returned when a request has already been approved or rejected.
+var ErrApprovalNotPending = errors.New("approval request is not pending")
+
+// Review approves or rejects a pending request and, for an approved listing request, publishes
+// the listing in the same transaction. Approving used to only flip the request's status, so a
+// listing that needed approval could never actually be published.
 func (r *ApprovalRepo) Review(ctx context.Context, id uuid.UUID, reviewerID uuid.UUID, status domain.ApprovalStatus, note string) error {
 	cid, err := tenant.From(ctx)
 	if err != nil {
 		return err
 	}
-	now := time.Now()
-	_, err = r.db.Exec(ctx, `
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	var entityType domain.ApprovalEntity
+	var entityID uuid.UUID
+	err = tx.QueryRow(ctx, `
 		UPDATE approval_requests
-		SET status=$1, reviewed_by=$2, reviewer_note=$3, reviewed_at=$4
-		WHERE id=$5 AND company_id=$6 AND status='pending'
-	`, status, reviewerID, note, now, id, cid)
-	return err
+		SET status=$1, reviewed_by=$2, reviewer_note=$3, reviewed_at=NOW()
+		WHERE id=$4 AND company_id=$5 AND status='pending'
+		RETURNING entity_type, entity_id`, status, reviewerID, note, id, cid).Scan(&entityType, &entityID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		var exists bool
+		if qerr := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM approval_requests WHERE id=$1 AND company_id=$2)`, id, cid).Scan(&exists); qerr != nil {
+			return qerr
+		}
+		if !exists {
+			return ErrApprovalNotFound
+		}
+		return ErrApprovalNotPending
+	}
+	if err != nil {
+		return err
+	}
+
+	if status == domain.ApprovalApproved && entityType == domain.ApprovalListing {
+		if _, err := tx.Exec(ctx, `
+			UPDATE listings SET status = 'published', published_at = COALESCE(published_at, NOW()), updated_at = NOW()
+			WHERE id = $1 AND company_id = $2`, entityID, cid); err != nil {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
 }

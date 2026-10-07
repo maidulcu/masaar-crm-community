@@ -457,8 +457,9 @@ export const api = {
       request(`/api/v1/listings/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
     updateStatus: (id: string, status: string) =>
       request(`/api/v1/listings/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status }) }),
-    delete: (id: string) =>
-      request(`/api/v1/listings/${id}`, { method: 'DELETE' }),
+    // force: also delete the offers on the listing
+    delete: (id: string, force = false) =>
+      request(`/api/v1/listings/${id}${force ? '?force=true' : ''}`, { method: 'DELETE' }),
   },
 
   // ─── Tenants ──────────────────────────────────────────────────────────────────

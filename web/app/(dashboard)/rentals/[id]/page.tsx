@@ -61,7 +61,7 @@ export default function RentalPropertyDetailPage() {
 
   const handleDelete = async () => {
     if (!confirm(t('حذف هذا العقار؟', 'Delete this property? This cannot be undone.'))) return
-    try { await api.rentalProperties.delete(id); router.push('/rentals') } catch {}
+    try { await api.rentalProperties.delete(id); router.push('/rentals') } catch (err) { alert((err as Error).message || t('فشل الحذف', 'Delete failed')) } // e.g. 409: has leases/expenses
   }
 
   const set = (k: string, v: unknown) => setForm(f => ({ ...f, [k]: v }))

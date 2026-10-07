@@ -132,8 +132,11 @@ export default function ListingDetailPage() {
 
   const handleStatusChange = async (status: string) => {
     try {
-      await api.listings.updateStatus(id, status)
-      setSuccess(t('تم تحديث الحالة', 'Status updated'))
+      const res = await api.listings.updateStatus(id, status) as { status: string }
+      // With the approval workflow on, publishing is a request: the listing itself is unchanged.
+      setSuccess(res?.status === 'pending_approval'
+        ? t('تم إرسال طلب النشر للموافقة', 'Sent for approval — it will publish once an admin approves')
+        : t('تم تحديث الحالة', 'Status updated'))
       load()
       setTimeout(() => setSuccess(''), 3000)
     } catch { setError(t('حدث خطأ', 'Error')) }
@@ -141,7 +144,13 @@ export default function ListingDetailPage() {
 
   const handleDelete = async () => {
     if (!confirm(t('حذف هذا الإعلان؟', 'Delete this listing? This cannot be undone.'))) return
-    try { await api.listings.delete(id); router.push('/listings') } catch {}
+    try { await api.listings.delete(id); router.push('/listings'); return } catch (err) {
+      const d = (err as { details?: { offers?: number } }).details
+      if (!d?.offers) { setError((err as Error).message || t('حدث خطأ', 'Error')); return }
+      // Offers are deleted with the listing, so the API asks for explicit confirmation.
+      if (!confirm(t(`سيتم أيضاً حذف ${d.offers} عرض. هل تريد المتابعة؟`, `This will also permanently delete ${d.offers} offer(s). Continue?`))) return
+      try { await api.listings.delete(id, true); router.push('/listings') } catch (e2) { setError((e2 as Error).message || t('حدث خطأ', 'Error')) }
+    }
   }
 
   const set = (k: string, v: unknown) => setForm(f => ({ ...f, [k]: v }))

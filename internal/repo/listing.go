@@ -3,6 +3,7 @@ package repo
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -10,6 +11,10 @@ import (
 	"github.com/maidulcu/masaar-crm/internal/domain"
 	"github.com/maidulcu/masaar-crm/internal/tenant"
 )
+
+// ErrListingNotFound is returned when a listing does not exist in the caller's company. It wraps
+// pgx.ErrNoRows so handlers answer 404.
+var ErrListingNotFound = fmt.Errorf("listing not found: %w", pgx.ErrNoRows)
 
 type ListingRepo struct {
 	db *pgxpool.Pool
@@ -89,6 +94,12 @@ func (r *ListingRepo) Create(ctx context.Context, l *domain.Listing) error {
 		return err
 	}
 	l.ID = uuid.New()
+	var publishedAt *time.Time // a listing created already published is stamped like a later publish
+	if l.Status == domain.ListingStatusPublished {
+		now := time.Now()
+		publishedAt = &now
+		l.PublishedAt = publishedAt
+	}
 	_, err = r.db.Exec(ctx, `
 		INSERT INTO listings (
 			id, company_id, title, description, property_type, listing_type,
@@ -98,11 +109,11 @@ func (r *ListingRepo) Create(ctx context.Context, l *domain.Listing) error {
 			cover_image_url, image_urls, virtual_tour_url, video_url,
 			status, featured, reference_number, available_from,
 			assigned_to, owner_name, owner_phone, owner_email,
-			portal_sync_status, created_by, updated_by
+			portal_sync_status, created_by, updated_by, published_at
 		) VALUES (
 			$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,
 			$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,
-			$33,$34,$35,$36,$37,$38,$39
+			$33,$34,$35,$36,$37,$38,$39,$40
 		)
 	`, l.ID, l.CompanyID, l.Title, l.Description, l.PropertyType, l.ListingType,
 		l.Price, l.Currency, l.RentPeriod,
@@ -111,7 +122,7 @@ func (r *ListingRepo) Create(ctx context.Context, l *domain.Listing) error {
 		l.CoverImageURL, l.ImageURLs, l.VirtualTourURL, l.VideoURL,
 		l.Status, l.Featured, l.ReferenceNumber, l.AvailableFrom,
 		l.AssignedTo, l.OwnerName, l.OwnerPhone, l.OwnerEmail,
-		l.PortalSyncStatus, l.CreatedBy, l.UpdatedBy,
+		l.PortalSyncStatus, l.CreatedBy, l.UpdatedBy, publishedAt,
 	)
 	return err
 }
@@ -124,7 +135,7 @@ func (r *ListingRepo) Update(ctx context.Context, l *domain.Listing) error {
 	if err := r.assertAgent(ctx, cid, l.AssignedTo); err != nil {
 		return err
 	}
-	_, err = r.db.Exec(ctx, `
+	tag, err := r.db.Exec(ctx, `
 		UPDATE listings SET
 			title=$1, description=$2, property_type=$3, listing_type=$4,
 			price=$5, currency=$6, rent_period=$7,
@@ -144,16 +155,46 @@ func (r *ListingRepo) Update(ctx context.Context, l *domain.Listing) error {
 		l.AssignedTo, l.OwnerName, l.OwnerPhone, l.OwnerEmail,
 		l.UpdatedBy, l.ID, cid,
 	)
-	return err
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrListingNotFound
+	}
+	return nil
 }
 
+// UpdateStatus sets the listing status. Publishing stamps published_at the first time (it was
+// never set anywhere). A missing or foreign listing is ErrListingNotFound.
 func (r *ListingRepo) UpdateStatus(ctx context.Context, id uuid.UUID, status domain.ListingStatus) error {
 	cid, err := tenant.From(ctx)
 	if err != nil {
 		return err
 	}
-	_, err = r.db.Exec(ctx, `UPDATE listings SET status=$1, updated_at=NOW() WHERE id=$2 AND company_id=$3`, status, id, cid)
-	return err
+	tag, err := r.db.Exec(ctx, `
+		UPDATE listings SET status = $1,
+		       published_at = CASE WHEN $4::boolean THEN COALESCE(published_at, NOW()) ELSE published_at END,
+		       updated_at = NOW()
+		WHERE id = $2 AND company_id = $3`, string(status), id, cid, status == domain.ListingStatusPublished)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrListingNotFound
+	}
+	return nil
+}
+
+// OfferCount is how many offers hang off the listing: they are ON DELETE CASCADE, so deleting the
+// listing deletes them.
+func (r *ListingRepo) OfferCount(ctx context.Context, id uuid.UUID) (int, error) {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return 0, err
+	}
+	var n int
+	err = r.db.QueryRow(ctx, `SELECT COUNT(*) FROM offers WHERE listing_id = $1 AND company_id = $2`, id, cid).Scan(&n)
+	return n, err
 }
 
 func (r *ListingRepo) Delete(ctx context.Context, id uuid.UUID) error {
@@ -161,17 +202,23 @@ func (r *ListingRepo) Delete(ctx context.Context, id uuid.UUID) error {
 	if err != nil {
 		return err
 	}
-	_, err = r.db.Exec(ctx, `DELETE FROM listings WHERE id=$1 AND company_id=$2`, id, cid)
-	return err
+	tag, err := r.db.Exec(ctx, `DELETE FROM listings WHERE id=$1 AND company_id=$2`, id, cid)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrListingNotFound
+	}
+	return nil
 }
 
-// assertAgent verifies an optional assignee belongs to the company.
+// assertAgent verifies an optional assignee is an active admin/agent of the company.
 func (r *ListingRepo) assertAgent(ctx context.Context, cid uuid.UUID, assignedTo *uuid.UUID) error {
 	if assignedTo == nil {
 		return nil
 	}
 	var ok bool
-	if err := r.db.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM users WHERE id = $1 AND company_id = $2)`, *assignedTo, cid).Scan(&ok); err != nil {
+	if err := r.db.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM users WHERE id = $1 AND company_id = $2 AND is_active AND role IN ('admin','agent'))`, *assignedTo, cid).Scan(&ok); err != nil {
 		return err
 	}
 	if !ok {
