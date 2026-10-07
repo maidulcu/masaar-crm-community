@@ -108,7 +108,8 @@ async function request<T>(path: string, init: RequestInit = {}, _retry = true): 
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }))
-    throw new Error(err.error || 'Request failed')
+    // `details` keeps the whole error body (e.g. the `linked` counts on a refused contact delete).
+    throw Object.assign(new Error(err.error || 'Request failed'), { status: res.status, details: err })
   }
 
   if (res.status === 204) return undefined as T
@@ -231,8 +232,9 @@ export const api = {
       request('/api/v1/contacts', { method: 'POST', body: JSON.stringify(data) }),
     update: (id: string, data: unknown) =>
       request(`/api/v1/contacts/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
-    delete: (id: string) =>
-      request(`/api/v1/contacts/${id}`, { method: 'DELETE' }),
+    // force: also delete the contact's leads, deals, offers, viewings and WhatsApp threads
+    delete: (id: string, force = false) =>
+      request(`/api/v1/contacts/${id}${force ? '?force=true' : ''}`, { method: 'DELETE' }),
   },
 
   // ─── Leads ──────────────────────────────────────────────────────────────────

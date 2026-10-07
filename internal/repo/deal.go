@@ -6,10 +6,15 @@ import (
 	"strconv"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/maidulcu/masaar-crm/internal/domain"
 	"github.com/maidulcu/masaar-crm/internal/tenant"
 )
+
+// ErrDealNotFound is returned when a deal does not exist in the caller's company. It wraps
+// pgx.ErrNoRows so handlers answer 404.
+var ErrDealNotFound = fmt.Errorf("deal not found: %w", pgx.ErrNoRows)
 
 type DealRepo struct {
 	db *pgxpool.Pool
@@ -106,7 +111,7 @@ func (r *DealRepo) Create(ctx context.Context, d *domain.Deal) error {
 	const q = `
 		INSERT INTO deals (id, company_id, lead_id, title, stage, amount, currency, close_date, probability, owner_id)
 		SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10
-		WHERE ($3::uuid IS NULL OR EXISTS (SELECT 1 FROM leads WHERE id = $3 AND company_id = $2))
+		WHERE ($3::uuid IS NULL OR EXISTS (SELECT 1 FROM leads WHERE id = $3 AND company_id = $2 AND deleted_at IS NULL))
 		  AND ($10::uuid IS NULL OR EXISTS (SELECT 1 FROM users WHERE id = $10 AND company_id = $2))
 		RETURNING created_at, updated_at
 	`
@@ -131,16 +136,29 @@ func (r *DealRepo) Update(ctx context.Context, d *domain.Deal) error {
 	return r.db.QueryRow(ctx, q, d.Title, d.Amount, d.Currency, d.Probability, d.CloseDate, d.ID, cid).Scan(&d.UpdatedAt)
 }
 
+// UpdateStage moves a deal. Closing it keeps the figures consistent: a won deal is 100% likely,
+// a lost one 0% (a "won" deal left at 50% skewed every weighted forecast), and a closed deal
+// without a close date gets today's. A missing or foreign deal is ErrDealNotFound.
 func (r *DealRepo) UpdateStage(ctx context.Context, id uuid.UUID, stage domain.DealStage) error {
 	cid, err := tenant.From(ctx)
 	if err != nil {
 		return err
 	}
-	_, err = r.db.Exec(ctx,
-		`UPDATE deals SET stage=$1, updated_at=NOW() WHERE id=$2 AND company_id=$3`,
-		stage, id, cid,
+	tag, err := r.db.Exec(ctx, `
+		UPDATE deals SET stage = $1,
+		       probability = CASE $1 WHEN 'won' THEN 100 WHEN 'lost' THEN 0 ELSE probability END,
+		       close_date  = CASE WHEN $1 IN ('won','lost') THEN COALESCE(close_date, CURRENT_DATE) ELSE close_date END,
+		       updated_at  = NOW()
+		WHERE id = $2 AND company_id = $3`,
+		string(stage), id, cid,
 	)
-	return err
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrDealNotFound
+	}
+	return nil
 }
 
 func (r *DealRepo) Delete(ctx context.Context, id uuid.UUID) error {
@@ -148,6 +166,12 @@ func (r *DealRepo) Delete(ctx context.Context, id uuid.UUID) error {
 	if err != nil {
 		return err
 	}
-	_, err = r.db.Exec(ctx, `DELETE FROM deals WHERE id=$1 AND company_id=$2`, id, cid)
-	return err
+	tag, err := r.db.Exec(ctx, `DELETE FROM deals WHERE id=$1 AND company_id=$2`, id, cid)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrDealNotFound
+	}
+	return nil
 }

@@ -58,7 +58,7 @@ export default function DealsPage() {
         title: newTitle.trim(),
         amount: parseFloat(newAmount) || 0,
         currency: newCurrency,
-        probability: parseInt(newProbability) || 50,
+        probability: Number.isNaN(parseInt(newProbability)) ? 50 : parseInt(newProbability), // 0% is valid
       })
       setShowForm(false)
       setNewLeadId('')
