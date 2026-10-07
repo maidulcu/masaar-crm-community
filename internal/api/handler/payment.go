@@ -1,7 +1,9 @@
 package handler
 
 import (
+	"encoding/json"
 	"strconv"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -24,6 +26,7 @@ func NewPaymentHandler(payments *repo.PaymentRepo) *PaymentHandler {
 // @Produce      json
 // @Param        page   query     int  false  "Page number (default 1)"
 // @Param        limit  query     int  false  "Page size 1-100 (default 20)"
+// @Param        lease_id query   string  false  "Only payments of this lease"
 // @Success      200    {object}  domain.PaginatedResult[domain.Payment]
 // @Security     BearerAuth
 // @Router       /payments [get]
@@ -43,7 +46,18 @@ func (h *PaymentHandler) List(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid company_id"})
 	}
 
-	result, err := h.payments.List(c.Context(), companyID, page, limit)
+	// ?lease_id lets the lease page load exactly its own payments (it used to fetch the company's
+	// first 100 payments and filter in the browser, so older leases showed none of theirs).
+	var leaseID *uuid.UUID
+	if s := c.Query("lease_id"); s != "" {
+		id, err := uuid.Parse(s)
+		if err != nil {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid lease_id"})
+		}
+		leaseID = &id
+	}
+
+	result, err := h.payments.List(c.Context(), companyID, leaseID, page, limit)
 	if err != nil {
 		return serverError(c, err)
 	}
@@ -85,13 +99,22 @@ func (h *PaymentHandler) Get(c *fiber.Ctx) error {
 // @Security     BearerAuth
 // @Router       /payments [post]
 func (h *PaymentHandler) Create(c *fiber.Ctx) error {
-	var p domain.Payment
-	if err := c.BodyParser(&p); err != nil {
+	var in domain.Payment
+	if err := json.Unmarshal(normalizeDateFields(c.Body(), paymentDateKeys...), &in); err != nil {
 		return badRequest(c, err)
 	}
+	// Reconciliation links are set by the bank-reconciliation flow, never by the client (a
+	// bank_transaction_id from another company would otherwise be accepted as long as it exists).
+	p := in
+	p.ID, p.CreatedAt, p.UpdatedAt = uuid.Nil, time.Time{}, time.Time{}
+	p.BankTransactionID, p.ReconciledAt, p.ReconciledBy = nil, nil, nil
 
-	if p.LeaseID == uuid.Nil || p.Amount <= 0 || p.PaymentMethod == "" {
+	if p.LeaseID == uuid.Nil || p.PaymentMethod == "" {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "lease_id, amount > 0, and payment_method are required"})
+	}
+	p.DueDate = dateOnly(p.DueDate)
+	if err := validatePayment(&p); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 	}
 	const maxPaymentAED = 10_000_000
 	if p.Amount > maxPaymentAED {
@@ -138,8 +161,17 @@ func (h *PaymentHandler) Update(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "payment not found"})
 	}
 
-	if err := c.BodyParser(p); err != nil {
+	// Identity, the owning lease/currency and the reconciliation links are not editable (the
+	// UPDATE ignored some of them, but the response echoed them back as if saved).
+	keep := *p
+	if err := json.Unmarshal(normalizeDateFields(c.Body(), paymentDateKeys...), p); err != nil {
 		return badRequest(c, err)
+	}
+	p.ID, p.CompanyID, p.LeaseID, p.Currency, p.DueDate = keep.ID, keep.CompanyID, keep.LeaseID, keep.Currency, keep.DueDate
+	p.CreatedAt, p.CreatedBy = keep.CreatedAt, keep.CreatedBy
+	p.BankTransactionID, p.ReconciledAt, p.ReconciledBy = keep.BankTransactionID, keep.ReconciledAt, keep.ReconciledBy
+	if err := validatePayment(p); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 	}
 
 	userID := c.Locals("user_id").(uuid.UUID)
@@ -168,6 +200,9 @@ func (h *PaymentHandler) Delete(c *fiber.Ctx) error {
 	}
 
 	if err := h.payments.Delete(c.Context(), id); err != nil {
+		if isForeignKeyViolation(err) {
+			return c.Status(fiber.StatusConflict).JSON(fiber.Map{"error": "this payment is referenced by a confirmation and cannot be deleted"})
+		}
 		return serverError(c, err)
 	}
 	return c.SendStatus(fiber.StatusNoContent)
