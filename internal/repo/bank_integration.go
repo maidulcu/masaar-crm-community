@@ -2,10 +2,12 @@ package repo
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/maidulcu/masaar-crm/internal/domain"
 	"github.com/maidulcu/masaar-crm/internal/tenant"
@@ -29,9 +31,9 @@ func (r *BankIntegrationRepo) List(ctx context.Context, companyID uuid.UUID, pag
 	}
 
 	const q = `
-		SELECT id, company_id, bank_name, bank_code, account_number, account_name, iban,
-		       integration_type, status, api_endpoint, auto_sync, last_sync_date,
-		       sync_interval_hours, last_sync_error, sync_error_count, is_connected,
+		SELECT id, company_id, bank_name, COALESCE(bank_code,''), COALESCE(account_number,''), COALESCE(account_name,''), COALESCE(iban,''),
+		       integration_type, status, COALESCE(api_endpoint,''), COALESCE(auto_sync,false), last_sync_date,
+		       COALESCE(sync_interval_hours,24), COALESCE(last_sync_error,''), COALESCE(sync_error_count,0), COALESCE(is_connected,false),
 		       connection_test_date, created_at, updated_at, created_by, updated_by
 		FROM bank_integrations
 		WHERE company_id = $1
@@ -72,10 +74,10 @@ func (r *BankIntegrationRepo) GetByID(ctx context.Context, id uuid.UUID) (*domai
 		return nil, err
 	}
 	const q = `
-		SELECT id, company_id, bank_name, bank_code, account_number, account_name, iban,
-		       integration_type, status, api_key_encrypted, api_secret_encrypted, api_endpoint,
-		       auto_sync, last_sync_date, sync_interval_hours, last_sync_error, sync_error_count,
-		       is_connected, connection_test_date, created_at, updated_at, created_by, updated_by
+		SELECT id, company_id, bank_name, COALESCE(bank_code,''), COALESCE(account_number,''), COALESCE(account_name,''), COALESCE(iban,''),
+		       integration_type, status, COALESCE(api_key_encrypted,''), COALESCE(api_secret_encrypted,''), COALESCE(api_endpoint,''),
+		       COALESCE(auto_sync,false), last_sync_date, COALESCE(sync_interval_hours,24), COALESCE(last_sync_error,''), COALESCE(sync_error_count,0),
+		       COALESCE(is_connected,false), connection_test_date, created_at, updated_at, created_by, updated_by
 		FROM bank_integrations WHERE id = $1 AND company_id = $2
 	`
 	bi := &domain.BankIntegration{}
@@ -137,13 +139,35 @@ func (r *BankIntegrationRepo) Update(ctx context.Context, bi *domain.BankIntegra
 	).Scan(&bi.UpdatedAt)
 }
 
+// ErrBankIntegrationInUse is returned by Delete when bank statements still reference the integration.
+var ErrBankIntegrationInUse = errors.New("bank integration has statements")
+
+// ErrBankIntegrationNotFound is returned when an integration does not exist in the caller's company;
+// it wraps pgx.ErrNoRows so handlers answer 404.
+var ErrBankIntegrationNotFound = fmt.Errorf("bank integration not found: %w", pgx.ErrNoRows)
+
 func (r *BankIntegrationRepo) Delete(ctx context.Context, id uuid.UUID) error {
 	cid, err := tenant.From(ctx)
 	if err != nil {
 		return err
 	}
-	_, err = r.db.Exec(ctx, `DELETE FROM bank_integrations WHERE id=$1 AND company_id=$2`, id, cid)
-	return err
+	// bank_statements cascade from their integration, which would silently erase the uploaded
+	// statements (and leave their stored files behind); refuse instead.
+	var inUse bool
+	if err := r.db.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM bank_statements WHERE bank_integration_id = $1 AND company_id = $2)`, id, cid).Scan(&inUse); err != nil {
+		return err
+	}
+	if inUse {
+		return ErrBankIntegrationInUse
+	}
+	tag, err := r.db.Exec(ctx, `DELETE FROM bank_integrations WHERE id=$1 AND company_id=$2`, id, cid)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrBankIntegrationNotFound
+	}
+	return nil
 }
 
 func (r *BankIntegrationRepo) UpdateSyncStatus(ctx context.Context, id uuid.UUID, syncDate time.Time, isError bool, errorMsg string) error {
@@ -163,10 +187,10 @@ func (r *BankIntegrationRepo) UpdateSyncStatus(ctx context.Context, id uuid.UUID
 
 func (r *BankIntegrationRepo) GetAutoSyncEnabled(ctx context.Context, companyID uuid.UUID) ([]domain.BankIntegration, error) {
 	const q = `
-		SELECT id, company_id, bank_name, bank_code, account_number, account_name, iban,
-		       integration_type, status, api_key_encrypted, api_secret_encrypted, api_endpoint,
-		       auto_sync, last_sync_date, sync_interval_hours, last_sync_error, sync_error_count,
-		       is_connected, connection_test_date, created_at, updated_at, created_by, updated_by
+		SELECT id, company_id, bank_name, COALESCE(bank_code,''), COALESCE(account_number,''), COALESCE(account_name,''), COALESCE(iban,''),
+		       integration_type, status, COALESCE(api_key_encrypted,''), COALESCE(api_secret_encrypted,''), COALESCE(api_endpoint,''),
+		       COALESCE(auto_sync,false), last_sync_date, COALESCE(sync_interval_hours,24), COALESCE(last_sync_error,''), COALESCE(sync_error_count,0),
+		       COALESCE(is_connected,false), connection_test_date, created_at, updated_at, created_by, updated_by
 		FROM bank_integrations
 		WHERE company_id = $1 AND auto_sync = TRUE AND status = 'active'
 		ORDER BY last_sync_date ASC

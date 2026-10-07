@@ -11,6 +11,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 
+	"github.com/maidulcu/masaar-crm/internal/ai"
 	"github.com/maidulcu/masaar-crm/internal/repo"
 )
 
@@ -25,6 +26,10 @@ func newTLEnv(t *testing.T) *tlEnv {
 	ctx := context.Background()
 	t.Cleanup(func() {
 		for _, co := range []uuid.UUID{le.a, le.b} {
+			_, _ = le.pool.Exec(ctx, `UPDATE payments SET bank_transaction_id = NULL WHERE company_id = $1`, co)
+			_, _ = le.pool.Exec(ctx, `DELETE FROM bank_transactions WHERE company_id = $1`, co)
+			_, _ = le.pool.Exec(ctx, `DELETE FROM bank_statements WHERE company_id = $1`, co)
+			_, _ = le.pool.Exec(ctx, `DELETE FROM bank_integrations WHERE company_id = $1`, co)
 			_, _ = le.pool.Exec(ctx, `DELETE FROM renewal_communication_log WHERE company_id = $1`, co)
 			_, _ = le.pool.Exec(ctx, `DELETE FROM lease_renewal_workflows WHERE company_id = $1`, co)
 			_, _ = le.pool.Exec(ctx, `DELETE FROM payments WHERE company_id = $1`, co)
@@ -39,6 +44,8 @@ func newTLEnv(t *testing.T) *tlEnv {
 	ph := NewPaymentHandler(repo.NewPaymentRepo(le.pool))
 	tph := NewLeaseTemplateHandler(repo.NewLeaseTemplateRepo(le.pool))
 	rh := NewRentalPropertyHandler(repo.NewRentalPropertyRepo(le.pool))
+	bih := NewBankIntegrationHandler(repo.NewBankIntegrationRepo(le.pool))
+	pch := NewPaymentConfirmationHandler(repo.NewPaymentConfirmationRepo(le.pool), repo.NewPaymentRepo(le.pool), ai.NewPaymentConfirmationService(nil, nil, nil, nil, nil, nil, nil))
 	lrh := NewLeaseRenewalHandler(repo.NewLeaseRenewalRepo(le.pool), repo.NewRenewalTemplateRepo(le.pool),
 		repo.NewRenewalCommunicationLogRepo(le.pool), repo.NewLeaseRepo(le.pool))
 
@@ -69,6 +76,12 @@ func newTLEnv(t *testing.T) *tlEnv {
 		g.Patch("/lease-templates/:id", tph.Update)
 		g.Delete("/lease-templates/:id", tph.Delete)
 		g.Post("/rental-properties", rh.Create)
+		g.Get("/bank-integrations/:id", bih.Get)
+		g.Get("/bank-integrations", bih.List)
+		g.Post("/bank-integrations", bih.Create)
+		g.Patch("/bank-integrations/:id", bih.Update)
+		g.Delete("/bank-integrations/:id", bih.Delete)
+		g.Post("/payments/:payment_id/send-confirmation", pch.Send)
 		g.Post("/lease-renewals/:lease_id/initiate", lrh.Initiate)
 		g.Put("/lease-renewals/:id/propose", lrh.Propose)
 		g.Post("/lease-renewals/:id/send-offer", lrh.SendOffer)

@@ -9,6 +9,7 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/maidulcu/masaar-crm/internal/domain"
 	"github.com/maidulcu/masaar-crm/internal/pdf"
 	"github.com/maidulcu/masaar-crm/internal/repo"
@@ -19,7 +20,7 @@ type InvoiceRepository interface {
 	CreateNumbered(ctx context.Context, inv *domain.VATInvoice) error
 	MarkSent(ctx context.Context, id uuid.UUID) error
 	GetByID(ctx context.Context, id uuid.UUID) (*domain.VATInvoice, error)
-	ListAll(ctx context.Context, page, limit int) ([]domain.VATInvoice, int, error)
+	ListAll(ctx context.Context, page, limit int, status domain.InvoiceStatus) ([]domain.VATInvoice, int, error)
 	UpdateStatus(ctx context.Context, id uuid.UUID, status domain.InvoiceStatus) error
 }
 
@@ -56,14 +57,28 @@ func NewInvoiceHandler(invoices InvoiceRepository, deals DealRepository, company
 // @Produce      json
 // @Param        page  query  int  false  "Page (default 1)"
 // @Param        limit query  int  false  "Limit (default 50)"
+// @Param        status query string false "draft, sent or paid"
 // @Success      200  {object}  object{data=[]domain.VATInvoice,total=int}
 // @Security     BearerAuth
 // @Router       /invoices [get]
 func (h *InvoiceHandler) List(c *fiber.Ctx) error {
 	page, _ := strconv.Atoi(c.Query("page", "1"))
 	limit, _ := strconv.Atoi(c.Query("limit", "50"))
+	if page < 1 {
+		page = 1
+	}
+	if limit < 1 || limit > 100 {
+		limit = 50
+	}
 
-	invoices, total, err := h.invoices.ListAll(c.Context(), page, limit)
+	// ?status filters on the server: the page filtered the one page it had fetched, so the other
+	// invoices of that status were invisible whenever there was more than one page.
+	status := domain.InvoiceStatus(c.Query("status"))
+	if status != "" && status != domain.InvoiceDraft && status != domain.InvoiceSent && status != domain.InvoicePaid {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid status"})
+	}
+
+	invoices, total, err := h.invoices.ListAll(c.Context(), page, limit, status)
 	if err != nil {
 		return serverError(c, err)
 	}
@@ -139,7 +154,10 @@ func (h *InvoiceHandler) Get(c *fiber.Ctx) error {
 	}
 	inv, err := h.invoices.GetByID(c.Context(), id)
 	if err != nil {
-		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "invoice not found"})
+		if errors.Is(err, pgx.ErrNoRows) {
+			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "invoice not found"})
+		}
+		return serverError(c, err)
 	}
 	return c.JSON(inv)
 }
@@ -202,6 +220,9 @@ func (h *InvoiceHandler) UpdateStatus(c *fiber.Ctx) error {
 	}
 
 	if err := h.invoices.UpdateStatus(c.Context(), id, body.Status); err != nil {
+		if errors.Is(err, repo.ErrInvoiceIssued) {
+			return c.Status(fiber.StatusConflict).JSON(fiber.Map{"error": "an issued invoice cannot go back to draft"})
+		}
 		return serverError(c, err)
 	}
 	return c.JSON(fiber.Map{"id": id, "status": body.Status})
@@ -259,6 +280,9 @@ func (h *InvoiceHandler) DownloadPDF(c *fiber.Ctx) error {
 	}
 
 	pdfBytes, err := pdf.GenerateInvoice(pdfData)
+	if errors.Is(err, pdf.ErrProOnly) {
+		return c.Status(fiber.StatusNotImplemented).JSON(fiber.Map{"error": "invoice PDFs are not available in this edition"})
+	}
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to generate PDF"})
 	}

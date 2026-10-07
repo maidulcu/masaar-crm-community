@@ -225,7 +225,7 @@ func main() {
 		Payment:             handler.NewPaymentHandler(paymentRepo),
 		BankIntegration:     handler.NewBankIntegrationHandler(bankIntegrationRepo),
 		BankStatement:       handler.NewBankStatementHandler(bankStatementRepo, bankStatementStore, cfg.BankStatementMaxMB),
-		PaymentConfirmation: handler.NewPaymentConfirmationHandler(paymentConfirmationRepo, confirmationSvc),
+		PaymentConfirmation: handler.NewPaymentConfirmationHandler(paymentConfirmationRepo, paymentRepo, confirmationSvc),
 		Analytics:           handler.NewAnalyticsHandler(analyticsRepo),
 		Expense:             handler.NewExpenseHandler(expenseRepo),
 		Inspection:          handler.NewInspectionHandler(inspectionTemplateRepo, inspectionRepo),

@@ -5,7 +5,10 @@ import (
 	"time"
 )
 
-var errProOnly = errors.New("PDF generation requires a Pro plan — visit https://masaar.io/pricing")
+// ErrProOnly is returned by the PDF generators in this edition; handlers answer 501 for it.
+var ErrProOnly = errors.New("PDF generation requires a Pro plan — visit https://masaar.io/pricing")
+
+var errProOnly = ErrProOnly
 
 type InvoiceData struct {
 	InvoiceNo   string

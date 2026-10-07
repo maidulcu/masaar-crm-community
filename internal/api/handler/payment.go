@@ -173,6 +173,11 @@ func (h *PaymentHandler) Update(c *fiber.Ctx) error {
 	if err := validatePayment(p); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 	}
+	// A payment matched to a bank transaction is an accounting record: its amount and status are
+	// what the match was made on, so changing them silently breaks the reconciliation.
+	if keep.BankTransactionID != nil && (p.Amount != keep.Amount || p.Status != keep.Status) {
+		return c.Status(fiber.StatusConflict).JSON(fiber.Map{"error": "this payment is reconciled with a bank transaction; its amount and status can no longer be changed"})
+	}
 
 	userID := c.Locals("user_id").(uuid.UUID)
 	p.UpdatedBy = &userID
@@ -199,6 +204,9 @@ func (h *PaymentHandler) Delete(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid id"})
 	}
 
+	if existing, err := h.payments.GetByID(c.Context(), id); err == nil && existing.BankTransactionID != nil {
+		return c.Status(fiber.StatusConflict).JSON(fiber.Map{"error": "this payment is reconciled with a bank transaction and cannot be deleted"})
+	}
 	if err := h.payments.Delete(c.Context(), id); err != nil {
 		if isForeignKeyViolation(err) {
 			return c.Status(fiber.StatusConflict).JSON(fiber.Map{"error": "this payment is referenced by a confirmation and cannot be deleted"})

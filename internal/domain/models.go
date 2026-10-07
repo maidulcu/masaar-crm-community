@@ -1135,6 +1135,7 @@ type FinancialAnalytics struct {
 	ProfitMargin       float64 `json:"profit_margin"`
 	RentCollected      float64 `json:"rent_collected"`
 	RentPending        float64 `json:"rent_pending"`
+	RentOverdue        float64 `json:"rent_overdue"`
 	UtilitiesExpense   float64 `json:"utilities_expense"`
 	MaintenanceExpense float64 `json:"maintenance_expense"`
 	OtherExpenses      float64 `json:"other_expenses"`

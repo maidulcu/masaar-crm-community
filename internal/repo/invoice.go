@@ -41,7 +41,7 @@ func (r *InvoiceRepo) Create(ctx context.Context, inv *domain.VATInvoice) error 
 
 func (r *InvoiceRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.VATInvoice, error) {
 	const q = `
-		SELECT id, deal_id, invoice_no, subtotal, vat_rate, vat_amount, total, qr_payload, status, issued_at
+		SELECT id, deal_id, invoice_no, subtotal, vat_rate, vat_amount, total, COALESCE(qr_payload, ''), status, issued_at
 		FROM vat_invoices WHERE id = $1 AND company_id = $2
 	`
 	cid, err := tenant.From(ctx)
@@ -62,7 +62,7 @@ func (r *InvoiceRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.VATInv
 
 func (r *InvoiceRepo) ListByDeal(ctx context.Context, dealID uuid.UUID) ([]domain.VATInvoice, error) {
 	const q = `
-		SELECT id, deal_id, invoice_no, subtotal, vat_rate, vat_amount, total, qr_payload, status, issued_at
+		SELECT id, deal_id, invoice_no, subtotal, vat_rate, vat_amount, total, COALESCE(qr_payload, ''), status, issued_at
 		FROM vat_invoices WHERE deal_id = $1 AND company_id = $2 ORDER BY issued_at DESC
 	`
 	cid, err := tenant.From(ctx)
@@ -90,7 +90,7 @@ func (r *InvoiceRepo) ListByDeal(ctx context.Context, dealID uuid.UUID) ([]domai
 	return invoices, nil
 }
 
-func (r *InvoiceRepo) ListAll(ctx context.Context, page, limit int) ([]domain.VATInvoice, int, error) {
+func (r *InvoiceRepo) ListAll(ctx context.Context, page, limit int, status domain.InvoiceStatus) ([]domain.VATInvoice, int, error) {
 	if page < 1 {
 		page = 1
 	}
@@ -104,15 +104,15 @@ func (r *InvoiceRepo) ListAll(ctx context.Context, page, limit int) ([]domain.VA
 		return nil, 0, err
 	}
 	var total int
-	if err := r.db.QueryRow(ctx, `SELECT COUNT(*) FROM vat_invoices WHERE company_id = $1`, cid).Scan(&total); err != nil {
+	if err := r.db.QueryRow(ctx, `SELECT COUNT(*) FROM vat_invoices WHERE company_id = $1 AND ($2 = '' OR status = $2)`, cid, string(status)).Scan(&total); err != nil {
 		return nil, 0, fmt.Errorf("count invoices: %w", err)
 	}
 
 	const q = `
-		SELECT id, deal_id, invoice_no, subtotal, vat_rate, vat_amount, total, qr_payload, status, issued_at
-		FROM vat_invoices WHERE company_id = $3 ORDER BY issued_at DESC LIMIT $1 OFFSET $2
+		SELECT id, deal_id, invoice_no, subtotal, vat_rate, vat_amount, total, COALESCE(qr_payload, ''), status, issued_at
+		FROM vat_invoices WHERE company_id = $3 AND ($4 = '' OR status = $4) ORDER BY issued_at DESC, id LIMIT $1 OFFSET $2
 	`
-	rows, err := r.db.Query(ctx, q, limit, offset, cid)
+	rows, err := r.db.Query(ctx, q, limit, offset, cid, string(status))
 	if err != nil {
 		return nil, 0, fmt.Errorf("list all invoices: %w", err)
 	}
@@ -138,15 +138,24 @@ func (r *InvoiceRepo) UpdateStatus(ctx context.Context, id uuid.UUID, status dom
 	if err != nil {
 		return err
 	}
+	// A sent or paid invoice is a tax document that has left the building; it cannot become a draft
+	// again (it could then be "sent" a second time, or quietly vanish from the books).
 	tag, err := r.db.Exec(ctx,
-		`UPDATE vat_invoices SET status=$1 WHERE id=$2 AND company_id=$3`,
+		`UPDATE vat_invoices SET status=$1 WHERE id=$2 AND company_id=$3 AND ($1 <> 'draft' OR status = 'draft')`,
 		status, id, cid,
 	)
 	if err != nil {
 		return err
 	}
 	if tag.RowsAffected() == 0 {
-		return ErrInvoiceNotFound
+		var exists bool
+		if err := r.db.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM vat_invoices WHERE id = $1 AND company_id = $2)`, id, cid).Scan(&exists); err != nil {
+			return err
+		}
+		if !exists {
+			return ErrInvoiceNotFound
+		}
+		return ErrInvoiceIssued
 	}
 	return nil
 }
@@ -154,6 +163,9 @@ func (r *InvoiceRepo) UpdateStatus(ctx context.Context, id uuid.UUID, status dom
 // ErrInvoiceNotFound is returned when an invoice does not exist in the caller's company. It wraps
 // pgx.ErrNoRows so handlers answer 404.
 var ErrInvoiceNotFound = fmt.Errorf("invoice not found: %w", pgx.ErrNoRows)
+
+// ErrInvoiceIssued is returned by UpdateStatus when a sent or paid invoice would go back to draft.
+var ErrInvoiceIssued = errors.New("invoice has already been issued")
 
 // ErrInvoiceNotDraft is returned by MarkSent when the invoice has already left the draft state.
 var ErrInvoiceNotDraft = errors.New("invoice is not a draft")

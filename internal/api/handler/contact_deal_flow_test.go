@@ -62,6 +62,8 @@ func newCDEnv(t *testing.T) *cdEnv {
 		g.Delete("/deals/:id", dh.Delete)
 		g.Get("/deals/:id/invoices", dh.ListInvoices)
 		g.Post("/invoices", ih.Create)
+		g.Get("/invoices/:id", ih.Get)
+		g.Get("/invoices", ih.List)
 		g.Post("/invoices/:id/send", ih.Send)
 		g.Patch("/invoices/:id/status", ih.UpdateStatus)
 	}

@@ -361,8 +361,8 @@ export const api = {
   // ─── Invoices ────────────────────────────────────────────────────────────────
 
   invoices: {
-    list: (page = 1, limit = 50) =>
-      request(`/api/v1/invoices?page=${page}&limit=${limit}`),
+    list: (page = 1, limit = 50, status = '') =>
+      request(`/api/v1/invoices?page=${page}&limit=${limit}${status ? `&status=${status}` : ''}`),
     create: (data: unknown) =>
       request('/api/v1/invoices', { method: 'POST', body: JSON.stringify(data) }),
     get: (id: string) => request(`/api/v1/invoices/${id}`),

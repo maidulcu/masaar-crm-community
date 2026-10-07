@@ -42,12 +42,12 @@ export default function InvoicesPage() {
 
   const [statusFilter, setStatusFilter] = useState<InvoiceStatus | ''>('')
 
-  useEffect(() => { load() }, [page])
+  useEffect(() => { load() }, [page, statusFilter])
 
   const load = async () => {
     setLoading(true)
     try {
-      const res: any = await api.invoices.list(page, limit)
+      const res: any = await api.invoices.list(page, limit, statusFilter)
       setInvoices(res?.data ?? [])
       setTotal(res?.total ?? 0)
     } catch {
@@ -58,7 +58,7 @@ export default function InvoicesPage() {
   }
 
   const totalPages = Math.max(1, Math.ceil(total / limit))
-  const filtered = statusFilter ? invoices.filter(i => i.status === statusFilter) : invoices
+  const filtered = invoices
 
   const totals = filtered.reduce(
     (acc, inv) => ({
@@ -98,7 +98,7 @@ export default function InvoicesPage() {
         {/* Status filters */}
         <div className="flex items-center gap-3 mb-4">
           <button
-            onClick={() => setStatusFilter('')}
+            onClick={() => { setStatusFilter(''); setPage(1) }}
             className={clsx(
               'px-3 py-1.5 text-xs font-medium rounded-full transition-colors',
               statusFilter === '' ? 'bg-brand-600 text-white' : 'bg-surface-100 text-surface-600 hover:bg-surface-200'
@@ -107,7 +107,7 @@ export default function InvoicesPage() {
             {t('الكل', 'All')} ({total})
           </button>
           {(['draft', 'sent', 'paid'] as InvoiceStatus[]).map(s => (
-            <button key={s} onClick={() => setStatusFilter(s)}
+            <button key={s} onClick={() => { setStatusFilter(s); setPage(1) }}
               className={clsx(
                 'px-3 py-1.5 text-xs font-medium rounded-full transition-colors',
                 statusFilter === s ? 'bg-brand-600 text-white' : 'bg-surface-100 text-surface-600 hover:bg-surface-200'
