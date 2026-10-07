@@ -26,6 +26,13 @@ func newTLEnv(t *testing.T) *tlEnv {
 	ctx := context.Background()
 	t.Cleanup(func() {
 		for _, co := range []uuid.UUID{le.a, le.b} {
+			_, _ = le.pool.Exec(ctx, `DELETE FROM maintenance_photos WHERE task_id IN (SELECT id FROM maintenance_tasks WHERE company_id = $1)`, co)
+			_, _ = le.pool.Exec(ctx, `DELETE FROM maintenance_tasks WHERE company_id = $1`, co)
+			_, _ = le.pool.Exec(ctx, `DELETE FROM inspections WHERE company_id = $1`, co)
+			_, _ = le.pool.Exec(ctx, `DELETE FROM inspection_templates WHERE company_id = $1`, co)
+			_, _ = le.pool.Exec(ctx, `DELETE FROM expense_approvals WHERE expense_id IN (SELECT id FROM expenses WHERE company_id = $1)`, co)
+			_, _ = le.pool.Exec(ctx, `DELETE FROM expenses WHERE company_id = $1`, co)
+			_, _ = le.pool.Exec(ctx, `DELETE FROM expense_categories WHERE company_id = $1`, co)
 			_, _ = le.pool.Exec(ctx, `UPDATE payments SET bank_transaction_id = NULL WHERE company_id = $1`, co)
 			_, _ = le.pool.Exec(ctx, `DELETE FROM bank_transactions WHERE company_id = $1`, co)
 			_, _ = le.pool.Exec(ctx, `DELETE FROM bank_statements WHERE company_id = $1`, co)
@@ -44,6 +51,9 @@ func newTLEnv(t *testing.T) *tlEnv {
 	ph := NewPaymentHandler(repo.NewPaymentRepo(le.pool))
 	tph := NewLeaseTemplateHandler(repo.NewLeaseTemplateRepo(le.pool))
 	rh := NewRentalPropertyHandler(repo.NewRentalPropertyRepo(le.pool))
+	eh := NewExpenseHandler(repo.NewExpenseRepository(le.pool))
+	mh := NewMaintenanceTaskHandler(repo.NewMaintenanceTaskRepo(le.pool))
+	ih := NewInspectionHandler(repo.NewInspectionTemplateRepo(le.pool), repo.NewInspectionRepo(le.pool))
 	bih := NewBankIntegrationHandler(repo.NewBankIntegrationRepo(le.pool))
 	pch := NewPaymentConfirmationHandler(repo.NewPaymentConfirmationRepo(le.pool), repo.NewPaymentRepo(le.pool), ai.NewPaymentConfirmationService(nil, nil, nil, nil, nil, nil, nil))
 	lrh := NewLeaseRenewalHandler(repo.NewLeaseRenewalRepo(le.pool), repo.NewRenewalTemplateRepo(le.pool),
@@ -76,6 +86,26 @@ func newTLEnv(t *testing.T) *tlEnv {
 		g.Patch("/lease-templates/:id", tph.Update)
 		g.Delete("/lease-templates/:id", tph.Delete)
 		g.Post("/rental-properties", rh.Create)
+		g.Post("/expense-categories", eh.CreateCategory)
+		g.Post("/expenses", eh.CreateExpense)
+		g.Get("/expenses/:id", eh.GetExpense)
+		g.Patch("/expenses/:id", eh.UpdateExpense)
+		g.Delete("/expenses/:id", eh.DeleteExpense)
+		g.Post("/expenses/:id/approve", eh.ApproveExpense)
+		g.Post("/maintenance-tasks", mh.Create)
+		g.Get("/maintenance-tasks", mh.List)
+		g.Get("/maintenance-tasks/:id", mh.Get)
+		g.Patch("/maintenance-tasks/:id", mh.Update)
+		g.Post("/maintenance-tasks/:id/complete", mh.Complete)
+		g.Post("/maintenance-tasks/:id/photos", mh.AddPhoto)
+		g.Get("/maintenance-tasks/:id/photos", mh.GetPhotos)
+		g.Delete("/maintenance-tasks/:id", mh.Delete)
+		g.Post("/inspection-templates", ih.CreateTemplate)
+		g.Post("/inspections", ih.CreateInspection)
+		g.Get("/inspections/:id", ih.GetInspection)
+		g.Patch("/inspections/:id", ih.UpdateInspection)
+		g.Post("/inspections/:id/complete", ih.CompleteInspection)
+		g.Delete("/rental-properties/:id", rh.Delete)
 		g.Get("/bank-integrations/:id", bih.Get)
 		g.Get("/bank-integrations", bih.List)
 		g.Post("/bank-integrations", bih.Create)
@@ -367,3 +397,15 @@ func TestLeaseRenewal_UsesLeaseEndAndGuardsState(t *testing.T) {
 		t.Fatalf("reject after accept = %d, want 409", code)
 	}
 }
+
+// mk2 creates a record whose response is wrapped as {"data": {...}} and returns its id.
+func (e *tlEnv) mk2(t *testing.T, path string, body any) string {
+	t.Helper()
+	code, out := e.req(t, "POST", path, body)
+	if code != 201 {
+		t.Fatalf("POST %s = %d %v", path, code, out)
+	}
+	return out["data"].(map[string]any)["id"].(string)
+}
+
+func ctxBG() context.Context { return context.Background() }

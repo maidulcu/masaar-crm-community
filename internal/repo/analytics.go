@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/google/uuid"
@@ -471,27 +472,30 @@ func (r *AnalyticsRepository) GetFinancialAnalytics(ctx context.Context, company
 }
 
 func (r *AnalyticsRepository) GetMaintenanceAnalytics(ctx context.Context, companyID uuid.UUID) (*domain.MaintenanceAnalytics, error) {
+	// Soft-deleted tasks are excluded; open high-priority work is what the number is for.
 	query := `
 		SELECT
 			COUNT(*) as total_tasks,
 			COUNT(*) FILTER (WHERE status = 'completed') as completed_tasks,
 			COUNT(*) FILTER (WHERE status IN ('pending', 'scheduled', 'in_progress')) as pending_tasks,
-			COUNT(*) FILTER (WHERE priority = 'high' OR priority = 'urgent') as high_priority,
-			COALESCE(AVG(EXTRACT(DAY FROM (completion_date - created_at))) FILTER (WHERE status = 'completed'), 0) as avg_completion_days
+			COUNT(*) FILTER (WHERE priority IN ('high', 'urgent') AND status IN ('pending', 'scheduled', 'in_progress')) as high_priority,
+			COALESCE(AVG(GREATEST(completion_date - created_at::date, 0)) FILTER (WHERE status = 'completed' AND completion_date IS NOT NULL), 0)::float8 as avg_completion_days
 		FROM maintenance_tasks
-		WHERE company_id = $1
+		WHERE company_id = $1 AND deleted_at IS NULL
 	`
 
+	// The columns used to be scanned in a different order than selected (average days into the
+	// high-priority count and vice versa) and the average into an int.
 	var analytics domain.MaintenanceAnalytics
-	var completedTasks, pendingTasks, avgDays int
-	var highPriority int
+	var completedTasks, pendingTasks, highPriority int
+	var avgDays float64
 
 	err := r.conn.QueryRow(ctx, query, companyID).Scan(
 		&analytics.TotalTasks,
 		&completedTasks,
 		&pendingTasks,
-		&avgDays,
 		&highPriority,
+		&avgDays,
 	)
 	if err != nil {
 		return nil, err
@@ -500,7 +504,7 @@ func (r *AnalyticsRepository) GetMaintenanceAnalytics(ctx context.Context, compa
 	analytics.CompletedTasks = completedTasks
 	analytics.PendingTasks = pendingTasks
 	analytics.HighPriorityTasks = highPriority
-	analytics.AvgCompletionDays = float64(avgDays)
+	analytics.AvgCompletionDays = math.Round(avgDays*10) / 10
 
 	if analytics.TotalTasks > 0 {
 		analytics.CompletionRate = (float64(completedTasks) / float64(analytics.TotalTasks)) * 100
