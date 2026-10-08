@@ -33,25 +33,26 @@ export const KanbanCard = memo(function KanbanCard({ lead, onOpen }: Props) {
     <div
       ref={setNodeRef}
       style={style}
-      {...attributes}
       className={clsx(
         'bg-white rounded-xl border border-surface-200/70 shadow-card select-none transition-all duration-200 ease-soft hover:shadow-card-hover hover:border-surface-300',
         isDragging && 'opacity-60 shadow-pop ring-2 ring-primary-300'
       )}
     >
       {/* Clickable body — opens notes modal */}
-      <div
-        className="p-3.5 cursor-pointer"
+      <button
+        type="button"
+        className="w-full text-start p-3.5 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 rounded-t-xl"
         onClick={() => onOpen?.(lead)}
+        aria-label={t('عرض تفاصيل', `View details for ${lead.contact?.full_name ?? 'Lead'}`)}
       >
         {/* Contact name */}
-        <p className="font-semibold text-[13.5px] text-surface-900 truncate tracking-tight">
+        <div className="font-semibold text-[13.5px] text-surface-900 truncate tracking-tight">
           {lead.contact?.full_name ?? t('جهة اتصال غير معروفة', 'Unknown contact')}
-        </p>
+        </div>
 
         {/* Phone */}
         {lead.contact?.phone_wa && (
-          <p className="text-[11.5px] text-surface-500 mt-0.5 truncate font-mono">{lead.contact.phone_wa}</p>
+          <div className="text-[11.5px] text-surface-500 mt-0.5 truncate font-mono">{lead.contact.phone_wa}</div>
         )}
 
         {/* Deal value */}
@@ -68,9 +69,9 @@ export const KanbanCard = memo(function KanbanCard({ lead, onOpen }: Props) {
 
         {/* Assigned agent */}
         {lead.assigned_user && (
-          <p className="mt-2 text-[10px] text-surface-500 font-medium truncate">
+          <div className="mt-2 text-[10px] text-surface-500 font-medium truncate">
             👤 {lead.assigned_user.name}
-          </p>
+          </div>
         )}
 
         {/* Tags */}
@@ -102,19 +103,21 @@ export const KanbanCard = memo(function KanbanCard({ lead, onOpen }: Props) {
 
         {/* Notes preview */}
         {lead.notes && (
-          <p className="mt-2 text-[11px] text-surface-500 truncate italic">
+          <div className="mt-2 text-[11px] text-surface-500 truncate italic">
             {lead.notes}
-          </p>
+          </div>
         )}
-      </div>
+      </button>
 
       {/* Drag handle — only this triggers DnD */}
       <div
+        {...attributes}
         {...listeners}
-        className="flex items-center justify-center py-1.5 border-t border-surface-100 cursor-grab active:cursor-grabbing text-surface-300 hover:text-surface-500 transition-colors"
+        aria-label={t('اسحب للنقل', 'Drag to move')}
+        className="flex items-center justify-center py-1.5 border-t border-surface-100 cursor-grab active:cursor-grabbing text-surface-300 hover:text-surface-500 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 rounded-b-xl"
         title={t('اسحب للنقل', 'Drag to move')}
       >
-        <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+        <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
           <path d="M8 6a1.5 1.5 0 110-3 1.5 1.5 0 010 3zm8 0a1.5 1.5 0 110-3 1.5 1.5 0 010 3zM8 13.5a1.5 1.5 0 110-3 1.5 1.5 0 010 3zm8 0a1.5 1.5 0 110-3 1.5 1.5 0 010 3zM8 21a1.5 1.5 0 110-3 1.5 1.5 0 010 3zm8 0a1.5 1.5 0 110-3 1.5 1.5 0 010 3z"/>
         </svg>
       </div>
