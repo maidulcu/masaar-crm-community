@@ -349,11 +349,6 @@ func (r *UserRepo) ListByCompany(ctx context.Context, companyID uuid.UUID, page,
 }
 
 func (r *UserRepo) InviteUser(ctx context.Context, email, name string, companyID uuid.UUID, role domain.Role) (*domain.User, string, error) {
-	token, err := r.CreatePasswordResetToken(ctx, uuid.Nil)
-	if err != nil {
-		return nil, "", fmt.Errorf("generate invite token: %w", err)
-	}
-
 	u := &domain.User{
 		ID:           uuid.New(),
 		CompanyID:    companyID,
@@ -370,7 +365,7 @@ func (r *UserRepo) InviteUser(ctx context.Context, email, name string, companyID
 		VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
 		RETURNING created_at
 	`
-	err = r.db.QueryRow(ctx, q,
+	err := r.db.QueryRow(ctx, q,
 		u.ID, u.CompanyID, u.Name, u.Email, u.PasswordHash,
 		u.Role, u.LangPref, u.IsActive,
 	).Scan(&u.CreatedAt)
@@ -378,9 +373,11 @@ func (r *UserRepo) InviteUser(ctx context.Context, email, name string, companyID
 		return nil, "", fmt.Errorf("create invited user: %w", err)
 	}
 
-	// Store the invite as a password reset token
-	_ = r.db.QueryRow(ctx, `UPDATE password_reset_tokens SET user_id = $1 WHERE token_hash = $2`,
-		u.ID, sha256.Sum256([]byte(token)))
+	// Create password reset token directly bound to the new user's ID
+	token, err := r.CreatePasswordResetToken(ctx, u.ID)
+	if err != nil {
+		return nil, "", fmt.Errorf("generate invite token: %w", err)
+	}
 
 	return u, token, nil
 }

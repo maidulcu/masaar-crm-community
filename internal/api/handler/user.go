@@ -308,27 +308,12 @@ func (h *UserHandler) InviteUser(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "invalid session"})
 	}
 
-	// Create user with empty password — they must set it via the invite link
-	user := &domain.User{
-		Name:         strings.TrimSpace(body.Name),
-		CompanyID:    companyID,
-		Email:        strings.ToLower(strings.TrimSpace(body.Email)),
-		PasswordHash: "",
-		Role:         body.Role,
-		LangPref:     "ar",
-		IsActive:     true,
-	}
-	if err := h.users.Create(c.Context(), user); err != nil {
+	user, token, err := h.users.InviteUser(c.Context(), body.Email, body.Name, companyID, body.Role)
+	if err != nil {
 		if strings.Contains(err.Error(), "unique") || strings.Contains(err.Error(), "duplicate") {
 			return c.Status(fiber.StatusConflict).JSON(fiber.Map{"error": "email already in use"})
 		}
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to create user"})
-	}
-
-	// Generate a setup token (reuses the password reset flow)
-	token, err := h.users.CreatePasswordResetToken(c.Context(), user.ID)
-	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to generate invite token"})
 	}
 
 	setupURL := fmt.Sprintf("%s/reset-password?token=%s", h.config.AppURL, token)
