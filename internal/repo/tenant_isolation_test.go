@@ -534,4 +534,28 @@ func TestStatsOnlyCountOwnData(t *testing.T) {
 	}
 }
 
+func TestUserInviteAndResetToken(t *testing.T) {
+	e := setup(t)
+	users := NewUserRepo(e.pool)
+
+	invited, token, err := users.InviteUser(e.a.ctx, "invited@test.local", "Invited User", e.a.id, domain.RoleAgent)
+	if err != nil {
+		t.Fatalf("InviteUser failed: %v", err)
+	}
+	if invited.ID == uuid.Nil {
+		t.Fatal("invited user ID is Nil")
+	}
+	if token == "" {
+		t.Fatal("invite token is empty")
+	}
+
+	userID, err := users.ConsumePasswordResetToken(e.a.ctx, token)
+	if err != nil {
+		t.Fatalf("ConsumePasswordResetToken failed: %v", err)
+	}
+	if userID != invited.ID {
+		t.Fatalf("token was bound to wrong user ID: got %s, want %s", userID, invited.ID)
+	}
+}
+
 func timeNow() time.Time { return time.Now() }
