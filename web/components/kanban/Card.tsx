@@ -41,8 +41,20 @@ export const KanbanCard = memo(function KanbanCard({ lead, onOpen }: Props) {
     >
       {/* Clickable body — opens notes modal */}
       <div
-        className="p-3.5 cursor-pointer"
+        role="button"
+        tabIndex={0}
+        aria-label={t(
+          `عرض تفاصيل ${lead.contact?.full_name || 'جهة اتصال غير معروفة'}`,
+          `View details for ${lead.contact?.full_name || 'Unknown contact'}`
+        )}
+        className="p-3.5 cursor-pointer rounded-t-xl focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-inset"
         onClick={() => onOpen?.(lead)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault()
+            onOpen?.(lead)
+          }
+        }}
       >
         {/* Contact name */}
         <p className="font-semibold text-[13.5px] text-surface-900 truncate tracking-tight">
