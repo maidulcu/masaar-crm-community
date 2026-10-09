@@ -24,3 +24,9 @@ func TestCSVSafeCell(t *testing.T) {
 		}
 	}
 }
+
+func TestMaxImportFileSizeConstant(t *testing.T) {
+	if maxImportFileSize != 5<<20 {
+		t.Errorf("maxImportFileSize = %d, want %d", maxImportFileSize, 5<<20)
+	}
+}

@@ -72,12 +72,19 @@ func (h *ImportExportHandler) Template(c *fiber.Ctx) error {
 
 // ── Import ────────────────────────────────────────────────────────────────────
 
+// maxImportFileSize caps imported CSV files to 5 MB to prevent memory exhaustion DoS attacks.
+const maxImportFileSize = 5 << 20
+
 // ImportContacts handles POST /api/v1/import/contacts (multipart file upload).
 // Max 500 rows per request.
 func (h *ImportExportHandler) ImportContacts(c *fiber.Ctx) error {
 	file, err := c.FormFile("file")
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "file is required (multipart field: file)"})
+	}
+	// Limit file size to 5MB to prevent DoS via unbounded memory allocation during CSV parsing
+	if file.Size > maxImportFileSize {
+		return c.Status(fiber.StatusRequestEntityTooLarge).JSON(fiber.Map{"error": "file is too large (max 5 MB)"})
 	}
 	f, err := file.Open()
 	if err != nil {
@@ -141,6 +148,10 @@ func (h *ImportExportHandler) ImportLeads(c *fiber.Ctx) error {
 	file, err := c.FormFile("file")
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "file is required"})
+	}
+	// Limit file size to 5MB to prevent DoS via unbounded memory allocation during CSV parsing
+	if file.Size > maxImportFileSize {
+		return c.Status(fiber.StatusRequestEntityTooLarge).JSON(fiber.Map{"error": "file is too large (max 5 MB)"})
 	}
 	f, err := file.Open()
 	if err != nil {
