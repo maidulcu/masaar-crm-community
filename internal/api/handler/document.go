@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
@@ -263,18 +264,33 @@ func (h *DocumentHandler) SendForSignature(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid id"})
 	}
 
-	d, err := h.docs.GetDocument(c.Context(), docID)
-	if err != nil {
-		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "document not found"})
-	}
-
 	var body struct {
 		SignerName  string `json:"signer_name"`
 		SignerEmail string `json:"signer_email"`
 		UseDocusign bool   `json:"use_docusign"`
 	}
-	if err := c.BodyParser(&body); err != nil || body.SignerName == "" || body.SignerEmail == "" {
+	if err := c.BodyParser(&body); err != nil || strings.TrimSpace(body.SignerName) == "" || strings.TrimSpace(body.SignerEmail) == "" {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "signer_name and signer_email required"})
+	}
+
+	body.SignerName = strings.TrimSpace(body.SignerName)
+	body.SignerEmail = strings.ToLower(strings.TrimSpace(body.SignerEmail))
+
+	if len(body.SignerName) > 200 {
+		return c.Status(fiber.StatusUnprocessableEntity).JSON(fiber.Map{"error": "signer_name is too long (max 200 characters)"})
+	}
+	if len(body.SignerEmail) > 254 {
+		return c.Status(fiber.StatusUnprocessableEntity).JSON(fiber.Map{"error": "signer_email is too long (max 254 characters)"})
+	}
+
+	d, err := h.docs.GetDocument(c.Context(), docID)
+	if err != nil {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "document not found"})
+	}
+
+	ua := c.Get("User-Agent")
+	if len(ua) > 512 {
+		ua = ua[:512]
 	}
 
 	sig := &domain.DocumentSignature{
@@ -284,7 +300,7 @@ func (h *DocumentHandler) SendForSignature(c *fiber.Ctx) error {
 		SignatureFieldName: "signature_1",
 		SignatureStatus:    domain.SignaturePending,
 		IPAddress:          c.IP(),
-		UserAgent:          c.Get("User-Agent"),
+		UserAgent:          ua,
 	}
 
 	// DocuSign flow
