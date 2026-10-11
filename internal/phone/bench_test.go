@@ -20,3 +20,30 @@ func BenchmarkNormalize(b *testing.B) {
 		}
 	}
 }
+
+func BenchmarkNormalize_Canonical(b *testing.B) {
+	in := "+971501234567"
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		Normalize(in)
+	}
+}
+
+func BenchmarkNormalize_DigitsOnly(b *testing.B) {
+	in := "971501234567"
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		Normalize(in)
+	}
+}
+
+func BenchmarkNormalize_Formatted(b *testing.B) {
+	in := "+971 50 123 4567"
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		Normalize(in)
+	}
+}
