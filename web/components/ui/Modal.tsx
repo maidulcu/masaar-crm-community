@@ -1,5 +1,6 @@
 'use client'
 import { useEffect, useRef } from 'react'
+import { useLang } from '@/context/LangContext'
 import clsx from 'clsx'
 
 interface ModalProps {
@@ -11,6 +12,7 @@ interface ModalProps {
 
 export function Modal({ open, onClose, title, children }: ModalProps) {
   const dialogRef = useRef<HTMLDialogElement>(null)
+  const { t } = useLang()
 
   useEffect(() => {
     const dialog = dialogRef.current
@@ -49,8 +51,8 @@ export function Modal({ open, onClose, title, children }: ModalProps) {
           <h2 className="text-lg font-semibold text-surface-900 tracking-tight">{title}</h2>
           <button
             onClick={onClose}
-            aria-label="Close"
-            className="inline-flex items-center justify-center w-8 h-8 rounded-lg text-surface-400 hover:text-surface-900 hover:bg-surface-100 transition-colors"
+            aria-label={t('إغلاق', 'Close')}
+            className="inline-flex items-center justify-center w-8 h-8 rounded-lg text-surface-400 hover:text-surface-900 hover:bg-surface-100 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500"
           >
             <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
               <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
