@@ -52,7 +52,9 @@ func (h *DocusignWebhookHandler) Handle(c *fiber.Ctx) error {
 			} `json:"recipients"`
 		} `json:"data"`
 	}
-	json.Unmarshal(body, &event)
+	if err := json.Unmarshal(body, &event); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid json"})
+	}
 
 	envelopeID := event.Data.EnvelopeID
 	if envelopeID == "" {
