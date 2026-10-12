@@ -20,3 +20,21 @@ func BenchmarkNormalize(b *testing.B) {
 		}
 	}
 }
+
+func BenchmarkNormalizeCanonical(b *testing.B) {
+	in := "+971501234567"
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		Normalize(in)
+	}
+}
+
+func BenchmarkNormalizeNonCanonical(b *testing.B) {
+	in := "+971 50 123 4567"
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		Normalize(in)
+	}
+}

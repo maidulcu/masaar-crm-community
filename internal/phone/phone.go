@@ -15,6 +15,21 @@ import (
 // number. Numbers in national format ("0501234567") are rejected rather than guessed: the CRM
 // has no way to know the country.
 func Normalize(raw string) (string, bool) {
+	// Fast path: raw is already in canonical E.164 format ("+" followed by 7-15 digits, first non-zero).
+	// This avoids string trimming, parsing loops, and allocations for already-normalized inputs.
+	if len(raw) >= 8 && len(raw) <= 16 && raw[0] == '+' && raw[1] >= '1' && raw[1] <= '9' {
+		isCanonical := true
+		for i := 2; i < len(raw); i++ {
+			if raw[i] < '0' || raw[i] > '9' {
+				isCanonical = false
+				break
+			}
+		}
+		if isCanonical {
+			return raw, true
+		}
+	}
+
 	trimmed := strings.TrimSpace(raw)
 	// E.164 allows at most 15 digits. Raw inputs starting with "00" prefix
 	// can have up to 17 digits total before "00" prefix stripping.
@@ -53,9 +68,10 @@ func Normalize(raw string) (string, bool) {
 		return "", false
 	}
 
-	// Performance optimization: construct "+"+digits with 1 allocation
-	out := make([]byte, 1+len(digits))
-	out[0] = '+'
-	copy(out[1:], digits)
-	return string(out), true
+	// Performance optimization: construct "+"+digits with 1 allocation using strings.Builder
+	var sb strings.Builder
+	sb.Grow(1 + len(digits))
+	sb.WriteByte('+')
+	sb.Write(digits)
+	return sb.String(), true
 }
