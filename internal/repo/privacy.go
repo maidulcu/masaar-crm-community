@@ -155,6 +155,26 @@ func (r *PrivacyRepo) EmailOptedOut(ctx context.Context, email string) (bool, er
 	return out, err
 }
 
+// PhoneOptedOut reports whether a contact of the company with this WhatsApp or secondary
+// phone number withdrew consent for the channel, or was erased. Used for people who are
+// not contacts themselves, such as tenants.
+func (r *PrivacyRepo) PhoneOptedOut(ctx context.Context, phone, channel string) (bool, error) {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return false, err
+	}
+	var out bool
+	err = r.db.QueryRow(ctx, `
+		SELECT EXISTS (
+		  SELECT 1 FROM contacts c
+		   WHERE c.company_id = $1 AND (c.phone_wa = $2 OR $2 = ANY(c.secondary_phones))
+		     AND (c.erased_at IS NOT NULL OR
+		          (SELECT status FROM contact_consents
+		            WHERE contact_id = c.id AND channel = $3 ORDER BY created_at DESC, id DESC LIMIT 1) = 'withdrawn'))`,
+		cid, phone, channel).Scan(&out)
+	return out, err
+}
+
 // exportQueries lists what a data-subject export contains. Each query selects rows for
 // ($1 company, $2 contact) and is returned as JSON.
 var exportQueries = []struct{ key, q string }{

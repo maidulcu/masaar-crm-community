@@ -209,6 +209,10 @@ func main() {
 
 	// ── Handlers ─────────────────────────────────────────────────────────────
 	leadRotation := handler.NewLeadRotationHandler(leadRotationRepo, leadRepo, userRepo, hub)
+	notifier := jobs.NewNotifier(notificationRepo, userRepo, emailSvc, hub)
+	complianceRepo := repo.NewComplianceRepo(pool)
+	chequeRepo := repo.NewChequeRepo(pool)
+	leaseOpsRepo := repo.NewLeaseOpsRepo(pool)
 	h := &api.Handlers{
 		Auth:                handler.NewAuthHandler(userRepo, companyRepo, rdb, cfg, auditRepo, emailSvc, smsClient),
 		User:                handler.NewUserHandler(userRepo, auditRepo, emailSvc, cfg, rdb),
@@ -228,7 +232,7 @@ func main() {
 		RentalProperty:      handler.NewRentalPropertyHandler(rentalPropertyRepo),
 		Tenant:              handler.NewTenantHandler(tenantRepo),
 		LeaseTemplate:       handler.NewLeaseTemplateHandler(leaseTemplateRepo),
-		Lease:               handler.NewLeaseHandler(leaseRepo),
+		Lease:               handler.NewLeaseHandler(leaseRepo).UseCheques(chequeRepo),
 		Payment:             handler.NewPaymentHandler(paymentRepo),
 		BankIntegration:     handler.NewBankIntegrationHandler(bankIntegrationRepo),
 		BankStatement:       handler.NewBankStatementHandler(bankStatementRepo, bankStatementStore, cfg.BankStatementMaxMB),
@@ -261,13 +265,16 @@ func main() {
 		Task:                handler.NewTaskHandler(taskRepo),
 		ContactProfile:      handler.NewContactProfileHandler(contactProfileRepo, auditRepo),
 		Rera:                handler.NewReraHandler(reraRepo, auditRepo),
+		Cheque: handler.NewChequeHandler(chequeRepo, auditRepo, notifier, complianceRepo.AdminIDs,
+			bankStatementStore, int64(cfg.BankStatementMaxMB)),
+		LeaseOps: handler.NewLeaseOpsHandler(leaseOpsRepo, paymentRepo, auditRepo),
 		Portal: handler.NewPortalHandler(repo.NewPortalRepo(pool), contactRepo, leadRepo, listingRepo, userRepo, companySettingsRepo,
 			dispatcher, leadRotation.AssignNewLead, cfg.PublicAPIURL, cfg.AppURL),
 	}
 	if cfg.DocusignWebhookSecret != "" {
 		h.DocusignWebhook = handler.NewDocusignWebhookHandler(documentRepo, cfg.DocusignWebhookSecret)
 	}
-	_ = paymentReminderRepo // reserved for the scheduled reminder service (not part of Community Edition)
+	_ = paymentReminderRepo // rent reminders are sent by jobs.RentReminders
 
 	// ── HTTP server ──────────────────────────────────────────────────────────
 	app := fiber.New(fiber.Config{
@@ -301,13 +308,15 @@ func main() {
 	// ── Background jobs ──────────────────────────────────────────────────────
 	var runner *jobs.Runner
 	if cfg.JobsEnabled {
-		notifier := jobs.NewNotifier(notificationRepo, userRepo, emailSvc, hub)
 		runner = jobs.NewRunner(jobRepo, 30*time.Second,
 			jobs.ViewingReminders(viewingRepo, notifier),
 			jobs.OfferExpiry(offerRepo, notifier),
-			jobs.ExpiryAlerts(repo.NewComplianceRepo(pool), notifier),
+			jobs.ExpiryAlerts(complianceRepo, notifier),
 			jobs.Retention(privacyRepo, removeStored(bankStatementStore)),
 			jobs.TaskReminders(taskRepo, notifier),
+			jobs.ChequeDeposits(chequeRepo, complianceRepo, notifier),
+			jobs.LeaseAlerts(leaseOpsRepo, complianceRepo, notifier),
+			jobs.RentReminders(leaseOpsRepo, privacyRepo, emailSvc, waSender),
 			jobs.PruneRunLog(jobRepo),
 		)
 		runner.Start(ctx)

@@ -9,6 +9,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [v0.4.0] - Unreleased
 
+### Property management (#86) — migration `0074`
+
+**Post-dated cheque register**
+- Cheques per lease: number, bank, drawer, amount, date, and an optional scan (JPEG, PNG or PDF, kept in the bank statement store). Status: in hand (`received`) → `deposited` → `cleared`, or `bounced`; also `on_hold`, `returned` and `replaced`. Every change is audit-logged.
+- **Cheque schedule:** `POST /leases/:id/cheques/schedule` (or `cheque_schedule` in the lease-creation body) splits the rent for the lease term over N cheques at equal month intervals, numbered upwards from the first cheque number, and creates a pending payment for each. A 12-cheque lease gets 12 cheques and 12 payments; rounding goes to the last cheque.
+- A cleared cheque marks its payment received (with the clearing date); a bounced cheque marks it failed, notifies the lease's agent and the admins, and can add a returned-cheque charge as a new payment. A replacement cheque pays the same payment.
+- **Cheque register** (`/cheques`): cheques to deposit today, in the next 30 days, awaiting clearance, or bounced, with totals and bulk "mark deposited". A daily digest of the cheques to deposit goes to each lease's agent and the admins (`cheque_deposits` job).
+
+**Lease alerts and notices**
+- Leases have an **agent** (defaults to whoever created the lease) and an **Ejari expiry**.
+- Alerts to the agent and the admins, once per threshold: before a lease ends (by default 120, 90, 60 and 30 days, configurable), two weeks before the last day to serve a rent-change notice when none has been recorded (90 days before the end by default, configurable), and 30 and 7 days before (and once after) the Ejari registration expires (`lease_alerts` job). Clicking the notification opens the lease.
+- **Notices to the tenant** (rent change, renewal terms, non-renewal, other): drafted in English and Arabic from the lease, edited, saved, printed side by side, and recorded as served (when and how: email, WhatsApp, by hand, registered mail, notary). The drafts are a starting point, not legal advice.
+- "Start renewal" on the lease page opens the existing renewal workflow. Its renewal date is now the day after the lease ends (it was "today + 90 days").
+
+**Rent reminders**
+- When switched on (Settings → Property Management), tenants are reminded by email and WhatsApp a few days before rent is due (3 by default) and once when it is late, between 9:00 and 20:00 local time (`rent_reminders` job). WhatsApp uses an approved template with four parameters (tenant name, amount, due date, property).
+- Not sent for payments covered by a cheque in hand, to tenants switched off on the lease page, or on a channel the tenant opted out of as a contact (matched by phone or email). Skipped and failed reminders are recorded and shown on the lease page.
+- This replaces the no-op `PaymentReminderService` stub; the `payment_reminders` table it expected is created by this migration.
+
+**Other**
+- The lease page loads its own payments (`GET /leases/:id/payments`); it used to filter the first 100 payments of the company.
+- Notifications open the record they are about (lease, task, listing…).
+
+#### Upgrade notes
+- Existing leases get their creator as agent. Rent reminders are off until an admin switches them on.
+- Notice periods and alert days are defaults for Dubai: check the rules that apply to your emirate.
+
 ### Brokerage workflow (#85) — migrations `0070`–`0073`
 
 **Tasks and follow-ups**

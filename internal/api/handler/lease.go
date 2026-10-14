@@ -5,12 +5,20 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
+	"github.com/maidulcu/masaar-crm/internal/cheque"
 	"github.com/maidulcu/masaar-crm/internal/domain"
 	"github.com/maidulcu/masaar-crm/internal/repo"
 )
 
 type LeaseHandler struct {
-	leases *repo.LeaseRepo
+	leases  *repo.LeaseRepo
+	cheques *repo.ChequeRepo // optional: cheque schedule on create
+}
+
+// UseCheques lets Create generate the lease's cheque schedule.
+func (h *LeaseHandler) UseCheques(cheques *repo.ChequeRepo) *LeaseHandler {
+	h.cheques = cheques
+	return h
 }
 
 func NewLeaseHandler(leases *repo.LeaseRepo) *LeaseHandler {
@@ -104,8 +112,34 @@ func (h *LeaseHandler) Create(c *fiber.Ctx) error {
 	}
 	l.CompanyID = companyID
 
+	// Optional: {"cheque_schedule": {"count": 12, "first_number": "000101", "bank_name": "…", "drawer_name": "…"}}.
+	// count 0 means one cheque per payment period.
+	var extra struct {
+		ChequeSchedule *struct {
+			Count       int    `json:"count"`
+			FirstNumber string `json:"first_number"`
+			BankName    string `json:"bank_name"`
+			DrawerName  string `json:"drawer_name"`
+		} `json:"cheque_schedule"`
+	}
+	_ = c.BodyParser(&extra)
+
 	if err := h.leases.Create(c.Context(), &l); err != nil {
 		return serverError(c, err)
+	}
+	if s := extra.ChequeSchedule; s != nil && h.cheques != nil {
+		count := s.Count
+		if count == 0 {
+			count = cheque.CountFor(string(l.PaymentFrequency), cheque.LeaseMonths(l.StartDate, l.EndDate))
+		}
+		list, err := h.cheques.CreateSchedule(c.Context(), l.ID, repo.ScheduleInput{Count: count, FirstNumber: s.FirstNumber,
+			BankName: s.BankName, DrawerName: s.DrawerName}, &userID)
+		if err != nil {
+			// The lease exists; report the schedule problem without failing the request.
+			status, msg := apiError(err)
+			return c.Status(fiber.StatusCreated).JSON(fiber.Map{"lease": l, "cheque_schedule_error": msg, "cheque_schedule_status": status})
+		}
+		return c.Status(fiber.StatusCreated).JSON(fiber.Map{"lease": l, "cheques": list})
 	}
 	return c.Status(fiber.StatusCreated).JSON(l)
 }

@@ -36,6 +36,8 @@ type Handlers struct {
 	Property            *handler.PropertyHandler
 	Settings            *handler.SettingsHandler
 	Portal              *handler.PortalHandler
+	Cheque              *handler.ChequeHandler
+	LeaseOps            *handler.LeaseOpsHandler
 	Email               *handler.EmailHandler
 	RentalProperty      *handler.RentalPropertyHandler
 	Tenant              *handler.TenantHandler
@@ -876,6 +878,29 @@ func RegisterRoutes(app *fiber.App, h *Handlers, hub *ws.Hub, cfg *config.Config
 	)
 
 	// Leases — agents: create+view+update; admin: all; viewers: read-only
+	// Post-dated cheques and lease operations (#86)
+	agentOrAdmin := middleware.RequireRole(domain.RoleAdmin, domain.RoleAgent)
+	v1.Get("/cheques", h.Cheque.List)
+	v1.Patch("/cheques/:id", agentOrAdmin, h.Cheque.Update)
+	v1.Post("/cheques/:id/status", agentOrAdmin, h.Cheque.SetStatus)
+	v1.Post("/cheques/:id/replace", agentOrAdmin, h.Cheque.Replace)
+	v1.Get("/cheques/:id/scan", h.Cheque.Scan)
+	v1.Post("/cheques/:id/scan", agentOrAdmin, h.Cheque.UploadScan)
+	v1.Get("/leases/:id/cheques", h.Cheque.ForLease)
+	v1.Post("/leases/:id/cheques", agentOrAdmin, h.Cheque.Create)
+	v1.Post("/leases/:id/cheques/schedule", agentOrAdmin, h.Cheque.Schedule)
+	v1.Get("/leases/:id/extras", h.LeaseOps.Extras)
+	v1.Patch("/leases/:id/extras", agentOrAdmin, h.LeaseOps.SetExtras)
+	v1.Get("/leases/:id/payments", h.LeaseOps.Payments)
+	v1.Get("/leases/:id/reminders", h.LeaseOps.Reminders)
+	v1.Get("/leases/:id/notices", h.LeaseOps.ListNotices)
+	v1.Post("/leases/:id/notices/draft", agentOrAdmin, h.LeaseOps.DraftNotice)
+	v1.Post("/leases/:id/notices", agentOrAdmin, h.LeaseOps.CreateNotice)
+	v1.Get("/lease-notices/:id", h.LeaseOps.GetNotice)
+	v1.Post("/lease-notices/:id/sent", agentOrAdmin, h.LeaseOps.MarkNoticeSent)
+	v1.Get("/settings/property", middleware.RequireRole(domain.RoleAdmin), h.LeaseOps.GetSettings)
+	v1.Put("/settings/property", middleware.RequireRole(domain.RoleAdmin), h.LeaseOps.UpdateSettings)
+
 	v1.Get("/leases", h.Lease.List)
 	v1.Get("/leases/:id", h.Lease.Get)
 	v1.Post("/leases",

@@ -1,5 +1,5 @@
 import { getToken, saveSession, getUser, clearSession } from './auth'
-import type { AuthUser } from '@/types'
+import type { AuthUser, Payment } from '@/types'
 
 const BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080'
 
@@ -184,6 +184,88 @@ export interface LeadSourceRow {
   won_leads: number
   deals: number
   won_revenue: number
+}
+
+export type ChequeStatus = 'received' | 'on_hold' | 'deposited' | 'cleared' | 'bounced' | 'replaced' | 'returned'
+
+export interface Cheque {
+  id: string
+  lease_id: string
+  payment_id?: string
+  cheque_number: string
+  bank_name: string
+  drawer_name: string
+  amount: number
+  currency: string
+  cheque_date: string
+  status: ChequeStatus
+  has_scan: boolean
+  deposited_at?: string
+  cleared_at?: string
+  bounced_at?: string
+  bounce_reason?: string
+  replaced_by?: string
+  notes: string
+  tenant_name?: string
+  property_name?: string
+}
+
+export interface ChequeInput {
+  cheque_number: string
+  bank_name?: string
+  drawer_name?: string
+  amount: number
+  cheque_date: string
+  payment_id?: string
+  notes?: string
+}
+
+export type NoticeKind = 'rent_change' | 'renewal_terms' | 'non_renewal' | 'other'
+
+export interface LeaseNotice {
+  id: string
+  lease_id: string
+  kind: NoticeKind
+  current_rent?: number
+  new_rent?: number
+  effective_date?: string
+  body_en: string
+  body_ar: string
+  sent_at?: string
+  sent_via: string
+  created_at: string
+}
+
+export interface NoticeDraft {
+  body_en: string
+  body_ar: string
+  current_annual_rent: number
+  currency: string
+  lease_end: string
+  notice_deadline: string
+  notice_days: number
+}
+
+export interface LeaseExtras { agent_id: string | null; agent_name: string; ejari_expiry: string | null; rent_reminders: boolean }
+
+export interface PropertySettings {
+  lease_alert_days: number[]
+  rent_notice_days: number
+  rent_reminders_enabled: boolean
+  rent_reminder_days_before: number
+  rent_reminder_wa_template: string
+  rent_reminder_wa_language: string
+}
+
+export interface PaymentReminderRow {
+  id: string
+  payment_id: string
+  reminder_type: string
+  reminder_date: string
+  sent_at?: string
+  delivery_method: string
+  delivery_status: string
+  delivery_error: string
 }
 
 export interface JobRun {
@@ -1178,6 +1260,51 @@ export const api = {
       if (params.limit) q.set('limit', String(params.limit))
       return request(`/api/v1/audit-logs?${q}`)
     },
+  },
+
+  cheques: {
+    list: (params: { status?: string; from?: string; to?: string; lease_id?: string } = {}) => {
+      const q = new URLSearchParams()
+      Object.entries(params).forEach(([k, v]) => { if (v) q.set(k, v) })
+      return request<Cheque[]>(`/api/v1/cheques?${q}`)
+    },
+    forLease: (leaseId: string) => request<Cheque[]>(`/api/v1/leases/${leaseId}/cheques`),
+    schedule: (leaseId: string, data: { count: number; first_date?: string; first_number?: string; bank_name?: string; drawer_name?: string }) =>
+      request<Cheque[]>(`/api/v1/leases/${leaseId}/cheques/schedule`, { method: 'POST', body: JSON.stringify(data) }),
+    create: (leaseId: string, data: ChequeInput) =>
+      request<Cheque>(`/api/v1/leases/${leaseId}/cheques`, { method: 'POST', body: JSON.stringify(data) }),
+    update: (id: string, data: ChequeInput) =>
+      request<Cheque>(`/api/v1/cheques/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+    setStatus: (id: string, data: { status: ChequeStatus; date?: string; reason?: string; penalty_amount?: number }) =>
+      request<Cheque>(`/api/v1/cheques/${id}/status`, { method: 'POST', body: JSON.stringify(data) }),
+    replace: (id: string, data: ChequeInput) =>
+      request<Cheque>(`/api/v1/cheques/${id}/replace`, { method: 'POST', body: JSON.stringify(data) }),
+    uploadScan: (id: string, file: File) => {
+      const fd = new FormData()
+      fd.append('file', file)
+      return request<void>(`/api/v1/cheques/${id}/scan`, { method: 'POST', body: fd })
+    },
+    downloadScan: async (id: string, filename: string) =>
+      saveBlob(await requestBlob(`/api/v1/cheques/${id}/scan`), filename),
+  },
+
+  leaseOps: {
+    extras: (leaseId: string) => request<LeaseExtras>(`/api/v1/leases/${leaseId}/extras`),
+    setExtras: (leaseId: string, data: { agent_id: string | null; ejari_expiry: string; rent_reminders?: boolean }) =>
+      request<void>(`/api/v1/leases/${leaseId}/extras`, { method: 'PATCH', body: JSON.stringify(data) }),
+    payments: (leaseId: string) => request<Payment[]>(`/api/v1/leases/${leaseId}/payments`),
+    reminders: (leaseId: string) => request<PaymentReminderRow[]>(`/api/v1/leases/${leaseId}/reminders`),
+    notices: (leaseId: string) => request<LeaseNotice[]>(`/api/v1/leases/${leaseId}/notices`),
+    draftNotice: (leaseId: string, data: { kind: NoticeKind; new_annual_rent?: number; effective_date?: string }) =>
+      request<NoticeDraft>(`/api/v1/leases/${leaseId}/notices/draft`, { method: 'POST', body: JSON.stringify(data) }),
+    createNotice: (leaseId: string, data: { kind: NoticeKind; new_annual_rent?: number; effective_date?: string; body_en: string; body_ar: string }) =>
+      request<LeaseNotice>(`/api/v1/leases/${leaseId}/notices`, { method: 'POST', body: JSON.stringify(data) }),
+    notice: (id: string) => request<LeaseNotice>(`/api/v1/lease-notices/${id}`),
+    markSent: (id: string, data: { via: string; sent_at?: string }) =>
+      request<void>(`/api/v1/lease-notices/${id}/sent`, { method: 'POST', body: JSON.stringify(data) }),
+    settings: () => request<PropertySettings>('/api/v1/settings/property'),
+    updateSettings: (data: PropertySettings) =>
+      request<PropertySettings>('/api/v1/settings/property', { method: 'PUT', body: JSON.stringify(data) }),
   },
 
   portals: {
