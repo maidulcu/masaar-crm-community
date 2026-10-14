@@ -222,6 +222,7 @@ func main() {
 	complianceRepo := repo.NewComplianceRepo(pool)
 	chequeRepo := repo.NewChequeRepo(pool)
 	leaseOpsRepo := repo.NewLeaseOpsRepo(pool)
+	kycRepo := repo.NewKYCRepo(pool)
 	h := &api.Handlers{
 		Auth:                handler.NewAuthHandler(userRepo, companyRepo, rdb, cfg, auditRepo, emailSvc, smsClient).UseTwoFactor(repo.NewTwoFactorRepo(pool), totpBox),
 		User:                handler.NewUserHandler(userRepo, auditRepo, emailSvc, cfg, rdb),
@@ -233,7 +234,7 @@ func main() {
 		AI:                  handler.NewAIHandler(aiSensitive, aiCloud, contactRepo, leadRepo, waRepo),
 		Message:             handler.NewMessageHandler(aiSensitive, waRepo, contactRepo, leadRepo, commHistRepo, leadTagRepo, scoringSvc, hub),
 		Notification:        handler.NewNotificationHandler(notificationRepo),
-		Deal:                handler.NewDealHandler(dealRepo, invoiceRepo, auditRepo),
+		Deal:                handler.NewDealHandler(dealRepo, invoiceRepo, auditRepo).UseKYC(kycRepo),
 		Invoice:             handler.NewInvoiceHandler(invoiceRepo, dealRepo, companySettingsRepo, dealRepo, auditRepo),
 		Property:            handler.NewPropertyHandler(bos24Client, companySettingsRepo),
 		Settings:            handler.NewSettingsHandler(apiSettingsRepo, companySettingsRepo),
@@ -277,6 +278,7 @@ func main() {
 		Cheque: handler.NewChequeHandler(chequeRepo, auditRepo, notifier, complianceRepo.AdminIDs,
 			bankStatementStore, int64(cfg.BankStatementMaxMB)),
 		LeaseOps: handler.NewLeaseOpsHandler(leaseOpsRepo, paymentRepo, auditRepo),
+		KYC:      handler.NewKYCHandler(kycRepo, auditRepo, mediaStore, 10),
 		Portal: handler.NewPortalHandler(repo.NewPortalRepo(pool), contactRepo, leadRepo, listingRepo, userRepo, companySettingsRepo,
 			dispatcher, leadRotation.AssignNewLead, cfg.PublicAPIURL, cfg.AppURL),
 	}

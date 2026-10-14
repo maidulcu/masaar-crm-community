@@ -16,6 +16,14 @@ type DealHandler struct {
 	deals    *repo.DealRepo
 	invoices *repo.InvoiceRepo
 	audit    *repo.AuditLogRepo
+	kyc      *repo.KYCRepo // optional: a deal is won only with complete KYC (#87)
+}
+
+// UseKYC makes winning a deal require the buyer's complete identity record (or an
+// admin's override).
+func (h *DealHandler) UseKYC(k *repo.KYCRepo) *DealHandler {
+	h.kyc = k
+	return h
 }
 
 func NewDealHandler(deals *repo.DealRepo, invoices *repo.InvoiceRepo, audit *repo.AuditLogRepo) *DealHandler {
@@ -119,6 +127,18 @@ func (h *DealHandler) Create(c *fiber.Ctx) error {
 	}
 	if deal.Probability == 0 {
 		deal.Probability = 50
+	}
+	if deal.Stage == domain.DealStageWon && h.kyc != nil {
+		missing, err := h.kyc.LeadKYCMissing(c.Context(), deal.LeadID)
+		if err != nil {
+			return serverError(c, err)
+		}
+		if len(missing) > 0 {
+			return c.Status(fiber.StatusUnprocessableEntity).JSON(fiber.Map{
+				"error":       "the buyer's identity record is incomplete (KYC); create the deal as open, complete KYC or ask an admin to override, then mark it won",
+				"kyc_missing": missing,
+			})
+		}
 	}
 
 	deal.OwnerID = c.Locals("user_id").(uuid.UUID)
@@ -230,6 +250,19 @@ func (h *DealHandler) UpdateStage(c *fiber.Ctx) error {
 	}
 	if !validStages[body.Stage] {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid stage"})
+	}
+
+	if body.Stage == domain.DealStageWon && h.kyc != nil {
+		k, err := h.kyc.DealKYC(c.Context(), id)
+		if err != nil {
+			return serverError(c, err)
+		}
+		if !k.CanWin {
+			return c.Status(fiber.StatusUnprocessableEntity).JSON(fiber.Map{
+				"error":       "the buyer's identity record is incomplete (KYC); add a valid Emirates ID or passport, or ask an admin to override",
+				"kyc_missing": k.Missing,
+			})
+		}
 	}
 
 	if err := h.deals.UpdateStage(c.Context(), id, body.Stage); err != nil {

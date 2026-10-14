@@ -40,6 +40,8 @@ const (
 	RoleAdmin  Role = "admin"
 	RoleAgent  Role = "agent"
 	RoleViewer Role = "viewer"
+	// RoleCompliance reads like a viewer and works the KYC/AML screens (#87).
+	RoleCompliance Role = "compliance"
 )
 
 type User struct {

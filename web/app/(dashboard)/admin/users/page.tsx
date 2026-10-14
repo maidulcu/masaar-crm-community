@@ -8,7 +8,7 @@ import { useAuthStore } from '@/store/auth'
 import { api } from '@/lib/api'
 import type { User } from '@/types'
 
-const ROLES = ['agent', 'viewer', 'admin'] as const
+const ROLES = ['agent', 'viewer', 'compliance', 'admin'] as const
 const inputCls = 'w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-500'
 
 const roleBadge = (role: string) => {

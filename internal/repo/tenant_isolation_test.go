@@ -70,6 +70,8 @@ func setup(t *testing.T) *testEnv {
 			for _, q := range []string{
 				`DELETE FROM notifications WHERE company_id = $1`,
 				`DELETE FROM tasks WHERE company_id = $1`,
+				`DELETE FROM kyc_documents WHERE company_id = $1`,
+				`DELETE FROM beneficial_owners WHERE company_id = $1`,
 				`DELETE FROM portal_leads WHERE company_id = $1`,
 				`DELETE FROM portal_connections WHERE company_id = $1`,
 				`DELETE FROM whatsapp_threads WHERE company_id = $1`,
@@ -92,6 +94,7 @@ func setup(t *testing.T) *testEnv {
 				`DELETE FROM listings WHERE company_id = $1`,
 				`DELETE FROM audit_logs WHERE company_id = $1`,
 				`DELETE FROM api_settings WHERE company_id = $1`,
+				`DELETE FROM organisations WHERE company_id = $1`,
 				`DELETE FROM company_settings WHERE company_id = $1`,
 				`DELETE FROM users WHERE company_id = $1`,
 				`DELETE FROM companies WHERE id = $1`,

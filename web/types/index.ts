@@ -1,6 +1,6 @@
 // ─── Auth ────────────────────────────────────────────────────────────────────
 
-export type UserRole = 'admin' | 'agent' | 'viewer'
+export type UserRole = 'admin' | 'agent' | 'viewer' | 'compliance'
 
 export interface User {
   id: string
@@ -19,7 +19,7 @@ export interface AuthUser {
   id: string
   name: string
   email: string
-  role: 'admin' | 'agent' | 'viewer'
+  role: 'admin' | 'agent' | 'viewer' | 'compliance'
   lang_pref: 'ar' | 'en'
 }
 

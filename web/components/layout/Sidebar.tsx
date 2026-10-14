@@ -10,6 +10,7 @@ type NavItem = {
   label: { en: string; ar: string }
   icon: React.ReactNode
   adminOnly?: boolean
+  roles?: string[] // shown only to these roles
 }
 
 type NavSection = {
@@ -322,6 +323,16 @@ const sections: NavSection[] = [
         ),
       },
       {
+        href: '/compliance',
+        label: { en: 'Compliance (AML)', ar: 'الامتثال' },
+        icon: (
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m5.6-4A11.9 11.9 0 0112 3a11.9 11.9 0 01-8.6 3A12 12 0 0012 21a12 12 0 008.6-15z" />
+          </svg>
+        ),
+        roles: ['admin', 'compliance'],
+      },
+      {
         href: '/reports/lead-sources',
         label: { en: 'Lead Sources', ar: 'مصادر العملاء' },
         icon: (
@@ -581,7 +592,7 @@ export function Sidebar() {
               {isAr ? section.title.ar : section.title.en}
             </p>
             <div className="space-y-0.5">
-              {section.items.filter(item => !item.adminOnly || isAdmin).map((item) => {
+              {section.items.filter(item => (!item.adminOnly || isAdmin) && (!item.roles || item.roles.includes(user?.role ?? ''))).map((item) => {
 const active = item.href === '/analytics'
   ? pathname.startsWith('/analytics')
     : item.href === '/settings'

@@ -268,6 +268,74 @@ export interface PaymentReminderRow {
   delivery_error: string
 }
 
+export interface KYCDocument {
+  id: string
+  contact_id: string
+  doc_type: 'emirates_id' | 'passport' | 'residence_visa' | 'trade_licence' | 'other'
+  number: string
+  issuing_country: string
+  issue_date?: string
+  expiry_date?: string
+  has_file: boolean
+  file_name: string
+  created_at: string
+}
+
+export interface KYCProfile {
+  contact_id: string
+  full_name: string
+  nationality: string
+  date_of_birth: string | null
+  risk: '' | 'low' | 'medium' | 'high'
+  risk_reason: string
+  is_pep: boolean
+  screening: 'not_screened' | 'clear' | 'possible_match' | 'match'
+  screening_source: string
+  screened_at: string | null
+  notes: string
+  reviewed_at: string | null
+  documents: KYCDocument[]
+  missing: string[]
+}
+
+export interface DealKYC {
+  deal_id: string
+  contact_id: string
+  contact_name: string
+  missing: string[]
+  override_reason?: string
+  override_at?: string
+  can_win: boolean
+  payment_method: string
+  cash_amount: number
+  aml_status: string
+  aml_reasons: string[]
+}
+
+export interface AMLCase {
+  deal_id: string
+  title: string
+  stage: string
+  amount: number
+  currency: string
+  payment_method: string
+  cash_amount: number
+  status: 'flagged' | 'no_report' | 'reported'
+  reasons: string[]
+  flagged_at?: string
+  reviewed_at?: string
+  notes: string
+  goaml_reference: string
+  contact_id: string
+  contact_name: string
+  contact_risk: string
+  contact_is_pep: boolean
+  screening: string
+  owner_name: string
+}
+
+export interface BeneficialOwner { contact_id: string; full_name: string; ownership_pct: number | null; role: string; kyc_missing: string[] }
+
 export interface JobRun {
   id: number
   job_name: string
@@ -1311,6 +1379,35 @@ export const api = {
     settings: () => request<PropertySettings>('/api/v1/settings/property'),
     updateSettings: (data: PropertySettings) =>
       request<PropertySettings>('/api/v1/settings/property', { method: 'PUT', body: JSON.stringify(data) }),
+  },
+
+  kyc: {
+    profile: (contactId: string) => request<KYCProfile>(`/api/v1/contacts/${contactId}/kyc`),
+    update: (contactId: string, data: Partial<KYCProfile>) =>
+      request<KYCProfile>(`/api/v1/contacts/${contactId}/kyc`, { method: 'PUT', body: JSON.stringify(data) }),
+    screen: (contactId: string) => request<KYCProfile>(`/api/v1/contacts/${contactId}/kyc/screen`, { method: 'POST' }),
+    addDocument: (contactId: string, form: FormData) =>
+      request<KYCDocument>(`/api/v1/contacts/${contactId}/kyc/documents`, { method: 'POST', body: form }),
+    downloadDocument: async (id: string, filename: string) =>
+      saveBlob(await requestBlob(`/api/v1/kyc-documents/${id}/file`), filename),
+    deleteDocument: (id: string) => request<void>(`/api/v1/kyc-documents/${id}`, { method: 'DELETE' }),
+    owners: (orgId: string) => request<BeneficialOwner[]>(`/api/v1/organisations/${orgId}/owners`),
+    setOwner: (orgId: string, data: { contact_id: string; ownership_pct?: number | null; role: string }) =>
+      request<void>(`/api/v1/organisations/${orgId}/owners`, { method: 'POST', body: JSON.stringify(data) }),
+    removeOwner: (orgId: string, contactId: string) => request<void>(`/api/v1/organisations/${orgId}/owners/${contactId}`, { method: 'DELETE' }),
+    deal: (dealId: string) => request<DealKYC>(`/api/v1/deals/${dealId}/kyc`),
+    override: (dealId: string, reason: string) =>
+      request<void>(`/api/v1/deals/${dealId}/kyc-override`, { method: 'POST', body: JSON.stringify({ reason }) }),
+    setPayment: (dealId: string, payment_method: string, cash_amount: number) =>
+      request<{ aml_status: string; aml_reasons: string[] }>(`/api/v1/deals/${dealId}/payment`, { method: 'PUT', body: JSON.stringify({ payment_method, cash_amount }) }),
+    amlQueue: (status = 'flagged') => request<AMLCase[]>(`/api/v1/compliance/aml?status=${status}`),
+    review: (dealId: string, data: { decision: 'no_report' | 'reported'; notes: string; goaml_reference?: string }) =>
+      request<void>(`/api/v1/compliance/aml/${dealId}/review`, { method: 'POST', body: JSON.stringify(data) }),
+    exportCSV: async (from: string, to: string) =>
+      saveBlob(await requestBlob(`/api/v1/compliance/aml/export.csv?from=${from}&to=${to}`), `aml-cases-${from}.csv`),
+    settings: () => request<{ cash_threshold: number; flag_virtual_asset: boolean }>('/api/v1/settings/aml'),
+    updateSettings: (data: { cash_threshold: number; flag_virtual_asset: boolean }) =>
+      request<{ cash_threshold: number; flag_virtual_asset: boolean }>('/api/v1/settings/aml', { method: 'PUT', body: JSON.stringify(data) }),
   },
 
   twoFactor: {

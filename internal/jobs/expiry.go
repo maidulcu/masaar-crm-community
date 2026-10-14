@@ -23,6 +23,7 @@ var expiryLabels = map[string]struct{ en, ar string }{
 	"listing_permit": {"Advertising permit", "تصريح الإعلان"},
 	"brn":            {"Broker registration (BRN)", "تسجيل الوسيط (BRN)"},
 	"trade_license":  {"Trade licence", "الرخصة التجارية"},
+	"kyc_document":   {"Client identity document", "وثيقة هوية العميل"},
 }
 
 // alertPoint returns the alert threshold that applies when daysLeft days remain, or -1

@@ -38,6 +38,7 @@ type Handlers struct {
 	Portal              *handler.PortalHandler
 	Cheque              *handler.ChequeHandler
 	LeaseOps            *handler.LeaseOpsHandler
+	KYC                 *handler.KYCHandler
 	Email               *handler.EmailHandler
 	RentalProperty      *handler.RentalPropertyHandler
 	Tenant              *handler.TenantHandler
@@ -891,6 +892,28 @@ func RegisterRoutes(app *fiber.App, h *Handlers, hub *ws.Hub, cfg *config.Config
 	)
 
 	// Leases — agents: create+view+update; admin: all; viewers: read-only
+	// KYC and AML (#87). Identity data: admins, agents and compliance officers; risk,
+	// screening and the AML queue: admins and compliance officers.
+	kycStaff := middleware.RequireRole(domain.RoleAdmin, domain.RoleAgent, domain.RoleCompliance)
+	compliance := middleware.RequireRole(domain.RoleAdmin, domain.RoleCompliance)
+	v1.Get("/contacts/:id/kyc", kycStaff, h.KYC.Profile)
+	v1.Put("/contacts/:id/kyc", compliance, h.KYC.UpdateProfile)
+	v1.Post("/contacts/:id/kyc/screen", compliance, h.KYC.Screen)
+	v1.Post("/contacts/:id/kyc/documents", kycStaff, h.KYC.AddDocument)
+	v1.Get("/kyc-documents/:id/file", kycStaff, h.KYC.DocumentFile)
+	v1.Delete("/kyc-documents/:id", compliance, h.KYC.DeleteDocument)
+	v1.Get("/organisations/:id/owners", kycStaff, h.KYC.Owners)
+	v1.Post("/organisations/:id/owners", kycStaff, h.KYC.SetOwner)
+	v1.Delete("/organisations/:id/owners/:contact_id", kycStaff, h.KYC.RemoveOwner)
+	v1.Get("/deals/:id/kyc", kycStaff, h.KYC.DealKYC)
+	v1.Post("/deals/:id/kyc-override", middleware.RequireRole(domain.RoleAdmin), h.KYC.OverrideDealKYC)
+	v1.Put("/deals/:id/payment", middleware.RequireRole(domain.RoleAdmin, domain.RoleAgent), h.KYC.SetDealPayment)
+	v1.Get("/compliance/aml", compliance, h.KYC.AMLQueue)
+	v1.Get("/compliance/aml/export.csv", compliance, h.KYC.AMLExport)
+	v1.Post("/compliance/aml/:id/review", compliance, h.KYC.ReviewAML)
+	v1.Get("/settings/aml", compliance, h.KYC.GetAMLSettings)
+	v1.Put("/settings/aml", middleware.RequireRole(domain.RoleAdmin), h.KYC.UpdateAMLSettings)
+
 	// Post-dated cheques and lease operations (#86)
 	agentOrAdmin := middleware.RequireRole(domain.RoleAdmin, domain.RoleAgent)
 	v1.Get("/cheques", h.Cheque.List)
