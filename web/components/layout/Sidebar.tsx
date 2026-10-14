@@ -476,7 +476,7 @@ export function Sidebar() {
   const isAdmin = user?.role === 'admin'
 
   return (
-    <aside className="flex flex-col w-60 min-h-screen bg-white border-e border-surface-200/70 shrink-0 overflow-y-auto">
+    <aside className="flex flex-col w-60 min-h-screen bg-white border-e border-surface-200/70 shrink-0 overflow-y-auto print:hidden">
       {/* Logo */}
       <div className="flex items-center gap-2.5 px-5 h-16 shrink-0">
         <span className="inline-flex items-center justify-center w-8 h-8 rounded-xl bg-primary-600 text-white text-sm font-bold shadow-card">

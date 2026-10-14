@@ -17,6 +17,13 @@ var e164Re = regexp.MustCompile(`^\+[1-9]\d{6,14}$`)
 type ContactHandler struct {
 	contacts *repo.ContactRepo
 	audit    *repo.AuditLogRepo
+	privacy  consentStore
+}
+
+// UsePrivacy records consent given when a contact is created.
+func (h *ContactHandler) UsePrivacy(p consentStore) *ContactHandler {
+	h.privacy = p
+	return h
 }
 
 func NewContactHandler(contacts *repo.ContactRepo, audit *repo.AuditLogRepo) *ContactHandler {
@@ -92,6 +99,11 @@ func (h *ContactHandler) Create(c *fiber.Ctx) error {
 	if err := c.BodyParser(&contact); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid request"})
 	}
+	// Optional {"consent": {"whatsapp": true, "email": false}} alongside the contact fields.
+	var extra struct {
+		Consent map[string]bool `json:"consent"`
+	}
+	_ = c.BodyParser(&extra)
 	if contact.PhoneWA == "" || contact.FullName == "" {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "phone_wa and full_name are required"})
 	}
@@ -110,6 +122,7 @@ func (h *ContactHandler) Create(c *fiber.Ctx) error {
 		return serverError(c, err)
 	}
 	actorID := c.Locals("user_id").(uuid.UUID)
+	recordConsentChoices(c.Context(), h.privacy, contact.ID, extra.Consent, "manual", &actorID, nil)
 	h.audit.Log(c.Context(), actorID, repo.AuditCreate, repo.AuditContact, contact.ID, contact)
 	return c.Status(fiber.StatusCreated).JSON(contact)
 }

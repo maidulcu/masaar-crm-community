@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
+	"github.com/maidulcu/masaar-crm/internal/invoice"
 	"github.com/maidulcu/masaar-crm/internal/repo"
 	"github.com/maidulcu/masaar-crm/internal/tenant"
 )
@@ -19,7 +20,12 @@ import (
 // apiError maps an internal error to an HTTP status and a client-safe message.
 func apiError(err error) (int, string) {
 	var pgErr *pgconn.PgError
+	var invalid *invoice.ValidationError
 	switch {
+	case errors.As(err, &invalid):
+		return fiber.StatusUnprocessableEntity, invalid.Msg // composed by us, safe to show
+	case errors.Is(err, repo.ErrInvalidTransition):
+		return fiber.StatusConflict, "status change not allowed"
 	case errors.Is(err, tenant.ErrMissing):
 		return fiber.StatusUnauthorized, "unauthorized"
 	case errors.Is(err, repo.ErrInvalidPhone):

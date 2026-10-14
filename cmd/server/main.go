@@ -121,6 +121,7 @@ func main() {
 	approvalRepo := repo.NewApprovalRepo(pool)
 	paymentReminderRepo := repo.NewPaymentReminderRepo(pool)
 	jobRepo := repo.NewJobRepo(pool)
+	privacyRepo := repo.NewPrivacyRepo(pool)
 
 	// ── Services / clients ───────────────────────────────────────────────────
 	hub := ws.NewHub()
@@ -208,18 +209,18 @@ func main() {
 		Auth:                handler.NewAuthHandler(userRepo, companyRepo, rdb, cfg, auditRepo, emailSvc, smsClient),
 		User:                handler.NewUserHandler(userRepo, auditRepo, emailSvc, cfg, rdb),
 		Stats:               handler.NewStatsHandler(statsRepo),
-		Contact:             handler.NewContactHandler(contactRepo, auditRepo),
+		Contact:             handler.NewContactHandler(contactRepo, auditRepo).UsePrivacy(privacyRepo),
 		Lead:                handler.NewLeadHandler(leadRepo, contactRepo, commHistRepo, scoringSvc, leadTagRepo, hub, auditRepo, dispatcher, pipelineStageRepo),
 		WhatsApp:            handler.NewWhatsAppHandler(waRepo, contactRepo, waOutboundRepo, commHistRepo, waMedia, taggingSvc, hub, cfg),
-		WhatsAppOutbound:    handler.NewWhatsAppOutboundHandler(waSender, waOutboundRepo, waRepo, commHistRepo, waMedia),
+		WhatsAppOutbound:    handler.NewWhatsAppOutboundHandler(waSender, waOutboundRepo, waRepo, commHistRepo, waMedia).UsePrivacy(privacyRepo),
 		AI:                  handler.NewAIHandler(aiSensitive, aiCloud, contactRepo, leadRepo, waRepo),
 		Message:             handler.NewMessageHandler(aiSensitive, waRepo, contactRepo, leadRepo, commHistRepo, leadTagRepo, scoringSvc, hub),
 		Notification:        handler.NewNotificationHandler(notificationRepo),
 		Deal:                handler.NewDealHandler(dealRepo, invoiceRepo, auditRepo),
-		Invoice:             handler.NewInvoiceHandler(invoiceRepo, dealRepo, companySettingsRepo),
+		Invoice:             handler.NewInvoiceHandler(invoiceRepo, dealRepo, companySettingsRepo, dealRepo, auditRepo),
 		Property:            handler.NewPropertyHandler(bos24Client, companySettingsRepo),
 		Settings:            handler.NewSettingsHandler(apiSettingsRepo, companySettingsRepo),
-		Email:               handler.NewEmailHandler(emailSvc, emailRepo),
+		Email:               handler.NewEmailHandler(emailSvc, emailRepo).UsePrivacy(privacyRepo),
 		RentalProperty:      handler.NewRentalPropertyHandler(rentalPropertyRepo),
 		Tenant:              handler.NewTenantHandler(tenantRepo),
 		LeaseTemplate:       handler.NewLeaseTemplateHandler(leaseTemplateRepo),
@@ -235,23 +236,24 @@ func main() {
 		LeaseRenewal:        handler.NewLeaseRenewalHandler(leaseRenewalRepo, renewalTemplateRepo, renewalLogRepo),
 		Document:            handler.NewDocumentHandler(documentRepo, auditRepo, dsClient),
 		ApiKey:              handler.NewApiKeyHandler(apiKeyRepo),
-		PublicLead:          handler.NewPublicLeadHandler(contactRepo, leadRepo, dispatcher),
+		PublicLead:          handler.NewPublicLeadHandler(contactRepo, leadRepo, dispatcher).UsePrivacy(privacyRepo),
 		WebhookSub:          handler.NewWebhookSubHandler(webhookRepo, dispatcher),
 		Billing:             handler.NewBillingHandler(billingRepo, companySettingsRepo, stripeCfg),
 		MessageTemplate:     handler.NewMessageTemplateHandler(messageTemplateRepo),
 		AuditLog:            handler.NewAuditHandler(auditRepo),
-		Listing:             handler.NewListingHandler(listingRepo, approvalRepo),
+		Listing:             handler.NewListingHandler(listingRepo, approvalRepo, auditRepo),
 		BOS24Integration:    handler.NewBOS24IntegrationHandler(bos24Repo, bos24Sync, cfg),
 		Offer:               handler.NewOfferHandler(offerRepo, contactRepo, leadRepo, dealRepo, hub),
 		LeadRotation:        handler.NewLeadRotationHandler(leadRotationRepo, leadRepo, userRepo, hub),
 		Commission:          handler.NewCommissionHandler(commissionRepo),
 		Performance:         handler.NewPerformanceHandler(performanceRepo),
 		Viewing:             handler.NewViewingHandler(viewingRepo, notificationRepo, hub),
-		Marketing:           handler.NewMarketingHandler(listingRepo, contactRepo, companySettingsRepo, userRepo, emailSvc, cfg.AppURL),
-		ImportExport:        handler.NewImportExportHandler(contactRepo, leadRepo, listingRepo),
+		Marketing:           handler.NewMarketingHandler(listingRepo, contactRepo, companySettingsRepo, userRepo, emailSvc, cfg.AppURL).UsePrivacy(privacyRepo),
+		ImportExport:        handler.NewImportExportHandler(contactRepo, leadRepo, listingRepo).UsePrivacy(privacyRepo),
 		PipelineStage:       handler.NewPipelineStageHandler(pipelineStageRepo),
-		Approval:            handler.NewApprovalHandler(approvalRepo),
+		Approval:            handler.NewApprovalHandler(approvalRepo, listingRepo),
 		Job:                 handler.NewJobHandler(jobRepo),
+		Privacy:             handler.NewPrivacyHandler(privacyRepo, auditRepo, removeStored(mediaStore)),
 	}
 	if cfg.DocusignWebhookSecret != "" {
 		h.DocusignWebhook = handler.NewDocusignWebhookHandler(documentRepo, cfg.DocusignWebhookSecret)
@@ -294,6 +296,8 @@ func main() {
 		runner = jobs.NewRunner(jobRepo, 30*time.Second,
 			jobs.ViewingReminders(viewingRepo, notifier),
 			jobs.OfferExpiry(offerRepo, notifier),
+			jobs.ExpiryAlerts(repo.NewComplianceRepo(pool), notifier),
+			jobs.Retention(privacyRepo, removeStored(bankStatementStore)),
 			jobs.PruneRunLog(jobRepo),
 		)
 		runner.Start(ctx)
@@ -353,6 +357,14 @@ func whatsAppBaseURL(base, version string) string {
 		return base
 	}
 	return fmt.Sprintf("%s/%s", base, version)
+}
+
+// removeStored returns a deleter for files in st, or nil when storage is disabled.
+func removeStored(st *mediastore.Store) func(string) error {
+	if st == nil {
+		return nil
+	}
+	return st.Remove
 }
 
 func splitList(s string) []string {

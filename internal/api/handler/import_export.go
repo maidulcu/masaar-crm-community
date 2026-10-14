@@ -28,6 +28,29 @@ type ImportExportHandler struct {
 	contactRepo *repo.ContactRepo
 	leadRepo    *repo.LeadRepo
 	listingRepo *repo.ListingRepo
+	privacy     consentStore
+}
+
+// UsePrivacy records consent columns (consent_whatsapp, consent_email, consent_sms,
+// consent_phone) found in imported contact files.
+func (h *ImportExportHandler) UsePrivacy(p consentStore) *ImportExportHandler {
+	h.privacy = p
+	return h
+}
+
+// consentColumns reads consent_<channel> cells: yes/true/1 = granted, no/false/0 =
+// withdrawn, anything else (or empty) = no choice recorded.
+func consentColumns(m map[string]string) map[string]bool {
+	out := map[string]bool{}
+	for _, ch := range domain.ConsentChannels {
+		switch strings.ToLower(strings.TrimSpace(m["consent_"+ch])) {
+		case "yes", "y", "true", "1", "granted":
+			out[ch] = true
+		case "no", "n", "false", "0", "withdrawn":
+			out[ch] = false
+		}
+	}
+	return out
 }
 
 func NewImportExportHandler(
@@ -124,6 +147,7 @@ func (h *ImportExportHandler) ImportContacts(c *fiber.Ctx) error {
 			contact.Email = email
 			_ = h.contactRepo.Update(c.Context(), contact)
 		}
+		recordConsentChoices(c.Context(), h.privacy, contact.ID, consentColumns(m), "import", localsUserPtr(c), nil)
 		imported++
 	}
 

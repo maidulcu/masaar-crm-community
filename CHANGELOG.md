@@ -9,6 +9,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [v0.4.0] - Unreleased
 
+### UAE compliance core (#84) — migrations `0067`–`0069`
+
+**Tax invoices**
+- Invoices have **line items** with a VAT category each (standard, zero-rated, exempt, out of scope), VAT computed and rounded per line under the company's country rules, and stored totals (no longer generated columns).
+- The supplier (name, address, TRN) and customer (name, address, TRN for B2B) are **captured when the invoice is issued** and never change afterwards. The customer defaults to the deal's contact.
+- **Credit notes** (`CN-YYYY-NNNN`) against an invoice, in full or in part. An invoice can never be credited beyond its total, also under concurrent requests. Invoices show what has been credited and what is outstanding.
+- **Void** with a reason (not for paid documents, nor for invoices with credit notes). A void document never changes again.
+- **Gap-free numbering** per company, document kind and year, taken inside the issuing transaction (the previous `MAX()+1` could hand two requests the same number).
+- A company **without a TRN** can only issue invoices without VAT (out of scope), which are titled "Invoice" rather than "Tax Invoice".
+- A **printable bilingual (English | Arabic) invoice** page (`/invoices/<id>/print`, "Print / Save as PDF"), with a VAT summary per category. Server-side PDF generation remains a Pro feature.
+- The legacy `POST /invoices {deal_id, subtotal}` body still works (one standard-rated line).
+
+**RERA licences and advertising permits**
+- Company: RERA office number (ORN), trade licence number and expiry. Users: broker registration number (BRN) and expiry (`PATCH /users/:id/brn`).
+- Listings: advertising permit number, expiry and QR image. In Dubai (Trakheesi) and Abu Dhabi (Madhmoun) a listing needs a valid permit before it can be **published, shared on its public page, emailed in a campaign, or given a QR code**. An admin can allow it anyway with a reason (`POST /listings/:id/permit-override`, audit-logged).
+- The public listing page shows the permit number and QR; a listing whose permit has lapsed disappears from it.
+- **Expiry alerts** 30 and 7 days before (and once after) a listing permit, BRN or trade licence expires, to the person concerned and the company's admins.
+
+**PDPL**
+- **Consent per channel** (WhatsApp, email, SMS, phone) with full history: recorded from the contact page, when creating a contact, from the public lead form (`"consent": {"whatsapp": true}`) and from CSV imports (`consent_whatsapp`, `consent_email`, …).
+- **Opt-outs are enforced**: WhatsApp messages, templates and media, single emails and listing email campaigns are refused (or skipped) for contacts who opted out.
+- **Data-subject export** (`GET /contacts/:id/export`, admin): everything held about a contact as one JSON file.
+- **Erasure** (`POST /contacts/:id/erase`, admin, confirmation required): anonymises the contact and removes personal data from conversations, notes, emails and stored attachments; issued invoices are kept as tax records. Audit-logged.
+- **Retention**: a daily job deletes bank statements (and their files), documents and payment confirmations whose `retention_until` has passed.
+
+**Fixed**
+- Changing a listing's status (`PATCH /listings/:id/status`) and reviewing an approval request always answered 500: both read the user id with the wrong type.
+- Approving a listing approval request now publishes the listing (previously nothing did, so with listing approval switched on a listing could never be published). `published_at` is set when a listing is published.
+- `PATCH /listings/:id` could change the status directly, bypassing approval; status changes now only go through the status endpoint.
+- Creating a listing failed (NOT NULL violation) unless the client sent `portal_sync_status`, which the web form never does.
+
+#### Upgrade notes
+- Migration `0067` converts existing invoices: each gets one line for its deal, the deal's currency, the current company details as supplier and the deal's contact as customer. Numbering continues after the highest existing `INV-YYYY-NNNN`.
+- Dubai and Abu Dhabi listings that are already published keep their status but cannot be re-published, shared or campaigned until a permit is entered (or an admin overrides).
+
+### Foundations (#83)
+
 Foundations for the UAE-launch roadmap (#82, milestone #83). Includes migrations `0065` and `0066`.
 
 ### Added

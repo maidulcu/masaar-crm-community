@@ -69,11 +69,13 @@ func setup(t *testing.T) *testEnv {
 			// children first; ignore errors — this is best-effort cleanup of throwaway data
 			for _, q := range []string{
 				`DELETE FROM notifications WHERE company_id = $1`,
+				`DELETE FROM whatsapp_threads WHERE company_id = $1`,
 				`DELETE FROM whatsapp_messages WHERE thread_id IN (SELECT id FROM whatsapp_threads WHERE company_id = $1)`,
 				`DELETE FROM lead_tags WHERE lead_id IN (SELECT id FROM leads WHERE company_id = $1)`,
 				`DELETE FROM payment_confirmations WHERE company_id = $1`,
 				`DELETE FROM payments WHERE company_id = $1`,
 				`DELETE FROM leases WHERE company_id = $1`,
+				`DELETE FROM vat_invoices WHERE company_id = $1 AND kind = 'credit_note'`,
 				`DELETE FROM vat_invoices WHERE company_id = $1`,
 				`DELETE FROM deals WHERE company_id = $1`,
 				`DELETE FROM offers WHERE company_id = $1`,
@@ -282,12 +284,8 @@ func TestDealsAndInvoicesIsolated(t *testing.T) {
 		t.Fatalf("B created a deal on A's lead: %v", err)
 	}
 
-	no, err := invoices.NextInvoiceNo(e.a.ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	inv := &domain.VATInvoice{DealID: d.ID, InvoiceNo: no, Subtotal: 100, VATRate: 5, Status: domain.InvoiceDraft}
-	if err := invoices.Create(e.a.ctx, inv); err != nil {
+	inv := testInvoice(d.ID, 100)
+	if err := invoices.Issue(e.a.ctx, inv); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := invoices.GetByID(e.b.ctx, inv.ID); !isNotFound(err) {
@@ -296,16 +294,20 @@ func TestDealsAndInvoicesIsolated(t *testing.T) {
 	if list, _ := invoices.ListByDeal(e.b.ctx, d.ID); len(list) != 0 {
 		t.Fatal("B listed A's invoices")
 	}
-	if err := invoices.Create(e.b.ctx, &domain.VATInvoice{DealID: d.ID, InvoiceNo: "X", Subtotal: 1, VATRate: 5, Status: domain.InvoiceDraft}); !isNotFound(err) {
+	if err := invoices.Issue(e.b.ctx, testInvoice(d.ID, 1)); !isNotFound(err) {
 		t.Fatalf("B invoiced A's deal: %v", err)
 	}
+	if err := invoices.UpdateStatus(e.b.ctx, inv.ID, domain.InvoiceVoid, "x"); !isNotFound(err) {
+		t.Fatalf("B voided A's invoice: %v", err)
+	}
 	// Invoice numbering is per company: B's first number must not depend on A's.
-	bNo, err := invoices.NextInvoiceNo(e.b.ctx)
-	if err != nil {
+	bDeal := e.deal(t, e.b)
+	bInv := testInvoice(bDeal, 1)
+	if err := invoices.Issue(e.b.ctx, bInv); err != nil {
 		t.Fatal(err)
 	}
-	if bNo[len(bNo)-4:] != "0001" {
-		t.Fatalf("B's first invoice number should restart at 0001, got %s", bNo)
+	if bInv.InvoiceNo[len(bInv.InvoiceNo)-4:] != "0001" {
+		t.Fatalf("B's first invoice number should start at 0001, got %s", bInv.InvoiceNo)
 	}
 }
 

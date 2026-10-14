@@ -151,3 +151,20 @@ func (r *DealRepo) Delete(ctx context.Context, id uuid.UUID) error {
 	_, err = r.db.Exec(ctx, `DELETE FROM deals WHERE id=$1 AND company_id=$2`, id, cid)
 	return err
 }
+
+// CustomerForDeal returns the name of the contact behind a deal (deal → lead → contact),
+// used as the default invoice customer.
+func (r *DealRepo) CustomerForDeal(ctx context.Context, dealID uuid.UUID) (string, error) {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return "", err
+	}
+	var name string
+	err = r.db.QueryRow(ctx, `
+		SELECT COALESCE(c.full_name, '')
+		  FROM deals d
+		  JOIN leads l ON l.id = d.lead_id AND l.company_id = d.company_id
+		  JOIN contacts c ON c.id = l.contact_id AND c.company_id = d.company_id
+		 WHERE d.id = $1 AND d.company_id = $2`, dealID, cid).Scan(&name)
+	return name, err
+}

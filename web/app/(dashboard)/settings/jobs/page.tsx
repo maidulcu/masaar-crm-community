@@ -10,6 +10,8 @@ import { useLang } from '@/context/LangContext'
 const JOB_LABELS: Record<string, { en: string; ar: string }> = {
   viewing_reminders: { en: 'Viewing reminders', ar: 'تذكيرات المعاينات' },
   offer_expiry: { en: 'Offer expiry', ar: 'انتهاء صلاحية العروض' },
+  expiry_alerts: { en: 'Licence & permit expiry alerts', ar: 'تنبيهات انتهاء التراخيص والتصاريح' },
+  retention: { en: 'Data retention clean-up', ar: 'تنظيف البيانات بعد مدة الاحتفاظ' },
 }
 
 export default function JobRunsPage() {

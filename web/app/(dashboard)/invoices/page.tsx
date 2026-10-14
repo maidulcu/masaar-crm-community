@@ -7,22 +7,11 @@ import { useAuthStore } from '@/store/auth'
 import { Header } from '@/components/layout/Header'
 import clsx from 'clsx'
 import type { VATInvoice, InvoiceStatus } from '@/types'
+import { INVOICE_STATUS_COLORS, INVOICE_STATUS_LABELS } from '@/lib/invoice'
+import { formatMoney, companyCurrency } from '@/lib/money'
 
-const STATUS_COLORS: Record<InvoiceStatus, string> = {
-  draft: 'bg-gray-100 text-gray-600',
-  sent:  'bg-blue-100 text-blue-700',
-  paid:  'bg-green-100 text-green-700',
-}
-
-const STATUS_LABELS: Record<InvoiceStatus, { en: string; ar: string }> = {
-  draft: { en: 'Draft', ar: 'مسودة' },
-  sent:  { en: 'Sent',  ar: 'مُرسلة' },
-  paid:  { en: 'Paid',  ar: 'مدفوعة' },
-}
-
-function fmtCurrency(n: number) {
-  return new Intl.NumberFormat('en-AE', { style: 'currency', currency: 'AED', minimumFractionDigits: 2 }).format(n)
-}
+const STATUS_COLORS = INVOICE_STATUS_COLORS
+const STATUS_LABELS = INVOICE_STATUS_LABELS
 
 function fmtDate(iso: string) {
   return new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
@@ -60,14 +49,19 @@ export default function InvoicesPage() {
   const totalPages = Math.max(1, Math.ceil(total / limit))
   const filtered = statusFilter ? invoices.filter(i => i.status === statusFilter) : invoices
 
-  const totals = filtered.reduce(
-    (acc, inv) => ({
-      subtotal: acc.subtotal + inv.subtotal,
-      vat: acc.vat + inv.vat_amount,
-      total: acc.total + inv.total,
-    }),
-    { subtotal: 0, vat: 0, total: 0 }
-  )
+  // Summary in the company currency: void documents are ignored and credit notes subtract.
+  const cur = companyCurrency()
+  const totals = filtered
+    .filter(inv => inv.status !== 'void' && inv.currency === cur)
+    .reduce((acc, inv) => {
+      const sign = inv.kind === 'credit_note' ? -1 : 1
+      return {
+        subtotal: acc.subtotal + sign * inv.subtotal,
+        vat: acc.vat + sign * inv.vat_amount,
+        total: acc.total + sign * inv.total,
+      }
+    }, { subtotal: 0, vat: 0, total: 0 })
+  const fmtCurrency = (n: number, currency = cur) => formatMoney(n, currency)
 
   return (
     <div className="flex flex-col flex-1 overflow-hidden">
@@ -79,7 +73,7 @@ export default function InvoicesPage() {
           <div className="grid grid-cols-3 gap-4 mb-6">
             {[
               { label: t('الإجمالي قبل الضريبة', 'Subtotal'), value: fmtCurrency(totals.subtotal) },
-              { label: t('ضريبة القيمة المضافة', 'VAT (5%)'), value: fmtCurrency(totals.vat) },
+              { label: t('ضريبة القيمة المضافة', 'VAT'), value: fmtCurrency(totals.vat) },
               { label: t('الإجمالي النهائي', 'Total'), value: fmtCurrency(totals.total), highlight: true },
             ].map(card => (
               <div key={card.label} className={clsx(
@@ -106,7 +100,7 @@ export default function InvoicesPage() {
           >
             {t('الكل', 'All')} ({total})
           </button>
-          {(['draft', 'sent', 'paid'] as InvoiceStatus[]).map(s => (
+          {(['draft', 'sent', 'paid', 'void'] as InvoiceStatus[]).map(s => (
             <button key={s} onClick={() => setStatusFilter(s)}
               className={clsx(
                 'px-3 py-1.5 text-xs font-medium rounded-full transition-colors',
@@ -155,18 +149,22 @@ export default function InvoicesPage() {
                     >
                       <td className="px-5 py-3.5 font-mono text-sm font-medium text-gray-900">
                         {inv.invoice_no}
+                        {inv.kind === 'credit_note' && (
+                          <span className="ms-2 text-[10px] font-sans px-1.5 py-0.5 rounded bg-amber-50 text-amber-700">{t('إشعار دائن', 'Credit note')}</span>
+                        )}
+                        <span className="block text-xs font-sans font-normal text-gray-400">{inv.customer?.name}</span>
                       </td>
                       <td className="px-5 py-3.5 text-gray-500 hidden md:table-cell">
                         {fmtDate(inv.issued_at)}
                       </td>
                       <td className="px-5 py-3.5 tabular-nums text-gray-700">
-                        {fmtCurrency(inv.subtotal)}
+                        {fmtCurrency(inv.subtotal, inv.currency)}
                       </td>
                       <td className="px-5 py-3.5 tabular-nums text-gray-500 hidden md:table-cell">
-                        {fmtCurrency(inv.vat_amount)}
+                        {fmtCurrency(inv.vat_amount, inv.currency)}
                       </td>
                       <td className="px-5 py-3.5 tabular-nums font-semibold text-gray-900">
-                        {fmtCurrency(inv.total)}
+                        {fmtCurrency(inv.total, inv.currency)}
                       </td>
                       <td className="px-5 py-3.5">
                         <span className={clsx('text-xs font-medium px-2 py-0.5 rounded-full', STATUS_COLORS[inv.status])}>
@@ -175,12 +173,12 @@ export default function InvoicesPage() {
                       </td>
                       <td className="px-5 py-3.5 text-end" onClick={e => e.stopPropagation()}>
                         <a
-                          href={api.invoices.getPDF(inv.id)}
+                          href={`/invoices/${inv.id}/print`}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="text-xs text-brand-600 hover:text-brand-700 font-medium"
                         >
-                          PDF
+                          {t('طباعة', 'Print')}
                         </a>
                       </td>
                     </tr>

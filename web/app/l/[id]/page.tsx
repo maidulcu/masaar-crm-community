@@ -13,6 +13,7 @@ interface PublicListingData {
     area: string; community: string; city: string; emirate: string
     cover_image_url: string; image_urls?: string[]
     status: string; reference_number: string; available_from?: string
+    permit_number?: string; permit_qr_url?: string
   }
   company: {
     name: string; phone: string; email: string
@@ -128,6 +129,12 @@ export default async function PublicListingPage({ params }: { params: Promise<{ 
             <p className="text-3xl font-bold" style={{ color: primaryColor }}>{priceStr}</p>
             {listing.reference_number && (
               <p className="text-xs text-gray-400 mt-1">Ref: {listing.reference_number}</p>
+            )}
+            {listing.permit_number && (
+              <div className="mt-2 flex items-center justify-end gap-2">
+                <p className="text-xs text-gray-500" dir="ltr">Permit · رقم التصريح: <span className="font-mono">{listing.permit_number}</span></p>
+                {listing.permit_qr_url && <img src={safeUrl(listing.permit_qr_url)} alt="Permit QR" className="w-14 h-14 object-contain" />}
+              </div>
             )}
           </div>
         </div>

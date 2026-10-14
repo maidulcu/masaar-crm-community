@@ -43,7 +43,8 @@ Masaar is a **free, open-source CRM designed specifically for UAE businesses**. 
 | **Sales Pipeline** | Kanban board with drag-and-drop stage management (New → Won/Lost) |
 | **Lead Notes** | Click any pipeline card to view and edit per-lead notes inline |
 | **AI Thread Summaries** (Pro) | One-click AI summarization via local Ollama LLM — data never leaves your server |
-| **Deals & VAT Invoicing** | Deal tracking and VAT invoices (UAE 5%); PDF generation is a Pro feature |
+| **Deals & VAT Invoicing** | FTA-style tax invoices with line items, VAT categories, credit notes and a printable bilingual layout; server-side PDF generation is a Pro feature |
+| **RERA Compliance** | ORN, BRN and trade licence with expiry alerts; Trakheesi/Madhmoun permits required before a Dubai or Abu Dhabi listing is published or shared |
 | **Contact Management** | Unified contact profiles linked to WhatsApp numbers and leads |
 | **User Settings** | Per-user password change and language preference (Arabic/English) |
 | **Role-Based Access** | Three roles: Admin, Agent, Viewer — enforced on every API route |
@@ -51,6 +52,7 @@ Masaar is a **free, open-source CRM designed specifically for UAE businesses**. 
 | **Background Jobs** | Viewing reminders and offer expiry run automatically; safe with several API replicas |
 | **Country Settings** | Per-company country, emirate, currency and timezone; amounts in 3-decimal currencies (BHD, KWD, OMR) are stored exactly |
 | **Full RTL Support** | Complete Arabic interface — layout, typography, and date direction |
+| **PDPL Tools** | Consent per channel with history, opt-out enforcement, data-subject export and erasure, retention clean-up |
 | **Audit Log** | Immutable activity log for UAE PDPL compliance |
 | **Self-Hosted** | Single Docker binary — deploy to Moro Hub, G42, or any UAE cloud |
 

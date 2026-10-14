@@ -35,6 +35,9 @@ export default function AdminUsersPage() {
 
   const [editTarget, setEditTarget] = useState<User | null>(null)
   const [editForm, setEditForm] = useState({ name: '', role: '' })
+  const [brnTarget, setBrnTarget] = useState<User | null>(null)
+  const [brnForm, setBrnForm] = useState({ brn: '', expiry: '' })
+  const [brnError, setBrnError] = useState('')
   const [editError, setEditError] = useState('')
   const [saving, setSaving] = useState(false)
 
@@ -67,6 +70,20 @@ export default function AdminUsersPage() {
     } catch (err: any) {
       setInviteError(err.message || t('حدث خطأ', 'Something went wrong'))
     } finally { setInviting(false) }
+  }
+
+  const handleBRN = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!brnTarget) return
+    setBrnError('')
+    setSaving(true)
+    try {
+      await api.users.setBRN(brnTarget.id, brnForm.brn, brnForm.expiry)
+      setBrnTarget(null)
+      load()
+    } catch (err: any) {
+      setBrnError(err.message || t('حدث خطأ', 'Something went wrong'))
+    } finally { setSaving(false) }
   }
 
   const handleEdit = async (e: React.FormEvent) => {
@@ -129,7 +146,7 @@ export default function AdminUsersPage() {
               <table className="w-full text-sm">
                 <thead className="bg-gray-50 border-b border-gray-200">
                   <tr>
-                    {[t('الاسم', 'Name'), t('البريد الإلكتروني', 'Email'), t('الدور', 'Role'), t('الحالة', 'Status'), t('تاريخ الانضمام', 'Joined'), t('الإجراءات', 'Actions')].map(h => (
+                    {[t('الاسم', 'Name'), t('البريد الإلكتروني', 'Email'), t('الدور', 'Role'), t('رقم الوسيط (BRN)', 'BRN'), t('الحالة', 'Status'), t('تاريخ الانضمام', 'Joined'), t('الإجراءات', 'Actions')].map(h => (
                       <th key={h} className="px-4 py-3 text-left font-medium text-gray-700">{h}</th>
                     ))}
                   </tr>
@@ -145,6 +162,24 @@ export default function AdminUsersPage() {
                         </td>
                         <td className="px-4 py-3 text-gray-500 text-xs">{u.email}</td>
                         <td className="px-4 py-3">{roleBadge(u.role)}</td>
+                        <td className="px-4 py-3 text-xs">
+                          <button
+                            onClick={() => { setBrnTarget(u); setBrnForm({ brn: u.brn ?? '', expiry: u.brn_expiry?.slice(0, 10) ?? '' }) }}
+                            className="text-start hover:text-brand-600"
+                            aria-label={t('تعديل رقم الوسيط', 'Edit BRN')}
+                          >
+                            {u.brn ? (
+                              <>
+                                <span dir="ltr" className="font-mono">{u.brn}</span>
+                                {u.brn_expiry && (
+                                  <span className={`block ${new Date(u.brn_expiry) < new Date() ? 'text-red-600' : 'text-gray-400'}`}>
+                                    {t('ينتهي', 'exp.')} {u.brn_expiry.slice(0, 10)}
+                                  </span>
+                                )}
+                              </>
+                            ) : <span className="text-brand-600">{t('+ إضافة', '+ Add')}</span>}
+                          </button>
+                        </td>
                         <td className="px-4 py-3">
                           <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${u.is_active ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-600'}`}>
                             {u.is_active ? t('نشط', 'Active') : t('معطل', 'Inactive')}
@@ -232,6 +267,28 @@ export default function AdminUsersPage() {
           {editError && <FormError error={editError} />}
           <div className="flex gap-3 pt-1">
             <button type="button" onClick={() => setEditTarget(null)} className="flex-1 py-2 border border-gray-200 rounded-lg text-sm text-gray-600 hover:bg-gray-50">
+              {t('إلغاء', 'Cancel')}
+            </button>
+            <button type="submit" disabled={saving} className="flex-1 py-2 bg-brand-600 text-white rounded-lg text-sm font-medium hover:bg-brand-700 disabled:opacity-60">
+              {saving ? t('جارٍ الحفظ...', 'Saving...') : t('حفظ', 'Save')}
+            </button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* BRN Modal */}
+      <Modal open={!!brnTarget} onClose={() => { setBrnTarget(null); setBrnError('') }} title={t('رقم تسجيل الوسيط (BRN)', 'Broker registration (BRN)')}>
+        <form onSubmit={handleBRN} className="space-y-4">
+          <FormField label={t('رقم BRN', 'BRN')}>
+            <input dir="ltr" maxLength={20} className={inputCls} value={brnForm.brn} onChange={e => setBrnForm(f => ({ ...f, brn: e.target.value }))} />
+          </FormField>
+          <FormField label={t('تاريخ الانتهاء', 'Expiry date')}>
+            <input type="date" className={inputCls} value={brnForm.expiry} onChange={e => setBrnForm(f => ({ ...f, expiry: e.target.value }))} />
+          </FormField>
+          <p className="text-xs text-gray-500">{t('سيتلقى الوسيط والمسؤولون تنبيهاً قبل الانتهاء بـ 30 و7 أيام.', 'The broker and admins are alerted 30 and 7 days before expiry.')}</p>
+          {brnError && <FormError error={brnError} />}
+          <div className="flex gap-3 pt-1">
+            <button type="button" onClick={() => setBrnTarget(null)} className="flex-1 py-2 border border-gray-200 rounded-lg text-sm text-gray-600 hover:bg-gray-50">
               {t('إلغاء', 'Cancel')}
             </button>
             <button type="submit" disabled={saving} className="flex-1 py-2 bg-brand-600 text-white rounded-lg text-sm font-medium hover:bg-brand-700 disabled:opacity-60">
