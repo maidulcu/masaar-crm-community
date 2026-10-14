@@ -278,6 +278,29 @@ type PaginatedResult[T any] struct {
 	Limit int `json:"limit"`
 }
 
+// ─── Background jobs ─────────────────────────────────────────────────────────
+
+// JobRun is one entry in the background-job run log.
+type JobRun struct {
+	ID         int64      `json:"id"`
+	JobName    string     `json:"job_name"`
+	CompanyID  *uuid.UUID `json:"company_id,omitempty"`
+	StartedAt  time.Time  `json:"started_at"`
+	FinishedAt time.Time  `json:"finished_at"`
+	Status     string     `json:"status"` // "ok" | "error"
+	Items      int        `json:"items"`
+	Error      string     `json:"error,omitempty"`
+}
+
+// CompanyLocale is a company's country rules selection (see internal/jurisdiction).
+type CompanyLocale struct {
+	CompanyID uuid.UUID `json:"company_id"`
+	Country   string    `json:"country"`
+	Region    string    `json:"region"`
+	Currency  string    `json:"currency"`
+	Timezone  string    `json:"timezone"`
+}
+
 // ─── Notification ────────────────────────────────────────────────────────────
 
 type Notification struct {
@@ -549,6 +572,10 @@ type CompanySettings struct {
 	LogoURL         string     `json:"logo_url"`
 	Disclaimer      string     `json:"disclaimer"`
 	PrimaryColor    string     `json:"primary_color"`
+	Country         string     `json:"country"`  // ISO 3166-1 alpha-2, e.g. "AE"
+	Region          string     `json:"region"`   // ISO 3166-2, e.g. "AE-DU"; may be empty
+	Currency        string     `json:"currency"` // ISO 4217, e.g. "AED"
+	Timezone        string     `json:"timezone"` // IANA, e.g. "Asia/Dubai"
 	UpdatedAt       time.Time  `json:"updated_at"`
 	UpdatedBy       *uuid.UUID `json:"updated_by"`
 }

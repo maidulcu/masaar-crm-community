@@ -4,6 +4,7 @@ import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import { useLang } from '@/context/LangContext'
 import { api } from '@/lib/api'
+import { companyCurrency } from '@/lib/money'
 
 interface PropertyDetail {
   property_id: string
@@ -116,17 +117,17 @@ export default function PropertyDetailPage() {
         {[
           {
             label: ar ? 'الإيرادات الشهرية' : 'Monthly Revenue',
-            value: `${AED(data.monthly_revenue)} AED`,
+            value: `${AED(data.monthly_revenue)} ${companyCurrency()}`,
             color: 'bg-green-50 text-green-700',
           },
           {
             label: ar ? 'نفقات التشغيل' : 'Operating Expenses',
-            value: `${AED(data.operating_expenses)} AED`,
+            value: `${AED(data.operating_expenses)} ${companyCurrency()}`,
             color: 'bg-red-50 text-red-700',
           },
           {
             label: ar ? 'صافي الدخل' : 'Net Operating Income',
-            value: `${AED(data.net_operating_income)} AED`,
+            value: `${AED(data.net_operating_income)} ${companyCurrency()}`,
             color: data.net_operating_income >= 0 ? 'bg-blue-50 text-blue-700' : 'bg-red-50 text-red-700',
           },
           {

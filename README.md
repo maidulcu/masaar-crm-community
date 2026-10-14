@@ -38,19 +38,23 @@ Masaar is a **free, open-source CRM designed specifically for UAE businesses**. 
 | **Dashboard Overview** | Real-time stats: total contacts, active leads, open WhatsApp threads, pipeline value, won revenue |
 | **WhatsApp Inbox** | Receive and manage inbound WhatsApp messages from Meta Cloud API |
 | **WhatsApp Outbound** | Send text, media (images/video/documents), and predefined templates via WhatsApp |
-| **AI Draft Reply** | One-click AI-generated draft replies to WhatsApp threads using local Ollama |
-| **AI Buyer Profile** | Extract structured buyer requirements from WhatsApp conversations |
+| **AI Draft Reply** (Pro) | One-click AI-generated draft replies to WhatsApp threads using local Ollama |
+| **AI Buyer Profile** (Pro) | Extract structured buyer requirements from WhatsApp conversations |
 | **Sales Pipeline** | Kanban board with drag-and-drop stage management (New → Won/Lost) |
 | **Lead Notes** | Click any pipeline card to view and edit per-lead notes inline |
-| **AI Thread Summaries** | One-click AI summarization via local Ollama LLM — data never leaves your server |
-| **Deals & VAT Invoicing** | Deal tracking with PDF invoice generation including UAE 5% VAT |
+| **AI Thread Summaries** (Pro) | One-click AI summarization via local Ollama LLM — data never leaves your server |
+| **Deals & VAT Invoicing** | Deal tracking and VAT invoices (UAE 5%); PDF generation is a Pro feature |
 | **Contact Management** | Unified contact profiles linked to WhatsApp numbers and leads |
 | **User Settings** | Per-user password change and language preference (Arabic/English) |
 | **Role-Based Access** | Three roles: Admin, Agent, Viewer — enforced on every API route |
 | **Real-time Notifications** | Personal WebSocket-powered notifications |
+| **Background Jobs** | Viewing reminders and offer expiry run automatically; safe with several API replicas |
+| **Country Settings** | Per-company country, emirate, currency and timezone; amounts in 3-decimal currencies (BHD, KWD, OMR) are stored exactly |
 | **Full RTL Support** | Complete Arabic interface — layout, typography, and date direction |
 | **Audit Log** | Immutable activity log for UAE PDPL compliance |
 | **Self-Hosted** | Single Docker binary — deploy to Moro Hub, G42, or any UAE cloud |
+
+> **Community and Pro.** Features marked *(Pro)* — AI, PDF generation and BOS24/Waqov market data — are stubs in this repository: the endpoints exist but answer with an upgrade message. Everything else is fully implemented here. See [CONTRIBUTING.md](CONTRIBUTING.md#whats-in-scope).
 
 ---
 
@@ -275,7 +279,7 @@ Need more for your UAE enterprise? The Enterprise edition adds:
 | Feature | Description |
 |---------|-------------|
 | **Multiple Pipelines** | Sales, HR, Ops — separate pipelines per team |
-| **ZATCA E-Invoicing** | UAE FTA compliant with QR code & tax signing |
+| **ZATCA E-Invoicing** | Saudi Arabia (ZATCA) e-invoicing with QR code & tax signing |
 | **AI Automation** | Auto lead scoring and auto-replies |
 | **WhatsApp Bots** | AI-powered chatbots and auto-replies |
 | **Advanced Templates** | Multi-language template management and analytics |

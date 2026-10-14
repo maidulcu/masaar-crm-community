@@ -68,6 +68,7 @@ type Handlers struct {
 	PipelineStage       *handler.PipelineStageHandler
 	Approval            *handler.ApprovalHandler
 	DocusignWebhook     *handler.DocusignWebhookHandler
+	Job                 *handler.JobHandler
 }
 
 // authLimiters holds the per-route rate limiters. Counters live in Redis when
@@ -357,6 +358,10 @@ func RegisterRoutes(app *fiber.App, h *Handlers, hub *ws.Hub, cfg *config.Config
 		middleware.RequireRole(domain.RoleAdmin),
 		h.Approval.ReviewRequest,
 	)
+
+	// Company locale (country rules, currency, timezone) — every role formats with it
+	v1.Get("/settings/locale", h.Settings.GetLocale)
+	v1.Get("/settings/jurisdictions", h.Settings.ListJurisdictions)
 
 	// Company Settings — admin only (invoice details, VAT number, bank info)
 	v1.Get("/settings/company",
@@ -1091,6 +1096,12 @@ func RegisterRoutes(app *fiber.App, h *Handlers, hub *ws.Hub, cfg *config.Config
 	v1.Get("/audit-logs",
 		middleware.RequireRole(domain.RoleAdmin),
 		h.AuditLog.List,
+	)
+
+	// Background job run log — admin only
+	v1.Get("/admin/jobs/runs",
+		middleware.RequireRole(domain.RoleAdmin),
+		h.Job.ListRuns,
 	)
 
 	// Health — checks DB and Redis connectivity

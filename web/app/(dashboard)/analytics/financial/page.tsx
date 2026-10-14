@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useLang } from '@/context/LangContext'
 import { api } from '@/lib/api'
+import { companyCurrency } from '@/lib/money'
 
 interface FinancialAnalytics {
   period: string
@@ -40,7 +41,7 @@ export default function FinancialAnalyticsPage() {
       utilities: 'Utilities',
       maintenance: 'Maintenance',
       other: 'Other Expenses',
-      aed: 'AED',
+      aed: companyCurrency(),
       percent: '%',
       filterLabel: 'Select Date Range',
       from: 'From',
@@ -60,7 +61,7 @@ export default function FinancialAnalyticsPage() {
       utilities: 'الخدمات',
       maintenance: 'الصيانة',
       other: 'مصاريف أخرى',
-      aed: 'د.إ',
+      aed: companyCurrency() === 'AED' ? 'د.إ' : companyCurrency(),
       percent: '%',
       filterLabel: 'اختر نطاق التاريخ',
       from: 'من',

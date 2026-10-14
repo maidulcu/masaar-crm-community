@@ -5,6 +5,7 @@ import { Modal, FormField, FormError } from '@/components/ui/Modal'
 import { useLang } from '@/context/LangContext'
 import { api } from '@/lib/api'
 import type { Tenant, PaginatedResult } from '@/types'
+import { companyCurrency } from '@/lib/money'
 
 const ID_TYPES = ['emirates_id', 'passport', 'visa', 'driving_license']
 const EMP_STATUS = ['employed', 'self_employed', 'unemployed', 'student', 'retired']
@@ -179,7 +180,7 @@ export default function TenantsPage() {
             </FormField>
           </div>
 
-          <FormField label={t('الدخل السنوي (AED)', 'Annual Income (AED)')}>
+          <FormField label={t(`الدخل السنوي (${companyCurrency()})`, `Annual Income (${companyCurrency()})`)}>
             <input type="number" min={0} className={inputCls} value={form.annual_income} onChange={e => set('annual_income', +e.target.value)} />
           </FormField>
 

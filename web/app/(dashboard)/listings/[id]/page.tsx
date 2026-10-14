@@ -9,6 +9,7 @@ import { useAuthStore } from '@/store/auth'
 import { api } from '@/lib/api'
 import type { Listing } from '@/types'
 import clsx from 'clsx'
+import { companyCurrency, currencyChoices } from '@/lib/money'
 
 // ── Offer types (local) ────────────────────────────────────────────────────
 interface Offer {
@@ -65,7 +66,7 @@ export default function ListingDetailPage() {
   const [editOpen, setEditOpen] = useState(false)
   const [form, setForm] = useState({
     title: '', description: '', property_type: 'apartment', listing_type: 'rent',
-    price: 0, currency: 'AED', rent_period: '',
+    price: 0, currency: companyCurrency(), rent_period: '',
     area: '', community: '', subcommunity: '', city: 'Dubai', emirate: 'Dubai',
     bedrooms: 1, bathrooms: 1, total_sqft: 0, plot_sqft: 0, parking_spaces: 0,
     furnishing: '', amenities: [] as string[],
@@ -81,7 +82,7 @@ export default function ListingDetailPage() {
   const [offers, setOffers] = useState<Offer[]>([])
   const [offersLoading, setOffersLoading] = useState(false)
   const [showOfferForm, setShowOfferForm] = useState(false)
-  const [offerForm, setOfferForm] = useState({ contact_phone: '', offer_amount: '', currency: 'AED', terms: '', valid_until: '' })
+  const [offerForm, setOfferForm] = useState({ contact_phone: '', offer_amount: '', currency: companyCurrency(), terms: '', valid_until: '' })
   const [offerSubmitting, setOfferSubmitting] = useState(false)
   const [offerError, setOfferError] = useState('')
   const [offerActing, setOfferActing] = useState<string | null>(null)
@@ -325,7 +326,7 @@ export default function ListingDetailPage() {
                   valid_until: offerForm.valid_until || undefined,
                 })
                 setShowOfferForm(false)
-                setOfferForm({ contact_phone: '', offer_amount: '', currency: 'AED', terms: '', valid_until: '' })
+                setOfferForm({ contact_phone: '', offer_amount: '', currency: companyCurrency(), terms: '', valid_until: '' })
                 loadOffers()
               } catch (err: any) { setOfferError(err.message || 'Failed') }
               finally { setOfferSubmitting(false) }
@@ -338,7 +339,7 @@ export default function ListingDetailPage() {
                     className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-500" />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">{t('مبلغ العرض', 'Offer Amount (AED)')}</label>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">{t('مبلغ العرض', 'Offer Amount')} ({offerForm.currency})</label>
                   <input type="number" min={1} value={offerForm.offer_amount} onChange={e => setOfferForm(p => ({ ...p, offer_amount: e.target.value }))}
                     placeholder="1500000" required
                     className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-500" />
@@ -473,8 +474,7 @@ export default function ListingDetailPage() {
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1">{t('العملة', 'Currency')}</label>
                   <select className={inputCls} value={form.currency} onChange={e => set('currency', e.target.value)}>
-                    <option value="AED">AED</option>
-                    <option value="USD">USD</option>
+                    {currencyChoices(form.currency).map(c => <option key={c} value={c}>{c}</option>)}
                   </select>
                 </div>
               </div>

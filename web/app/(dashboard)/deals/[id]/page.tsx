@@ -8,6 +8,7 @@ import type { Deal, VATInvoice } from '@/types'
 import clsx from 'clsx'
 import DocumentAttachmentSection from '@/components/DocumentAttachmentSection'
 import EmailComposeModal from '@/components/communication/EmailComposeModal'
+import { companyCurrency } from '@/lib/money'
 
 const invoiceStatusColor: Record<string, string> = {
   draft: 'bg-gray-100 text-gray-600',
@@ -117,7 +118,7 @@ export default function DealDetailPage() {
 
   const formatAmount = (amount: number) =>
     new Intl.NumberFormat(lang === 'ar' ? 'ar-AE' : 'en-AE', {
-      style: 'currency', currency: deal?.currency || 'AED',
+      style: 'currency', currency: deal?.currency || companyCurrency(),
     }).format(amount)
 
   if (loading) {

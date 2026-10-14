@@ -9,6 +9,7 @@ import { api } from '@/lib/api'
 import EmailComposeModal from '@/components/communication/EmailComposeModal'
 import type { Contact, Lead, WhatsAppThread, User } from '@/types'
 import clsx from 'clsx'
+import { companyCurrency } from '@/lib/money'
 
 const stageLabels: Record<string, { en: string; ar: string }> = {
   new: { en: 'New', ar: 'جديد' },
@@ -222,7 +223,7 @@ export default function ContactDetailPage() {
                     {lang === 'ar' ? (stageLabels[l.stage]?.ar || l.stage) : (stageLabels[l.stage]?.en || l.stage)}
                   </span>
                   <span className="flex-1 text-sm text-surface-700">{l.notes ? l.notes.substring(0, 80) + (l.notes.length > 80 ? '...' : '') : t('بدون ملاحظات', 'No notes')}</span>
-                  {l.deal_value > 0 && <span className="text-sm font-medium text-surface-900">AED {l.deal_value.toLocaleString()}</span>}
+                  {l.deal_value > 0 && <span className="text-sm font-medium text-surface-900">{companyCurrency()} {l.deal_value.toLocaleString()}</span>}
                   <span className="text-[10px] text-surface-400">{l.created_at ? fmtDate(l.created_at) : ''}</span>
                 </Link>
               ))}

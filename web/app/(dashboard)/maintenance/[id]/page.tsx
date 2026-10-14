@@ -9,6 +9,7 @@ import { useAuthStore } from '@/store/auth'
 import { api } from '@/lib/api'
 import type { MaintenanceTask, MaintenancePhoto } from '@/types'
 import clsx from 'clsx'
+import { companyCurrency } from '@/lib/money'
 
 const statusColor: Record<string, string> = {
   pending: 'bg-gray-100 text-gray-600',
@@ -84,7 +85,7 @@ export default function MaintenanceDetailPage() {
   }
 
   const fmtDate = (d: string | null) => d ? new Date(d).toLocaleDateString(lang === 'ar' ? 'ar-AE' : 'en-AE', { year: 'numeric', month: 'short', day: 'numeric' }) : '—'
-  const fmtAmount = (v: number | null | undefined) => v != null ? `AED ${v.toLocaleString()}` : '—'
+  const fmtAmount = (v: number | null | undefined) => v != null ? `${companyCurrency()} ${v.toLocaleString()}` : '—'
 
   const inputCls = 'w-full text-sm border border-gray-200 rounded-lg px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent'
 
@@ -166,7 +167,7 @@ export default function MaintenanceDetailPage() {
             <h3 className="text-sm font-semibold text-gray-700 mb-4">{t('إكمال مهمة الصيانة', 'Complete Task')}</h3>
             <form onSubmit={handleComplete} className="space-y-4">
               <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">{t('التكلفة الفعلية (AED)', 'Actual Cost (AED)')}</label>
+                <label className="block text-xs font-medium text-gray-600 mb-1">{t(`التكلفة الفعلية (${companyCurrency()})`, `Actual Cost (${companyCurrency()})`)}</label>
                 <input type="number" min={0} step={0.01} className={inputCls} value={actualCost} onChange={e => setActualCost(e.target.value)} placeholder={t('اختياري', 'Optional')} />
               </div>
               <div className="flex gap-2">

@@ -2,6 +2,16 @@
 
 This document outlines the phased implementation of missing features to bring Masaar CRM to parity with PixxiCRM for UAE real estate brokerages.
 
+> **Status (October 2026).** Most phases have shipped. The current plan — UAE compliance first, then GCC — is tracked in [issue #82](https://github.com/maidulcu/masaar-crm-community/issues/82).
+>
+> | Phase | Status |
+> |-------|--------|
+> | 1 Listings · 5 Offers · 6 Approvals · 7 Lead rotation · 8 Commissions · 9 Performance · 11 Custom pipeline stages · 14 Import/Export | Shipped |
+> | 4 Map view · 10 Calendar & viewings · 12 Marketing tools | Shipped (Google Calendar sync and PDF brochures not in the community edition) |
+> | 2 Portal sync | Not started — inbound portal leads and an XML feed are planned in #85 |
+> | 3 BOS24 deepen | Pro edition |
+> | 13 Owner portal · 15 Chatbot · 16 Zapier | Not started |
+
 ---
 
 ## Phase 1: Listings Management (Internal)

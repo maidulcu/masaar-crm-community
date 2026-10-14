@@ -387,6 +387,16 @@ const sections: NavSection[] = [
         adminOnly: true,
       },
       {
+        href: '/settings/jobs',
+        label: { en: 'Background Jobs', ar: 'المهام الخلفية' },
+        icon: (
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+        ),
+        adminOnly: true,
+      },
+      {
         href: '/import-export',
         label: { en: 'Import / Export', ar: 'استيراد/تصدير' },
         icon: (

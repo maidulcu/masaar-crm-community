@@ -68,6 +68,7 @@ func setup(t *testing.T) *testEnv {
 		for _, id := range []uuid.UUID{e.a.id, e.b.id} {
 			// children first; ignore errors — this is best-effort cleanup of throwaway data
 			for _, q := range []string{
+				`DELETE FROM notifications WHERE company_id = $1`,
 				`DELETE FROM whatsapp_messages WHERE thread_id IN (SELECT id FROM whatsapp_threads WHERE company_id = $1)`,
 				`DELETE FROM lead_tags WHERE lead_id IN (SELECT id FROM leads WHERE company_id = $1)`,
 				`DELETE FROM payment_confirmations WHERE company_id = $1`,
