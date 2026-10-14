@@ -77,6 +77,16 @@ export interface CompanyLocale {
   timezone: string
   rules: JurisdictionRules
 }
+export interface Consent {
+  id: number
+  contact_id: string
+  channel: 'whatsapp' | 'email' | 'sms' | 'phone'
+  status: 'granted' | 'withdrawn'
+  source: string
+  note?: string
+  created_at: string
+}
+
 export interface JobRun {
   id: number
   job_name: string
@@ -246,6 +256,17 @@ export const api = {
 
   // ─── Contacts ───────────────────────────────────────────────────────────────
 
+  privacy: {
+    consents: (contactId: string) =>
+      request<{ current: Record<string, Consent>; history: Consent[] }>(`/api/v1/contacts/${contactId}/consents`),
+    recordConsent: (contactId: string, channel: string, status: 'granted' | 'withdrawn', note = '') =>
+      request<Consent>(`/api/v1/contacts/${contactId}/consents`, { method: 'POST', body: JSON.stringify({ channel, status, note }) }),
+    exportContact: async (contactId: string) =>
+      saveBlob(await requestBlob(`/api/v1/contacts/${contactId}/export`), `contact-${contactId}.json`),
+    erase: (contactId: string, reason: string) =>
+      request(`/api/v1/contacts/${contactId}/erase`, { method: 'POST', body: JSON.stringify({ confirm: 'ERASE', reason }) }),
+  },
+
   contacts: {
     list: (params: { search?: string; page?: number; limit?: number } = {}) => {
       const q = new URLSearchParams()
@@ -397,11 +418,14 @@ export const api = {
     },
     send: (id: string) =>
       request(`/api/v1/invoices/${id}/send`, { method: 'POST' }),
-    updateStatus: (id: string, status: string) =>
+    updateStatus: (id: string, status: string, reason?: string) =>
       request(`/api/v1/invoices/${id}/status`, {
         method: 'PATCH',
-        body: JSON.stringify({ status }),
+        body: JSON.stringify({ status, reason }),
       }),
+    creditNotes: (id: string) => request(`/api/v1/invoices/${id}/credit-notes`),
+    createCreditNote: (id: string, data: { reason: string; lines?: unknown[] }) =>
+      request(`/api/v1/invoices/${id}/credit-notes`, { method: 'POST', body: JSON.stringify(data) }),
   },
 
   // ─── Stats ───────────────────────────────────────────────────────────────────
@@ -429,6 +453,8 @@ export const api = {
       request('/api/v1/users/invite', { method: 'POST', body: JSON.stringify(data) }),
     update: (id: string, data: { name: string; role: string }) =>
       request(`/api/v1/users/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+    setBRN: (id: string, brn: string, brnExpiry: string) =>
+      request(`/api/v1/users/${id}/brn`, { method: 'PATCH', body: JSON.stringify({ brn, brn_expiry: brnExpiry }) }),
     setActive: (id: string, active: boolean) =>
       request(`/api/v1/users/${id}/active`, { method: 'PATCH', body: JSON.stringify({ active }) }),
     delete: (id: string) =>
@@ -483,6 +509,10 @@ export const api = {
       request(`/api/v1/listings/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
     updateStatus: (id: string, status: string) =>
       request(`/api/v1/listings/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status }) }),
+    setPermitOverride: (id: string, reason: string) =>
+      request(`/api/v1/listings/${id}/permit-override`, { method: 'POST', body: JSON.stringify({ reason }) }),
+    clearPermitOverride: (id: string) =>
+      request(`/api/v1/listings/${id}/permit-override`, { method: 'DELETE' }),
     delete: (id: string) =>
       request(`/api/v1/listings/${id}`, { method: 'DELETE' }),
   },

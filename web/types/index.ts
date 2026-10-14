@@ -11,6 +11,8 @@ export interface User {
   wa_number: string
   is_active: boolean
   created_at: string
+  brn?: string
+  brn_expiry?: string
 }
 
 export interface AuthUser {
@@ -53,6 +55,7 @@ export interface Contact {
   assigned_to: string | null
   created_at: string
   updated_at: string
+  erased_at?: string | null
 }
 
 export interface PaginatedResult<T> {
@@ -201,7 +204,7 @@ export interface WhatsAppMessage {
 // ─── Deal ─────────────────────────────────────────────────────────────────────
 
 export type DealStage = 'open' | 'won' | 'lost'
-export type InvoiceStatus = 'draft' | 'sent' | 'paid'
+export type InvoiceStatus = 'draft' | 'sent' | 'paid' | 'void'
 
 export interface Deal {
   id: string
@@ -217,10 +220,53 @@ export interface Deal {
   updated_at: string
 }
 
+export type InvoiceKind = 'invoice' | 'credit_note'
+export type VATCategory = 'standard' | 'zero_rated' | 'exempt' | 'out_of_scope'
+
+export interface InvoiceParty {
+  name: string
+  address: string
+  trn: string
+}
+
+export interface InvoiceLine {
+  id?: string
+  position?: number
+  description: string
+  quantity: number
+  unit_price: number
+  vat_category: VATCategory
+  vat_rate?: number
+  net_amount?: number
+  vat_amount?: number
+}
+
+export interface CompanySettings {
+  id: number
+  name: string
+  vat_number: string
+  business_address: string
+  business_phone: string
+  business_email: string
+  bank_name: string
+  bank_account: string
+  bank_iban: string
+  logo_url: string
+  disclaimer: string
+  primary_color: string
+  country: string
+  region: string
+  currency: string
+  timezone: string
+}
+
 export interface VATInvoice {
   id: string
+  kind: InvoiceKind
   deal_id: string
+  original_invoice_id?: string
   invoice_no: string
+  currency: string
   subtotal: number
   vat_rate: number
   vat_amount: number
@@ -228,6 +274,17 @@ export interface VATInvoice {
   qr_payload?: string
   status: InvoiceStatus
   issued_at: string
+  supply_date?: string
+  supplier: InvoiceParty
+  customer: InvoiceParty
+  notes: string
+  reason?: string
+  void_reason?: string
+  voided_at?: string
+  lines?: InvoiceLine[]
+  credited_total: number
+  outstanding: number
+  is_tax_invoice: boolean
 }
 
 // ─── Notification ─────────────────────────────────────────────────────────────
@@ -847,6 +904,14 @@ export interface AuditLog {
 export type ListingType = 'sale' | 'rent'
 export type ListingStatus = 'draft' | 'published' | 'sold' | 'rented' | 'expired' | 'withdrawn'
 
+export interface PermitStatus {
+  required: boolean
+  system?: 'trakheesi' | 'madhmoun'
+  valid: boolean
+  overridden: boolean
+  problem?: 'missing' | 'expired'
+}
+
 export interface Listing {
   id: string
   company_id: string
@@ -885,6 +950,13 @@ export interface Listing {
   owner_phone: string
   owner_email: string
   portal_sync_status: Record<string, unknown>
+  permit_number: string
+  permit_expiry: string | null
+  permit_qr_url: string
+  permit_override_by?: string
+  permit_override_at?: string
+  permit_override_reason?: string
+  permit?: PermitStatus
   published_at: string | null
   created_at: string
   updated_at: string

@@ -73,7 +73,9 @@ export default function ListingDetailPage() {
     cover_image_url: '', virtual_tour_url: '', video_url: '',
     reference_number: '', available_from: '',
     owner_name: '', owner_phone: '', owner_email: '',
+    permit_number: '', permit_expiry: '', permit_qr_url: '',
   })
+  const [overrideReason, setOverrideReason] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
@@ -112,6 +114,7 @@ export default function ListingDetailPage() {
         cover_image_url: l.cover_image_url, virtual_tour_url: l.virtual_tour_url, video_url: l.video_url,
         reference_number: l.reference_number, available_from: l.available_from || '',
         owner_name: l.owner_name, owner_phone: l.owner_phone, owner_email: l.owner_email,
+        permit_number: l.permit_number ?? '', permit_expiry: l.permit_expiry?.slice(0, 10) ?? '', permit_qr_url: l.permit_qr_url ?? '',
       })
     } catch {} finally { setLoading(false) }
   }
@@ -121,7 +124,10 @@ export default function ListingDetailPage() {
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault(); setError(''); setSuccess(''); setSaving(true)
     try {
-      await api.listings.update(id, form)
+      await api.listings.update(id, {
+        ...form,
+        permit_expiry: form.permit_expiry ? `${form.permit_expiry}T00:00:00Z` : null,
+      })
       setSuccess(t('تم الحفظ', 'Saved'))
       setEditOpen(false)
       load()
@@ -137,7 +143,17 @@ export default function ListingDetailPage() {
       setSuccess(t('تم تحديث الحالة', 'Status updated'))
       load()
       setTimeout(() => setSuccess(''), 3000)
-    } catch { setError(t('حدث خطأ', 'Error')) }
+    } catch (err: unknown) { setError(err instanceof Error ? err.message : t('حدث خطأ', 'Error')) }
+  }
+
+  const handleOverride = async (on: boolean) => {
+    setError('')
+    try {
+      if (on) await api.listings.setPermitOverride(id, overrideReason)
+      else await api.listings.clearPermitOverride(id)
+      setOverrideReason('')
+      load()
+    } catch (err: unknown) { setError(err instanceof Error ? err.message : t('حدث خطأ', 'Error')) }
   }
 
   const handleDelete = async () => {
@@ -207,6 +223,49 @@ export default function ListingDetailPage() {
             </select>
           )}
         </div>
+
+        {/* Advertising permit */}
+        {listing.permit?.required && (
+          <div className={clsx('rounded-xl border p-4 flex flex-wrap items-start gap-4',
+            listing.permit.valid ? 'bg-white border-gray-100' : listing.permit.overridden ? 'bg-amber-50 border-amber-200' : 'bg-red-50 border-red-200')}>
+            <div className="flex-1 min-w-[200px]">
+              <p className="text-xs text-gray-500">
+                {listing.permit.system === 'trakheesi'
+                  ? t('تصريح الإعلان (تراخيصي)', 'Advertising permit (Trakheesi)')
+                  : t('رقم الإعلان الموثق (مضمون)', 'Verified listing number (Madhmoun)')}
+              </p>
+              <p className="font-mono font-semibold text-gray-900" dir="ltr">{listing.permit_number || '—'}</p>
+              {listing.permit_expiry && <p className="text-xs text-gray-500">{t('ينتهي', 'Expires')} {listing.permit_expiry.slice(0, 10)}</p>}
+              {!listing.permit.valid && (
+                <p className="text-sm mt-1 text-red-700">
+                  {listing.permit.problem === 'expired'
+                    ? t('انتهت صلاحية التصريح — لا يمكن نشر الإعلان أو مشاركته.', 'The permit has expired — the listing cannot be published or shared.')
+                    : t('لا يوجد تصريح — لا يمكن نشر الإعلان أو مشاركته.', 'No permit — the listing cannot be published or shared.')}
+                </p>
+              )}
+              {listing.permit.overridden && (
+                <p className="text-xs mt-1 text-amber-800">{t('تجاوز من المسؤول:', 'Admin override:')} {listing.permit_override_reason}</p>
+              )}
+            </div>
+            {listing.permit_qr_url && <img src={safeUrl(listing.permit_qr_url)} alt={t('رمز QR للتصريح', 'Permit QR code')} className="w-20 h-20 object-contain" />}
+            {isAdmin && !listing.permit.valid && (
+              listing.permit.overridden ? (
+                <button onClick={() => handleOverride(false)} className="text-xs font-medium text-amber-800 underline">
+                  {t('إلغاء التجاوز', 'Remove override')}
+                </button>
+              ) : (
+                <div className="flex gap-2 items-center w-full md:w-auto">
+                  <input aria-label={t('سبب التجاوز', 'Override reason')} placeholder={t('سبب التجاوز', 'Reason for override')}
+                    className={inputCls + ' md:w-56'} value={overrideReason} onChange={e => setOverrideReason(e.target.value)} />
+                  <button disabled={!overrideReason.trim()} onClick={() => handleOverride(true)}
+                    className="px-3 py-2 text-xs font-medium bg-amber-600 text-white rounded-lg disabled:opacity-50 whitespace-nowrap">
+                    {t('السماح رغم ذلك', 'Allow anyway')}
+                  </button>
+                </div>
+              )
+            )}
+          </div>
+        )}
 
         {/* Key details */}
         <div className="bg-white rounded-xl border border-gray-100 p-5 grid grid-cols-2 md:grid-cols-4 gap-5">
@@ -489,6 +548,21 @@ export default function ListingDetailPage() {
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1">{t('المنطقة', 'Area')}</label>
                   <input className={inputCls} value={form.area} onChange={e => set('area', e.target.value)} />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label htmlFor="permit-no" className="block text-xs font-medium text-gray-600 mb-1">{t('رقم تصريح الإعلان', 'Advertising permit no.')}</label>
+                  <input id="permit-no" dir="ltr" className={inputCls} value={form.permit_number} onChange={e => set('permit_number', e.target.value)} />
+                </div>
+                <div>
+                  <label htmlFor="permit-exp" className="block text-xs font-medium text-gray-600 mb-1">{t('انتهاء التصريح', 'Permit expiry')}</label>
+                  <input id="permit-exp" type="date" className={inputCls} value={form.permit_expiry} onChange={e => set('permit_expiry', e.target.value)} />
+                </div>
+                <div>
+                  <label htmlFor="permit-qr" className="block text-xs font-medium text-gray-600 mb-1">{t('رابط صورة QR للتصريح', 'Permit QR image URL')}</label>
+                  <input id="permit-qr" dir="ltr" className={inputCls} value={form.permit_qr_url} onChange={e => set('permit_qr_url', e.target.value)} placeholder="https://..." />
                 </div>
               </div>
 

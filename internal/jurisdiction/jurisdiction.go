@@ -33,6 +33,9 @@ type Region struct {
 	Code   string `json:"code"`
 	NameEN string `json:"name_en"`
 	NameAR string `json:"name_ar"`
+	// ListingPermit names the advertising-permit system a property listing in this region
+	// must carry (e.g. "trakheesi" in Dubai), or "" when none is enforced here.
+	ListingPermit string `json:"listing_permit,omitempty"`
 }
 
 // Rules are the defaults for one country.
@@ -49,6 +52,12 @@ type Rules struct {
 	TaxIDDigits int      `json:"tax_id_digits"`
 	Regions     []Region `json:"regions"`
 }
+
+// Listing advertising-permit systems.
+const (
+	PermitTrakheesi = "trakheesi" // Dubai Land Department / RERA advertising permit
+	PermitMadhmoun  = "madhmoun"  // Abu Dhabi verified listing number
+)
 
 // DefaultCountry is used when a company has not chosen one.
 const DefaultCountry = "AE"
@@ -70,8 +79,8 @@ var registry = map[string]Rules{
 			VATOutOfScope: 0,
 		},
 		Regions: []Region{
-			{Code: "AE-AZ", NameEN: "Abu Dhabi", NameAR: "أبوظبي"},
-			{Code: "AE-DU", NameEN: "Dubai", NameAR: "دبي"},
+			{Code: "AE-AZ", NameEN: "Abu Dhabi", NameAR: "أبوظبي", ListingPermit: PermitMadhmoun},
+			{Code: "AE-DU", NameEN: "Dubai", NameAR: "دبي", ListingPermit: PermitTrakheesi},
 			{Code: "AE-SH", NameEN: "Sharjah", NameAR: "الشارقة"},
 			{Code: "AE-AJ", NameEN: "Ajman", NameAR: "عجمان"},
 			{Code: "AE-UQ", NameEN: "Umm Al Quwain", NameAR: "أم القيوين"},
@@ -165,6 +174,21 @@ func (r Rules) ValidTaxID(id string) bool {
 // NormalizeTaxID strips spaces and dashes from a tax registration number.
 func NormalizeTaxID(id string) string {
 	return strings.NewReplacer(" ", "", "-", "").Replace(strings.TrimSpace(id))
+}
+
+// FindRegion resolves free text (an ISO code such as "AE-DU", or the English or Arabic
+// name, as stored on older listings) to one of the country's regions.
+func (r Rules) FindRegion(text string) (Region, bool) {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return Region{}, false
+	}
+	for _, reg := range r.Regions {
+		if strings.EqualFold(reg.Code, text) || strings.EqualFold(reg.NameEN, text) || reg.NameAR == text {
+			return reg, true
+		}
+	}
+	return Region{}, false
 }
 
 // Location loads the country's default timezone, falling back to UTC.

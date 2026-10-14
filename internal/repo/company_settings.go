@@ -31,6 +31,7 @@ func (r *CompanySettingsRepo) Get(ctx context.Context) (*domain.CompanySettings,
 		COALESCE(bank_name,''), COALESCE(bank_account,''), COALESCE(bank_iban,''),
 		COALESCE(logo_url,''), COALESCE(disclaimer,''), COALESCE(primary_color,'#1a3a5c'),
 		country, region, currency, timezone,
+		orn, trade_license_no, trade_license_expiry,
 		updated_at, updated_by
 	FROM company_settings WHERE company_id = $1`
 
@@ -40,6 +41,7 @@ func (r *CompanySettingsRepo) Get(ctx context.Context) (*domain.CompanySettings,
 		&s.BankName, &s.BankAccount, &s.BankIBAN,
 		&s.LogoURL, &s.Disclaimer, &s.PrimaryColor,
 		&s.Country, &s.Region, &s.Currency, &s.Timezone,
+		&s.ORN, &s.TradeLicenseNo, &s.TradeLicenseExpiry,
 		&s.UpdatedAt, &s.UpdatedBy,
 	)
 	if err != nil {
@@ -58,7 +60,8 @@ func (r *CompanySettingsRepo) Update(ctx context.Context, settings *domain.Compa
 		bank_name=$6, bank_account=$7, bank_iban=$8,
 		logo_url=$9, disclaimer=$10, primary_color=$11,
 		updated_at=$12, updated_by=$13,
-		country=$16, region=$17, currency=$18, timezone=$19
+		country=$16, region=$17, currency=$18, timezone=$19,
+		orn=$20, trade_license_no=$21, trade_license_expiry=$22
 		WHERE id=$14 AND company_id=$15`
 
 	_, err = r.pool.Exec(ctx, query,
@@ -68,6 +71,7 @@ func (r *CompanySettingsRepo) Update(ctx context.Context, settings *domain.Compa
 		settings.LogoURL, settings.Disclaimer, settings.PrimaryColor,
 		time.Now(), userID, settings.ID, cid,
 		settings.Country, settings.Region, settings.Currency, settings.Timezone,
+		settings.ORN, settings.TradeLicenseNo, settings.TradeLicenseExpiry,
 	)
 	return err
 }

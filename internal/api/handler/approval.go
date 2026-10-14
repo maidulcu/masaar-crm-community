@@ -8,11 +8,12 @@ import (
 )
 
 type ApprovalHandler struct {
-	repo *repo.ApprovalRepo
+	repo     *repo.ApprovalRepo
+	listings *repo.ListingRepo
 }
 
-func NewApprovalHandler(repo *repo.ApprovalRepo) *ApprovalHandler {
-	return &ApprovalHandler{repo: repo}
+func NewApprovalHandler(repo *repo.ApprovalRepo, listings *repo.ListingRepo) *ApprovalHandler {
+	return &ApprovalHandler{repo: repo, listings: listings}
 }
 
 // GetConfig godoc
@@ -122,9 +123,10 @@ func (h *ApprovalHandler) ReviewRequest(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid id"})
 	}
 
-	userID, err := uuid.Parse(c.Locals("user_id").(string))
-	if err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid user_id"})
+	// user_id is a uuid.UUID in Locals (asserting a string used to panic).
+	userID, ok := c.Locals("user_id").(uuid.UUID)
+	if !ok {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "unauthorized"})
 	}
 
 	var body struct {
@@ -138,8 +140,31 @@ func (h *ApprovalHandler) ReviewRequest(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "status must be 'approved' or 'rejected'"})
 	}
 
+	pending, err := h.repo.GetByID(c.Context(), id)
+	if err != nil || pending == nil {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "request not found"})
+	}
+	if pending.Status != domain.ApprovalPending {
+		return c.Status(fiber.StatusConflict).JSON(fiber.Map{"error": "request already reviewed"})
+	}
+	// Approving a listing publishes it, so its advertising permit must be valid first.
+	var listing *domain.Listing
+	if body.Status == string(domain.ApprovalApproved) && pending.EntityType == domain.ApprovalListing && h.listings != nil {
+		if listing, err = h.listings.GetByID(c.Context(), pending.EntityID); err != nil {
+			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "listing not found"})
+		}
+		if blocked, err := permitBlocked(c, listing); blocked {
+			return err
+		}
+	}
+
 	if err := h.repo.Review(c.Context(), id, userID, domain.ApprovalStatus(body.Status), body.Note); err != nil {
 		return serverError(c, err)
+	}
+	if listing != nil {
+		if err := h.listings.UpdateStatus(c.Context(), listing.ID, domain.ListingStatusPublished); err != nil {
+			return serverError(c, err)
+		}
 	}
 
 	req, _ := h.repo.GetByID(c.Context(), id)

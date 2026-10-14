@@ -326,7 +326,7 @@ func (r *UserRepo) ListByCompany(ctx context.Context, companyID uuid.UUID, page,
 	offset := (page - 1) * limit
 	const q = `
 		SELECT id, company_id, name, email, password_hash, role, lang_pref,
-		       COALESCE(wa_number, ''), is_active, created_at
+		       COALESCE(wa_number, ''), is_active, created_at, brn, brn_expiry
 		FROM users WHERE company_id = $1
 		ORDER BY created_at ASC LIMIT $2 OFFSET $3
 	`
@@ -340,7 +340,7 @@ func (r *UserRepo) ListByCompany(ctx context.Context, companyID uuid.UUID, page,
 	for rows.Next() {
 		var u domain.User
 		if err := rows.Scan(&u.ID, &u.CompanyID, &u.Name, &u.Email, &u.PasswordHash,
-			&u.Role, &u.LangPref, &u.WANumber, &u.IsActive, &u.CreatedAt); err != nil {
+			&u.Role, &u.LangPref, &u.WANumber, &u.IsActive, &u.CreatedAt, &u.BRN, &u.BRNExpiry); err != nil {
 			return nil, 0, fmt.Errorf("scan user: %w", err)
 		}
 		users = append(users, u)
@@ -383,4 +383,17 @@ func (r *UserRepo) InviteUser(ctx context.Context, email, name string, companyID
 		u.ID, sha256.Sum256([]byte(token)))
 
 	return u, token, nil
+}
+
+// SetBRN stores a user's RERA broker registration number and its expiry.
+func (r *UserRepo) SetBRN(ctx context.Context, companyID, id uuid.UUID, brn string, expiry *time.Time) error {
+	tag, err := r.db.Exec(ctx, `UPDATE users SET brn = $1, brn_expiry = $2 WHERE id = $3 AND company_id = $4`,
+		brn, expiry, id, companyID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrUserNotFound
+	}
+	return nil
 }

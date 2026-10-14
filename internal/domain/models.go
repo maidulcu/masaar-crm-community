@@ -54,6 +54,9 @@ type User struct {
 	Phone        string    `json:"phone"`
 	IsActive     bool      `json:"is_active"`
 	CreatedAt    time.Time `json:"created_at"`
+	// RERA broker registration number and its expiry (listed for admins).
+	BRN       string     `json:"brn,omitempty"`
+	BRNExpiry *time.Time `json:"brn_expiry,omitempty"`
 }
 
 // ─── Contact ─────────────────────────────────────────────────────────────────
@@ -68,6 +71,40 @@ type Contact struct {
 	AssignedTo *uuid.UUID `json:"assigned_to"`
 	CreatedAt  time.Time  `json:"created_at"`
 	UpdatedAt  time.Time  `json:"updated_at"`
+	ErasedAt   *time.Time `json:"erased_at,omitempty"` // personal data removed (PDPL erasure)
+}
+
+// ─── Consent (PDPL) ──────────────────────────────────────────────────────────
+
+const (
+	ConsentGranted   = "granted"
+	ConsentWithdrawn = "withdrawn"
+)
+
+// ConsentChannels are the channels a contact can opt in to or out of.
+var ConsentChannels = []string{"whatsapp", "email", "sms", "phone"}
+
+// ValidConsentChannel reports whether ch is one of ConsentChannels.
+func ValidConsentChannel(ch string) bool {
+	for _, c := range ConsentChannels {
+		if c == ch {
+			return true
+		}
+	}
+	return false
+}
+
+// Consent is one recorded consent decision. The latest decision per channel applies.
+type Consent struct {
+	ID         int64      `json:"id"`
+	ContactID  uuid.UUID  `json:"contact_id"`
+	Channel    string     `json:"channel"` // whatsapp | email | sms | phone
+	Status     string     `json:"status"`  // granted | withdrawn
+	Source     string     `json:"source"`  // manual | public_form | import | api | inbound_message | erasure
+	CapturedBy *uuid.UUID `json:"captured_by,omitempty"`
+	APIKeyID   *uuid.UUID `json:"api_key_id,omitempty"`
+	Note       string     `json:"note,omitempty"`
+	CreatedAt  time.Time  `json:"created_at"`
 }
 
 // ─── Pipeline Stage ─────────────────────────────────────────────────────────────
@@ -242,19 +279,69 @@ const (
 	InvoiceDraft InvoiceStatus = "draft"
 	InvoiceSent  InvoiceStatus = "sent"
 	InvoicePaid  InvoiceStatus = "paid"
+	InvoiceVoid  InvoiceStatus = "void"
 )
 
+// InvoiceKind distinguishes invoices from credit notes.
+type InvoiceKind string
+
+const (
+	KindInvoice    InvoiceKind = "invoice"
+	KindCreditNote InvoiceKind = "credit_note"
+)
+
+// InvoiceParty is the supplier or the customer as printed on the document. It is
+// captured when the document is issued and never changes afterwards.
+type InvoiceParty struct {
+	Name    string `json:"name"`
+	Address string `json:"address"`
+	TRN     string `json:"trn"`
+}
+
+// InvoiceLine is one line of an invoice or credit note.
+type InvoiceLine struct {
+	ID          uuid.UUID `json:"id"`
+	Position    int       `json:"position"`
+	Description string    `json:"description"`
+	Quantity    float64   `json:"quantity"`
+	UnitPrice   float64   `json:"unit_price"`
+	VATCategory string    `json:"vat_category"`
+	VATRate     float64   `json:"vat_rate"`
+	NetAmount   float64   `json:"net_amount"`
+	VATAmount   float64   `json:"vat_amount"`
+}
+
+// VATInvoice is a tax invoice or a credit note. Issued documents are immutable except
+// for their status.
 type VATInvoice struct {
-	ID        uuid.UUID     `json:"id"`
-	DealID    uuid.UUID     `json:"deal_id"`
-	InvoiceNo string        `json:"invoice_no"`
-	Subtotal  float64       `json:"subtotal"`
-	VATRate   float64       `json:"vat_rate"`
-	VATAmount float64       `json:"vat_amount"`
-	Total     float64       `json:"total"`
-	QRPayload string        `json:"qr_payload"`
-	Status    InvoiceStatus `json:"status"`
-	IssuedAt  time.Time     `json:"issued_at"`
+	ID                uuid.UUID     `json:"id"`
+	Kind              InvoiceKind   `json:"kind"`
+	DealID            uuid.UUID     `json:"deal_id"`
+	OriginalInvoiceID *uuid.UUID    `json:"original_invoice_id,omitempty"`
+	InvoiceNo         string        `json:"invoice_no"`
+	Currency          string        `json:"currency"`
+	Subtotal          float64       `json:"subtotal"`
+	VATRate           float64       `json:"vat_rate"` // legacy single rate; per-line rates are authoritative
+	VATAmount         float64       `json:"vat_amount"`
+	Total             float64       `json:"total"`
+	QRPayload         string        `json:"qr_payload"`
+	Status            InvoiceStatus `json:"status"`
+	IssuedAt          time.Time     `json:"issued_at"`
+	SupplyDate        *time.Time    `json:"supply_date,omitempty"`
+	Supplier          InvoiceParty  `json:"supplier"`
+	Customer          InvoiceParty  `json:"customer"`
+	Notes             string        `json:"notes"`
+	Reason            string        `json:"reason,omitempty"`
+	VoidReason        string        `json:"void_reason,omitempty"`
+	VoidedAt          *time.Time    `json:"voided_at,omitempty"`
+	CreatedBy         *uuid.UUID    `json:"created_by,omitempty"`
+	Lines             []InvoiceLine `json:"lines,omitempty"`
+
+	// Derived: credit notes issued against this invoice (not void) and what remains.
+	CreditedTotal float64 `json:"credited_total"`
+	Outstanding   float64 `json:"outstanding"`
+	// IsTaxInvoice is true when the supplier had a TRN at issue time.
+	IsTaxInvoice bool `json:"is_tax_invoice"`
 }
 
 // ─── Audit Log ────────────────────────────────────────────────────────────────
@@ -560,24 +647,27 @@ type CommunicationHistory struct {
 // ─── Company Settings ─────────────────────────────────────────────────────────
 
 type CompanySettings struct {
-	ID              int        `json:"id"`
-	Name            string     `json:"name"`
-	VATNumber       string     `json:"vat_number"`
-	BusinessAddress string     `json:"business_address"`
-	BusinessPhone   string     `json:"business_phone"`
-	BusinessEmail   string     `json:"business_email"`
-	BankName        string     `json:"bank_name"`
-	BankAccount     string     `json:"bank_account"`
-	BankIBAN        string     `json:"bank_iban"`
-	LogoURL         string     `json:"logo_url"`
-	Disclaimer      string     `json:"disclaimer"`
-	PrimaryColor    string     `json:"primary_color"`
-	Country         string     `json:"country"`  // ISO 3166-1 alpha-2, e.g. "AE"
-	Region          string     `json:"region"`   // ISO 3166-2, e.g. "AE-DU"; may be empty
-	Currency        string     `json:"currency"` // ISO 4217, e.g. "AED"
-	Timezone        string     `json:"timezone"` // IANA, e.g. "Asia/Dubai"
-	UpdatedAt       time.Time  `json:"updated_at"`
-	UpdatedBy       *uuid.UUID `json:"updated_by"`
+	ID                 int        `json:"id"`
+	Name               string     `json:"name"`
+	VATNumber          string     `json:"vat_number"`
+	BusinessAddress    string     `json:"business_address"`
+	BusinessPhone      string     `json:"business_phone"`
+	BusinessEmail      string     `json:"business_email"`
+	BankName           string     `json:"bank_name"`
+	BankAccount        string     `json:"bank_account"`
+	BankIBAN           string     `json:"bank_iban"`
+	LogoURL            string     `json:"logo_url"`
+	Disclaimer         string     `json:"disclaimer"`
+	PrimaryColor       string     `json:"primary_color"`
+	ORN                string     `json:"orn"`              // RERA office registration number
+	TradeLicenseNo     string     `json:"trade_license_no"` //
+	TradeLicenseExpiry *time.Time `json:"trade_license_expiry"`
+	Country            string     `json:"country"`  // ISO 3166-1 alpha-2, e.g. "AE"
+	Region             string     `json:"region"`   // ISO 3166-2, e.g. "AE-DU"; may be empty
+	Currency           string     `json:"currency"` // ISO 4217, e.g. "AED"
+	Timezone           string     `json:"timezone"` // IANA, e.g. "Asia/Dubai"
+	UpdatedAt          time.Time  `json:"updated_at"`
+	UpdatedBy          *uuid.UUID `json:"updated_by"`
 }
 
 // ─── Rental Properties ────────────────────────────────────────────────────────
@@ -711,12 +801,37 @@ type Listing struct {
 
 	PortalSyncStatus map[string]interface{} `json:"portal_sync_status"`
 
+	// Advertising permit (Dubai Trakheesi, Abu Dhabi Madhmoun). Whether one is required
+	// depends on the emirate; see internal/compliance.
+	PermitNumber         string     `json:"permit_number"`
+	PermitExpiry         *time.Time `json:"permit_expiry"`
+	PermitQRURL          string     `json:"permit_qr_url"`
+	PermitOverrideBy     *uuid.UUID `json:"permit_override_by,omitempty"`
+	PermitOverrideAt     *time.Time `json:"permit_override_at,omitempty"`
+	PermitOverrideReason string     `json:"permit_override_reason,omitempty"`
+	// Permit is computed on read (not stored).
+	Permit *PermitStatus `json:"permit,omitempty"`
+	// Country is the owning company's country, used to apply its rules (not serialised).
+	Country string `json:"-"`
+
 	PublishedAt *time.Time `json:"published_at"`
 	CreatedAt   time.Time  `json:"created_at"`
 	UpdatedAt   time.Time  `json:"updated_at"`
 	CreatedBy   *uuid.UUID `json:"created_by"`
 	UpdatedBy   *uuid.UUID `json:"updated_by"`
 }
+
+// PermitStatus says whether a listing may be advertised under its region's permit rules.
+type PermitStatus struct {
+	Required   bool   `json:"required"`
+	System     string `json:"system,omitempty"`  // "trakheesi" | "madhmoun"
+	Valid      bool   `json:"valid"`             // not required, or present and unexpired
+	Overridden bool   `json:"overridden"`        // an admin allowed advertising anyway
+	Problem    string `json:"problem,omitempty"` // "missing" | "expired"
+}
+
+// Advertisable reports whether the listing may be published or shared.
+func (p *PermitStatus) Advertisable() bool { return p == nil || p.Valid || p.Overridden }
 
 // ─── Tenants ──────────────────────────────────────────────────────────────────
 

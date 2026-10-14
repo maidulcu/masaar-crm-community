@@ -69,6 +69,7 @@ type Handlers struct {
 	Approval            *handler.ApprovalHandler
 	DocusignWebhook     *handler.DocusignWebhookHandler
 	Job                 *handler.JobHandler
+	Privacy             *handler.PrivacyHandler
 }
 
 // authLimiters holds the per-route rate limiters. Counters live in Redis when
@@ -203,6 +204,7 @@ func RegisterRoutes(app *fiber.App, h *Handlers, hub *ws.Hub, cfg *config.Config
 	v1.Patch("/users/me/lang", h.User.UpdateLang)
 	v1.Patch("/users/:id", middleware.RequireRole(domain.RoleAdmin), h.User.UpdateUser)
 	v1.Patch("/users/:id/active", middleware.RequireRole(domain.RoleAdmin), h.User.SetActive)
+	v1.Patch("/users/:id/brn", middleware.RequireRole(domain.RoleAdmin), h.User.SetBRN)
 	v1.Delete("/users/:id", middleware.RequireRole(domain.RoleAdmin), h.User.DeleteUser)
 
 	// API Settings — admin only (integrations, API keys)
@@ -714,6 +716,11 @@ func RegisterRoutes(app *fiber.App, h *Handlers, hub *ws.Hub, cfg *config.Config
 		middleware.RequireRole(domain.RoleAdmin),
 		h.Invoice.UpdateStatus,
 	)
+	v1.Get("/invoices/:id/credit-notes", h.Invoice.ListCreditNotes)
+	v1.Post("/invoices/:id/credit-notes",
+		middleware.RequireRole(domain.RoleAdmin),
+		h.Invoice.CreateCreditNote,
+	)
 
 	// Email — agents and admin only
 	v1.Get("/emails",
@@ -759,6 +766,14 @@ func RegisterRoutes(app *fiber.App, h *Handlers, hub *ws.Hub, cfg *config.Config
 	v1.Patch("/listings/:id/status",
 		middleware.RequireRole(domain.RoleAdmin, domain.RoleAgent),
 		h.Listing.UpdateStatus,
+	)
+	v1.Post("/listings/:id/permit-override",
+		middleware.RequireRole(domain.RoleAdmin),
+		h.Listing.SetPermitOverride,
+	)
+	v1.Delete("/listings/:id/permit-override",
+		middleware.RequireRole(domain.RoleAdmin),
+		h.Listing.ClearPermitOverride,
 	)
 	v1.Delete("/listings/:id",
 		middleware.RequireRole(domain.RoleAdmin),
@@ -1096,6 +1111,21 @@ func RegisterRoutes(app *fiber.App, h *Handlers, hub *ws.Hub, cfg *config.Config
 	v1.Get("/audit-logs",
 		middleware.RequireRole(domain.RoleAdmin),
 		h.AuditLog.List,
+	)
+
+	// Privacy (PDPL): consent, data-subject export and erasure
+	v1.Get("/contacts/:id/consents", h.Privacy.ListConsents)
+	v1.Post("/contacts/:id/consents",
+		middleware.RequireRole(domain.RoleAdmin, domain.RoleAgent),
+		h.Privacy.RecordConsent,
+	)
+	v1.Get("/contacts/:id/export",
+		middleware.RequireRole(domain.RoleAdmin),
+		h.Privacy.Export,
+	)
+	v1.Post("/contacts/:id/erase",
+		middleware.RequireRole(domain.RoleAdmin),
+		h.Privacy.Erase,
 	)
 
 	// Background job run log — admin only

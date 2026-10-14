@@ -100,3 +100,19 @@ func TestValidTaxID(t *testing.T) {
 		}
 	}
 }
+
+func TestFindRegion(t *testing.T) {
+	ae := MustFor("AE")
+	for _, text := range []string{"AE-DU", "dubai", "Dubai", "دبي"} {
+		reg, ok := ae.FindRegion(text)
+		if !ok || reg.Code != "AE-DU" || reg.ListingPermit != PermitTrakheesi {
+			t.Errorf("FindRegion(%q) = %+v, %v", text, reg, ok)
+		}
+	}
+	if reg, ok := ae.FindRegion("Sharjah"); !ok || reg.ListingPermit != "" {
+		t.Errorf("Sharjah = %+v, %v", reg, ok)
+	}
+	if _, ok := ae.FindRegion("Narnia"); ok {
+		t.Error("unknown region resolved")
+	}
+}

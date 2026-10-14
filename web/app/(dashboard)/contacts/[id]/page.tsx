@@ -7,6 +7,7 @@ import { useLang } from '@/context/LangContext'
 import { useAuthStore } from '@/store/auth'
 import { api } from '@/lib/api'
 import EmailComposeModal from '@/components/communication/EmailComposeModal'
+import PrivacyPanel from '@/components/contact/PrivacyPanel'
 import type { Contact, Lead, WhatsAppThread, User } from '@/types'
 import clsx from 'clsx'
 import { companyCurrency } from '@/lib/money'
@@ -206,6 +207,14 @@ export default function ContactDetailPage() {
             <p className="font-medium text-surface-700 text-sm">{fmtDateTime(contact.updated_at)}</p>
           </div>
         </div>
+
+        <PrivacyPanel
+          contactId={contact.id}
+          canEdit={isAgent}
+          isAdmin={isAdmin}
+          erased={!!contact.erased_at}
+          onErased={load}
+        />
 
         {/* Leads */}
         <div className="bg-white rounded-xl border border-surface-200/70 overflow-hidden">
