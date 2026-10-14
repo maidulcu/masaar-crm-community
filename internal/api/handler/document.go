@@ -11,6 +11,7 @@ import (
 	"github.com/maidulcu/masaar-crm/internal/docusign"
 	"github.com/maidulcu/masaar-crm/internal/domain"
 	"github.com/maidulcu/masaar-crm/internal/repo"
+	"github.com/maidulcu/masaar-crm/internal/rera"
 	"github.com/maidulcu/masaar-crm/internal/safehttp"
 )
 
@@ -18,6 +19,13 @@ type DocumentHandler struct {
 	docs     *repo.DocumentRepo
 	audit    *repo.AuditLogRepo
 	dsClient *docusign.Client
+	rera     *repo.ReraRepo // optional: RERA form contents on the public signing page
+}
+
+// UseRera shows RERA form contents on the public signing page.
+func (h *DocumentHandler) UseRera(r *repo.ReraRepo) *DocumentHandler {
+	h.rera = r
+	return h
 }
 
 func NewDocumentHandler(docs *repo.DocumentRepo, audit *repo.AuditLogRepo, dsClient *docusign.Client) *DocumentHandler {
@@ -380,7 +388,15 @@ func (h *DocumentHandler) PublicGetSignature(c *fiber.Ctx) error {
 	// Network details captured when the request was created belong to the sender, not the
 	// signer, and the DocuSign envelope id is internal: neither is shown on the public page.
 	sigs.IPAddress, sigs.UserAgent, sigs.EnvelopeID = "", "", ""
-	return c.JSON(fiber.Map{"signature": sigs, "document": doc})
+	resp := fiber.Map{"signature": sigs, "document": doc}
+	// A RERA form carries its contents, so the signer sees what they are signing.
+	if h.rera != nil {
+		if f, err := h.rera.ForDocument(c.Context(), doc.ID); err == nil {
+			def, _ := rera.Lookup(f.FormType)
+			resp["rera_form"] = fiber.Map{"data": f.Data, "definition": def}
+		}
+	}
+	return c.JSON(resp)
 }
 
 // PublicSign godoc

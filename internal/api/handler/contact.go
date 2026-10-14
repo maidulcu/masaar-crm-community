@@ -3,6 +3,7 @@ package handler
 import (
 	"regexp"
 	"strconv"
+	"strings"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -18,6 +19,14 @@ type ContactHandler struct {
 	contacts *repo.ContactRepo
 	audit    *repo.AuditLogRepo
 	privacy  consentStore
+	profiles *repo.ContactProfileRepo
+}
+
+// UseProfiles returns and accepts the contact profile (secondary phones, nationality,
+// organisation, …) on GET and PATCH /contacts/:id.
+func (h *ContactHandler) UseProfiles(p *repo.ContactProfileRepo) *ContactHandler {
+	h.profiles = p
+	return h
 }
 
 // UsePrivacy records consent given when a contact is created.
@@ -80,6 +89,11 @@ func (h *ContactHandler) Get(c *fiber.Ctx) error {
 	if err != nil {
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "contact not found"})
 	}
+	if h.profiles != nil {
+		if p, err := h.profiles.GetProfile(c.Context(), id); err == nil {
+			contact.Profile = p
+		}
+	}
 	return c.JSON(contact)
 }
 
@@ -128,11 +142,46 @@ func (h *ContactHandler) Create(c *fiber.Ctx) error {
 }
 
 type contactUpdateRequest struct {
-	FullName   string     `json:"full_name"`
-	Email      string     `json:"email"`
-	Language   string     `json:"language"`
-	LeadScore  *int       `json:"lead_score"`
-	AssignedTo *uuid.UUID `json:"assigned_to"`
+	FullName   string                 `json:"full_name"`
+	Email      string                 `json:"email"`
+	Language   string                 `json:"language"`
+	LeadScore  *int                   `json:"lead_score"`
+	AssignedTo *uuid.UUID             `json:"assigned_to"`
+	Profile    *domain.ContactProfile `json:"profile"` // replaces the whole profile when given
+}
+
+// cleanProfile validates and normalises a profile; it returns a client message or "".
+func cleanProfile(p *domain.ContactProfile) string {
+	if len(p.SecondaryPhones) > 10 {
+		return "at most 10 secondary phones"
+	}
+	phones := make([]string, 0, len(p.SecondaryPhones))
+	for _, raw := range p.SecondaryPhones {
+		raw = strings.TrimSpace(raw)
+		if raw == "" {
+			continue
+		}
+		n, ok := phone.Normalize(raw)
+		if !ok {
+			return "secondary phones must be valid international numbers"
+		}
+		phones = append(phones, n)
+	}
+	p.SecondaryPhones = phones
+	p.Nationality = strings.ToUpper(strings.TrimSpace(p.Nationality))
+	if p.Nationality != "" && len(p.Nationality) != 2 {
+		return "nationality must be a 2-letter country code"
+	}
+	for _, f := range []*string{&p.Source, &p.PreferredContactTime, &p.JobTitle} {
+		*f = strings.TrimSpace(*f)
+		if len(*f) > 200 {
+			return "a profile field is too long"
+		}
+	}
+	if len(p.Address) > 1000 || len(p.Notes) > 10000 {
+		return "address or notes are too long"
+	}
+	return ""
 }
 
 // Update godoc
@@ -180,8 +229,20 @@ func (h *ContactHandler) Update(c *fiber.Ctx) error {
 		existing.AssignedTo = patch.AssignedTo
 	}
 
+	if patch.Profile != nil {
+		if msg := cleanProfile(patch.Profile); msg != "" {
+			return c.Status(fiber.StatusUnprocessableEntity).JSON(fiber.Map{"error": msg})
+		}
+	}
+
 	if err := h.contacts.Update(c.Context(), existing); err != nil {
 		return serverError(c, err)
+	}
+	if patch.Profile != nil && h.profiles != nil {
+		if err := h.profiles.UpdateProfile(c.Context(), existing.ID, patch.Profile); err != nil {
+			return serverError(c, err)
+		}
+		existing.Profile, _ = h.profiles.GetProfile(c.Context(), existing.ID)
 	}
 	actorID := c.Locals("user_id").(uuid.UUID)
 	h.audit.Log(c.Context(), actorID, repo.AuditUpdate, repo.AuditContact, existing.ID, existing)

@@ -1,4 +1,5 @@
 'use client'
+import { leadSourceLabel, MANUAL_SOURCES } from '@/lib/leadSource'
 import { useEffect, useState, useCallback } from 'react'
 import {
   DndContext, DragEndEvent, DragOverlay, DragStartEvent,
@@ -403,10 +404,7 @@ export default function PipelinePage() {
               defaultValue="whatsapp"
               className="w-full px-3.5 py-2.5 border border-surface-200 rounded-xl text-sm bg-white placeholder:text-surface-400 focus:outline-none focus:ring-2 focus:ring-primary-500/40 focus:border-primary-400 transition-shadow"
             >
-              <option value="whatsapp">{t('واتساب', 'WhatsApp')}</option>
-              <option value="web">{t('الموقع', 'Website')}</option>
-              <option value="referral">{t('إحالة', 'Referral')}</option>
-              <option value="event">{t('فعالية', 'Event')}</option>
+              {MANUAL_SOURCES.map((s) => <option key={s} value={s}>{leadSourceLabel(s, t)}</option>)}
             </select>
           </FormField>
           
@@ -517,7 +515,7 @@ export default function PipelinePage() {
               {selectedLead.source && (
                 <div className="bg-surface-50 border border-surface-200/70 rounded-xl p-3">
                   <p className="text-[11px] uppercase tracking-wide text-surface-500 mb-1 font-medium">{t('المصدر', 'Source')}</p>
-                  <p className="font-semibold text-surface-900 capitalize">{selectedLead.source}</p>
+                  <p className="font-semibold text-surface-900">{leadSourceLabel(selectedLead.source, t)}</p>
                 </div>
               )}
               {selectedLead.closed_reason && (

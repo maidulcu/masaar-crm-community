@@ -72,6 +72,56 @@ type Contact struct {
 	CreatedAt  time.Time  `json:"created_at"`
 	UpdatedAt  time.Time  `json:"updated_at"`
 	ErasedAt   *time.Time `json:"erased_at,omitempty"` // personal data removed (PDPL erasure)
+	// Profile is returned by GET /contacts/:id (not by lists).
+	Profile *ContactProfile `json:"profile,omitempty"`
+}
+
+// ContactProfile holds the optional details of a contact.
+type ContactProfile struct {
+	SecondaryPhones      []string   `json:"secondary_phones"`
+	Nationality          string     `json:"nationality"` // ISO 3166-1 alpha-2
+	Source               string     `json:"source"`
+	PreferredContactTime string     `json:"preferred_contact_time"`
+	Address              string     `json:"address"`
+	Notes                string     `json:"notes"`
+	JobTitle             string     `json:"job_title"`
+	OrganisationID       *uuid.UUID `json:"organisation_id"`
+	OrganisationName     string     `json:"organisation_name,omitempty"`
+}
+
+// Organisation is a company a contact works for (B2B accounts).
+type Organisation struct {
+	ID             uuid.UUID `json:"id"`
+	Name           string    `json:"name"`
+	TradeLicenseNo string    `json:"trade_license_no"`
+	TRN            string    `json:"trn"`
+	Address        string    `json:"address"`
+	Phone          string    `json:"phone"`
+	Email          string    `json:"email"`
+	Website        string    `json:"website"`
+	Notes          string    `json:"notes"`
+	ContactCount   int       `json:"contact_count"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
+}
+
+// CustomField is a company-defined extra field on contacts, leads, deals or listings.
+type CustomField struct {
+	ID           uuid.UUID `json:"id"`
+	EntityType   string    `json:"entity_type"` // contact | lead | deal | listing
+	Name         string    `json:"name"`        // machine name, [a-z0-9_]
+	Label        string    `json:"label"`
+	Type         string    `json:"type"` // text | number | date | select | boolean
+	Options      []string  `json:"options"`
+	Required     bool      `json:"required"`
+	DisplayOrder int       `json:"display_order"`
+}
+
+// DuplicateGroup is a set of contacts that look like the same person.
+type DuplicateGroup struct {
+	Reason   string    `json:"reason"` // "email" | "name" | "phone"
+	Key      string    `json:"key"`
+	Contacts []Contact `json:"contacts"`
 }
 
 // ─── Consent (PDPL) ──────────────────────────────────────────────────────────
@@ -105,6 +155,43 @@ type Consent struct {
 	APIKeyID   *uuid.UUID `json:"api_key_id,omitempty"`
 	Note       string     `json:"note,omitempty"`
 	CreatedAt  time.Time  `json:"created_at"`
+}
+
+// ─── Tasks ───────────────────────────────────────────────────────────────────
+
+// Task is a follow-up, call, meeting or to-do, optionally linked to a CRM record.
+type Task struct {
+	ID          uuid.UUID  `json:"id"`
+	Title       string     `json:"title"`
+	Description string     `json:"description"`
+	Type        string     `json:"type"`     // call | meeting | follow_up | todo
+	Priority    string     `json:"priority"` // low | normal | high
+	Status      string     `json:"status"`   // open | done | cancelled
+	DueAt       *time.Time `json:"due_at"`
+	AssignedTo  *uuid.UUID `json:"assigned_to"`
+	RelatedType *string    `json:"related_type"` // lead | contact | deal | listing | viewing | offer
+	RelatedID   *uuid.UUID `json:"related_id"`
+	CreatedBy   *uuid.UUID `json:"created_by,omitempty"`
+	CompletedAt *time.Time `json:"completed_at,omitempty"`
+	CreatedAt   time.Time  `json:"created_at"`
+	UpdatedAt   time.Time  `json:"updated_at"`
+
+	// Joined for display.
+	AssigneeName string `json:"assignee_name,omitempty"`
+	RelatedLabel string `json:"related_label,omitempty"`
+	Overdue      bool   `json:"overdue"`
+}
+
+// TaskFilter narrows a task list.
+type TaskFilter struct {
+	AssignedTo  *uuid.UUID
+	Status      string // "" = any
+	RelatedType string
+	RelatedID   *uuid.UUID
+	OverdueOnly bool
+	DueBefore   *time.Time
+	Limit       int
+	Offset      int
 }
 
 // ─── Pipeline Stage ─────────────────────────────────────────────────────────────
@@ -142,6 +229,11 @@ const (
 	SourceWeb      LeadSource = "web"
 	SourceReferral LeadSource = "referral"
 	SourceEvent    LeadSource = "event"
+	// Property portals (migration 0073).
+	SourcePropertyFinder LeadSource = "property_finder"
+	SourceBayut          LeadSource = "bayut"
+	SourceDubizzle       LeadSource = "dubizzle"
+	SourcePortal         LeadSource = "portal" // any other portal
 )
 
 type Lead struct {

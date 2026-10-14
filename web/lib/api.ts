@@ -87,6 +87,105 @@ export interface Consent {
   created_at: string
 }
 
+export interface Task {
+  id: string
+  title: string
+  description: string
+  type: 'call' | 'meeting' | 'follow_up' | 'todo'
+  priority: 'low' | 'normal' | 'high'
+  status: 'open' | 'done' | 'cancelled'
+  due_at: string | null
+  assigned_to: string | null
+  related_type: 'lead' | 'contact' | 'deal' | 'listing' | 'viewing' | 'offer' | null
+  related_id: string | null
+  completed_at?: string
+  created_at: string
+  assignee_name?: string
+  related_label?: string
+  overdue: boolean
+}
+
+export type TaskInput = Partial<Pick<Task, 'title' | 'description' | 'type' | 'priority' | 'due_at' | 'assigned_to' | 'related_type' | 'related_id'>>
+
+export interface ContactProfile {
+  secondary_phones: string[]
+  nationality: string
+  source: string
+  preferred_contact_time: string
+  address: string
+  notes: string
+  job_title: string
+  organisation_id: string | null
+  organisation_name?: string
+}
+
+export interface Organisation {
+  id: string
+  name: string
+  trade_license_no: string
+  trn: string
+  address: string
+  phone: string
+  email: string
+  website: string
+  notes: string
+  contact_count: number
+}
+
+export interface CustomField {
+  id: string
+  entity_type: 'contact' | 'lead' | 'deal' | 'listing'
+  name: string
+  label: string
+  type: 'text' | 'number' | 'date' | 'select' | 'boolean'
+  options: string[]
+  required: boolean
+  display_order: number
+}
+
+export interface DuplicateGroup {
+  reason: 'email' | 'name' | 'phone'
+  key: string
+  contacts: { id: string; full_name: string; phone_wa: string; email: string; created_at: string }[]
+}
+
+export interface ReraField { key: string; en: string; ar: string; long?: boolean }
+export interface ReraDefinition {
+  type: 'A' | 'B' | 'I' | 'F'
+  title_en: string
+  title_ar: string
+  sections: { en: string; ar: string; fields: ReraField[] }[]
+  signers: string[]
+}
+export interface ReraForm {
+  document_id: string
+  form_type: ReraDefinition['type']
+  listing_id?: string
+  contact_id?: string
+  offer_id?: string
+  data: Record<string, string>
+  title: string
+  signature_status: string
+  created_at: string
+}
+
+export interface PortalConnection {
+  portal: string
+  enabled: boolean
+  last_lead_at?: string
+  created_at: string
+}
+
+export interface PortalLinks { portal: string; lead_webhook_url: string; feed_url: string }
+
+export interface LeadSourceRow {
+  source: string
+  leads: number
+  won_leads: number
+  deals: number
+  won_revenue: number
+}
+
 export interface JobRun {
   id: number
   job_name: string
@@ -255,6 +354,56 @@ export const api = {
   },
 
   // ─── Contacts ───────────────────────────────────────────────────────────────
+
+  organisations: {
+    list: (search = '') => request<{ data: Organisation[]; total: number }>(`/api/v1/organisations?search=${encodeURIComponent(search)}&limit=200`),
+    get: (id: string) => request<{ organisation: Organisation; contacts: { id: string; full_name: string; phone_wa: string; email: string }[] }>(`/api/v1/organisations/${id}`),
+    create: (data: Partial<Organisation>) => request<Organisation>('/api/v1/organisations', { method: 'POST', body: JSON.stringify(data) }),
+    update: (id: string, data: Partial<Organisation>) => request<Organisation>(`/api/v1/organisations/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+    delete: (id: string) => request(`/api/v1/organisations/${id}`, { method: 'DELETE' }),
+  },
+
+  customFields: {
+    list: (entityType = '') => request<CustomField[]>(`/api/v1/custom-fields?entity_type=${entityType}`),
+    create: (data: Partial<CustomField>) => request<CustomField>('/api/v1/custom-fields', { method: 'POST', body: JSON.stringify(data) }),
+    update: (id: string, data: Partial<CustomField>) => request<CustomField>(`/api/v1/custom-fields/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+    delete: (id: string) => request(`/api/v1/custom-fields/${id}`, { method: 'DELETE' }),
+    values: (entityType: string, id: string) => request<Record<string, string>>(`/api/v1/custom-fields/values/${entityType}/${id}`),
+    setValues: (entityType: string, id: string, values: Record<string, string>) =>
+      request(`/api/v1/custom-fields/values/${entityType}/${id}`, { method: 'PUT', body: JSON.stringify(values) }),
+  },
+
+  duplicates: {
+    list: () => request<DuplicateGroup[]>('/api/v1/contacts/duplicates'),
+    merge: (keepId: string, mergeIds: string[]) =>
+      request('/api/v1/contacts/merge', { method: 'POST', body: JSON.stringify({ keep_id: keepId, merge_ids: mergeIds }) }),
+  },
+
+  rera: {
+    definitions: () => request<Record<string, ReraDefinition>>('/api/v1/rera-forms/definitions'),
+    list: (params: { listing_id?: string; contact_id?: string }) => {
+      const q = new URLSearchParams()
+      if (params.listing_id) q.set('listing_id', params.listing_id)
+      if (params.contact_id) q.set('contact_id', params.contact_id)
+      return request<ReraForm[]>(`/api/v1/rera-forms?${q}`)
+    },
+    get: (id: string) => request<{ form: ReraForm; definition: ReraDefinition }>(`/api/v1/rera-forms/${id}`),
+    create: (data: { form_type: string; listing_id?: string; contact_id?: string; offer_id?: string; fields?: Record<string, string> }) =>
+      request<ReraForm>('/api/v1/rera-forms', { method: 'POST', body: JSON.stringify(data) }),
+  },
+
+  tasks: {
+    list: (params: { mine?: boolean; status?: string; overdue?: boolean; related_type?: string; related_id?: string; page?: number; limit?: number } = {}) => {
+      const q = new URLSearchParams()
+      Object.entries(params).forEach(([k, v]) => { if (v !== undefined && v !== '' && v !== false) q.set(k, String(v)) })
+      return request<{ data: Task[]; total: number }>(`/api/v1/tasks?${q}`)
+    },
+    create: (data: TaskInput) => request<Task>('/api/v1/tasks', { method: 'POST', body: JSON.stringify(data) }),
+    update: (id: string, data: TaskInput) => request<Task>(`/api/v1/tasks/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+    setStatus: (id: string, status: Task['status']) =>
+      request(`/api/v1/tasks/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status }) }),
+    delete: (id: string) => request(`/api/v1/tasks/${id}`, { method: 'DELETE' }),
+  },
 
   privacy: {
     consents: (contactId: string) =>
@@ -1028,6 +1177,23 @@ export const api = {
       if (params.page) q.set('page', String(params.page))
       if (params.limit) q.set('limit', String(params.limit))
       return request(`/api/v1/audit-logs?${q}`)
+    },
+  },
+
+  portals: {
+    list: () => request<{ connections: PortalConnection[]; portals: Record<string, string> }>('/api/v1/settings/portals'),
+    connect: (portal: string) => request<PortalLinks>(`/api/v1/settings/portals/${portal}`, { method: 'POST' }),
+    setEnabled: (portal: string, enabled: boolean) =>
+      request<void>(`/api/v1/settings/portals/${portal}`, { method: 'PATCH', body: JSON.stringify({ enabled }) }),
+    disconnect: (portal: string) => request<void>(`/api/v1/settings/portals/${portal}`, { method: 'DELETE' }),
+  },
+
+  reports: {
+    leadSources: (from?: string, to?: string) => {
+      const q = new URLSearchParams()
+      if (from) q.set('from', from)
+      if (to) q.set('to', to)
+      return request<{ from: string; to: string; rows: LeadSourceRow[] }>(`/api/v1/reports/lead-sources?${q}`)
     },
   },
 
