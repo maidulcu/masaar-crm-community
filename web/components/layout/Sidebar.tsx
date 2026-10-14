@@ -433,6 +433,16 @@ const sections: NavSection[] = [
         adminOnly: true,
       },
       {
+        href: '/settings/security',
+        label: { en: 'Security', ar: 'الأمان' },
+        icon: (
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 3l7 4v5c0 4.5-3 8-7 9-4-1-7-4.5-7-9V7l7-4z" />
+          </svg>
+        ),
+        adminOnly: true,
+      },
+      {
         href: '/settings/property',
         label: { en: 'Property Management', ar: 'إدارة العقارات' },
         icon: (

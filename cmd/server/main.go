@@ -35,6 +35,7 @@ import (
 	"github.com/maidulcu/masaar-crm/internal/mediastore"
 	"github.com/maidulcu/masaar-crm/internal/repo"
 	"github.com/maidulcu/masaar-crm/internal/sms"
+	"github.com/maidulcu/masaar-crm/internal/totp"
 	"github.com/maidulcu/masaar-crm/internal/webhook"
 	"github.com/maidulcu/masaar-crm/internal/whatsapp"
 	"github.com/maidulcu/masaar-crm/internal/ws"
@@ -208,13 +209,21 @@ func main() {
 	}
 
 	// ── Handlers ─────────────────────────────────────────────────────────────
+	twoFactorKey := cfg.TwoFactorKey
+	if twoFactorKey == "" {
+		twoFactorKey = cfg.JWTSecret
+	}
+	totpBox, err := totp.NewBox(twoFactorKey)
+	if err != nil {
+		log.Fatalf("two-factor key: %v", err)
+	}
 	leadRotation := handler.NewLeadRotationHandler(leadRotationRepo, leadRepo, userRepo, hub)
 	notifier := jobs.NewNotifier(notificationRepo, userRepo, emailSvc, hub)
 	complianceRepo := repo.NewComplianceRepo(pool)
 	chequeRepo := repo.NewChequeRepo(pool)
 	leaseOpsRepo := repo.NewLeaseOpsRepo(pool)
 	h := &api.Handlers{
-		Auth:                handler.NewAuthHandler(userRepo, companyRepo, rdb, cfg, auditRepo, emailSvc, smsClient),
+		Auth:                handler.NewAuthHandler(userRepo, companyRepo, rdb, cfg, auditRepo, emailSvc, smsClient).UseTwoFactor(repo.NewTwoFactorRepo(pool), totpBox),
 		User:                handler.NewUserHandler(userRepo, auditRepo, emailSvc, cfg, rdb),
 		Stats:               handler.NewStatsHandler(statsRepo),
 		Contact:             handler.NewContactHandler(contactRepo, auditRepo).UsePrivacy(privacyRepo).UseProfiles(contactProfileRepo),

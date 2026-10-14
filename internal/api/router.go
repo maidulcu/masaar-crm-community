@@ -133,6 +133,9 @@ func RegisterRoutes(app *fiber.App, h *Handlers, hub *ws.Hub, cfg *config.Config
 	app.Post("/api/v1/auth/refresh", lim.refresh, h.Auth.Refresh)
 	app.Post("/api/v1/auth/forgot-password", lim.login, h.Auth.ForgotPassword)
 	app.Post("/api/v1/auth/reset-password", lim.authVerify, h.Auth.ResetPassword)
+	app.Post("/api/v1/auth/verify-totp", lim.authVerify, h.Auth.VerifyTOTP)
+	app.Post("/api/v1/auth/totp/enroll", lim.authVerify, h.Auth.EnrollPending)
+	app.Post("/api/v1/auth/totp/enroll/confirm", lim.authVerify, h.Auth.ConfirmEnrollPending)
 
 	// WhatsApp webhook — Meta calls this publicly
 	app.Get("/webhooks/whatsapp", h.WhatsApp.Verify)
@@ -201,6 +204,16 @@ func RegisterRoutes(app *fiber.App, h *Handlers, hub *ws.Hub, cfg *config.Config
 	)
 
 	v1.Delete("/auth/logout", h.Auth.Logout)
+
+	// Two-factor authentication (#87)
+	v1.Get("/users/me/2fa", h.Auth.TwoFactorStatus)
+	v1.Post("/users/me/2fa/setup", h.Auth.TwoFactorSetup)
+	v1.Post("/users/me/2fa/enable", h.Auth.TwoFactorEnable)
+	v1.Post("/users/me/2fa/disable", h.Auth.TwoFactorDisable)
+	v1.Post("/users/me/2fa/backup-codes", h.Auth.TwoFactorBackupCodes)
+	v1.Post("/users/:id/2fa/reset", middleware.RequireRole(domain.RoleAdmin), h.Auth.ResetUserTwoFactor)
+	v1.Get("/settings/security", middleware.RequireRole(domain.RoleAdmin), h.Auth.GetSecuritySettings)
+	v1.Put("/settings/security", middleware.RequireRole(domain.RoleAdmin), h.Auth.UpdateSecuritySettings)
 
 	// Dashboard stats — all authenticated users
 	v1.Get("/stats", h.Stats.Overview)

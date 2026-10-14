@@ -27,6 +27,7 @@ import (
 	"github.com/maidulcu/masaar-crm/internal/safehttp"
 	"github.com/maidulcu/masaar-crm/internal/session"
 	"github.com/maidulcu/masaar-crm/internal/sms"
+	"github.com/maidulcu/masaar-crm/internal/totp"
 	"github.com/redis/go-redis/v9"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -64,6 +65,8 @@ type AuthHandler struct {
 	audit       *repo.AuditLogRepo
 	email       *email.Service
 	sms         *sms.Client
+	twoFactor   *repo.TwoFactorRepo // optional
+	totpBox     *totp.Box
 }
 
 func NewAuthHandler(users *repo.UserRepo, companyRepo *repo.CompanyRepo, rdb *redis.Client, cfg *config.Config, audit *repo.AuditLogRepo, emailSvc *email.Service, smsClient *sms.Client) *AuthHandler {
@@ -132,6 +135,19 @@ func (h *AuthHandler) Login(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "account is deactivated"})
 	}
 
+	// Successful password check — clear the failure counter.
+	h.redis.Del(ctx, failKey, lockKey)
+
+	if pending, err := h.twoFactorGate(c, user, "password"); pending || err != nil {
+		return err
+	}
+	return h.completeLogin(c, user, nil)
+}
+
+// completeLogin issues a session to a user who has passed every authentication step:
+// it checks the company, creates the token pair, stores the refresh token and answers
+// with the login response (plus any extra fields).
+func (h *AuthHandler) completeLogin(c *fiber.Ctx, user *domain.User, extra fiber.Map) error {
 	// Load company and check active/trial
 	var company *domain.Company
 	var daysRemaining int
@@ -155,9 +171,6 @@ func (h *AuthHandler) Login(c *fiber.Ctx) error {
 		}
 	}
 
-	// Successful login — clear failure counter
-	h.redis.Del(ctx, failKey, lockKey)
-
 	access, refresh, err := h.generateTokenPair(user)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "token generation failed"})
@@ -166,7 +179,7 @@ func (h *AuthHandler) Login(c *fiber.Ctx) error {
 	// Store refresh token in Redis
 	key := fmt.Sprintf("refresh:%s", refresh)
 	ttl := time.Duration(h.config.JWTRefreshExpiryDays) * 24 * time.Hour
-	if err := h.redis.Set(context.Background(), key, user.ID.String(), ttl).Err(); err != nil {
+	if err := h.redis.Set(c.Context(), key, user.ID.String(), ttl).Err(); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "session error"})
 	}
 
@@ -195,6 +208,9 @@ func (h *AuthHandler) Login(c *fiber.Ctx) error {
 			"days_remaining": daysRemaining,
 			"is_demo":        company.IsDemo,
 		}
+	}
+	for k, v := range extra {
+		resp[k] = v
 	}
 	return c.JSON(h.attachRefresh(c, resp, refresh))
 }
@@ -823,6 +839,9 @@ func (h *AuthHandler) VerifyMagicLink(c *fiber.Ctx) error {
 	if !user.IsActive {
 		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "account is deactivated"})
 	}
+	if pending, err := h.twoFactorGate(c, user, "magic_link"); pending || err != nil {
+		return err
+	}
 
 	// Generate JWT tokens
 	access, refresh, err := h.generateTokenPair(user)
@@ -1101,6 +1120,9 @@ func (h *AuthHandler) VerifySMSOTP(c *fiber.Ctx) error {
 
 	if !user.IsActive {
 		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "account is deactivated"})
+	}
+	if pending, err := h.twoFactorGate(c, user, "sms"); pending || err != nil {
+		return err
 	}
 
 	access, refresh, err := h.generateTokenPair(user)

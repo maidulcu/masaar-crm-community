@@ -41,6 +41,17 @@ export interface LoginResponse {
   expires_in: number
   user: AuthUser
   company?: Company
+  /** Present after two-factor enrolment during sign-in: shown once. */
+  backup_codes?: string[]
+  backup_codes_left?: number
+}
+
+/** Answer to a sign-in that needs a second factor (no session yet). */
+export interface TwoFactorPending {
+  two_factor_required: true
+  setup_required: boolean
+  pending_token: string
+  expires_in: number
 }
 
 // ─── Contact ─────────────────────────────────────────────────────────────────

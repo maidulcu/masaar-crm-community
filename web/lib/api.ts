@@ -1,5 +1,5 @@
 import { getToken, saveSession, getUser, clearSession } from './auth'
-import type { AuthUser, Payment } from '@/types'
+import type { AuthUser, LoginResponse, Payment } from '@/types'
 
 const BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080'
 
@@ -428,6 +428,12 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ token, password }),
       }),
+    verifyTOTP: (pending_token: string, code: string) =>
+      request<LoginResponse>('/api/v1/auth/verify-totp', { method: 'POST', body: JSON.stringify({ pending_token, code }) }),
+    enrollTOTP: (pending_token: string) =>
+      request<{ secret: string; otpauth_url: string }>('/api/v1/auth/totp/enroll', { method: 'POST', body: JSON.stringify({ pending_token }) }),
+    confirmEnrollTOTP: (pending_token: string, code: string) =>
+      request<LoginResponse>('/api/v1/auth/totp/enroll/confirm', { method: 'POST', body: JSON.stringify({ pending_token, code }) }),
     register: (data: { name: string; email: string; password: string; company_name: string; subdomain: string; turnstile_token?: string }) =>
       request('/api/v1/auth/register', {
         method: 'POST',
@@ -1305,6 +1311,20 @@ export const api = {
     settings: () => request<PropertySettings>('/api/v1/settings/property'),
     updateSettings: (data: PropertySettings) =>
       request<PropertySettings>('/api/v1/settings/property', { method: 'PUT', body: JSON.stringify(data) }),
+  },
+
+  twoFactor: {
+    status: () => request<{ enabled: boolean; required_by_company: boolean; backup_codes_left: number }>('/api/v1/users/me/2fa'),
+    setup: () => request<{ secret: string; otpauth_url: string }>('/api/v1/users/me/2fa/setup', { method: 'POST' }),
+    enable: (code: string) => request<{ backup_codes: string[] }>('/api/v1/users/me/2fa/enable', { method: 'POST', body: JSON.stringify({ code }) }),
+    disable: (password: string, code: string) =>
+      request<void>('/api/v1/users/me/2fa/disable', { method: 'POST', body: JSON.stringify({ password, code }) }),
+    newBackupCodes: (code: string) =>
+      request<{ backup_codes: string[] }>('/api/v1/users/me/2fa/backup-codes', { method: 'POST', body: JSON.stringify({ code }) }),
+    resetUser: (userId: string) => request<void>(`/api/v1/users/${userId}/2fa/reset`, { method: 'POST' }),
+    companySettings: () => request<{ require_2fa: boolean; users_without_2fa: number }>('/api/v1/settings/security'),
+    setCompanyRequirement: (require_2fa: boolean) =>
+      request<void>('/api/v1/settings/security', { method: 'PUT', body: JSON.stringify({ require_2fa }) }),
   },
 
   portals: {
