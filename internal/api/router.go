@@ -35,6 +35,7 @@ type Handlers struct {
 	Invoice             *handler.InvoiceHandler
 	Property            *handler.PropertyHandler
 	Settings            *handler.SettingsHandler
+	Portal              *handler.PortalHandler
 	Email               *handler.EmailHandler
 	RentalProperty      *handler.RentalPropertyHandler
 	Tenant              *handler.TenantHandler
@@ -70,6 +71,9 @@ type Handlers struct {
 	DocusignWebhook     *handler.DocusignWebhookHandler
 	Job                 *handler.JobHandler
 	Privacy             *handler.PrivacyHandler
+	Task                *handler.TaskHandler
+	ContactProfile      *handler.ContactProfileHandler
+	Rera                *handler.ReraHandler
 }
 
 // authLimiters holds the per-route rate limiters. Counters live in Redis when
@@ -150,6 +154,10 @@ func RegisterRoutes(app *fiber.App, h *Handlers, hub *ws.Hub, cfg *config.Config
 	// Public document signing — signature UUID is the access token
 	app.Get("/api/public/sign/:id", lim.api, h.Document.PublicGetSignature)
 	app.Post("/api/public/sign/:id", lim.api, h.Document.PublicSign)
+
+	// Property portals — token in the query string (Settings → Portals)
+	app.Post("/webhooks/portals/:portal", lim.webhook, h.Portal.ReceiveLead)
+	app.Get("/api/public/feeds/:portal/listings.xml", lim.api, h.Portal.Feed)
 
 	// Public lead intake — API key auth (scope: lead:create)
 	apiKeyLimiter := makeAPIKeyLimiter(rdb)
@@ -447,6 +455,9 @@ func RegisterRoutes(app *fiber.App, h *Handlers, hub *ws.Hub, cfg *config.Config
 
 	// Contacts — viewers: read-only; agents: create+update; admin: delete
 	v1.Get("/contacts", h.Contact.List)
+	// Static paths before /contacts/:id.
+	v1.Get("/contacts/duplicates", middleware.RequireRole(domain.RoleAdmin, domain.RoleAgent), h.ContactProfile.Duplicates)
+	v1.Post("/contacts/merge", middleware.RequireRole(domain.RoleAdmin), h.ContactProfile.Merge)
 	v1.Get("/contacts/:id", h.Contact.Get)
 	v1.Post("/contacts",
 		middleware.RequireRole(domain.RoleAdmin, domain.RoleAgent),
@@ -1112,6 +1123,41 @@ func RegisterRoutes(app *fiber.App, h *Handlers, hub *ws.Hub, cfg *config.Config
 		middleware.RequireRole(domain.RoleAdmin),
 		h.AuditLog.List,
 	)
+
+	// Organisations (B2B accounts)
+	v1.Get("/organisations", h.ContactProfile.ListOrganisations)
+	v1.Get("/organisations/:id", h.ContactProfile.GetOrganisation)
+	v1.Post("/organisations", middleware.RequireRole(domain.RoleAdmin, domain.RoleAgent), h.ContactProfile.SaveOrganisation)
+	v1.Patch("/organisations/:id", middleware.RequireRole(domain.RoleAdmin, domain.RoleAgent), h.ContactProfile.SaveOrganisation)
+	v1.Delete("/organisations/:id", middleware.RequireRole(domain.RoleAdmin), h.ContactProfile.DeleteOrganisation)
+
+	// Custom fields: admins define them, agents fill them in
+	v1.Get("/custom-fields", h.ContactProfile.ListCustomFields)
+	v1.Post("/custom-fields", middleware.RequireRole(domain.RoleAdmin), h.ContactProfile.SaveCustomField)
+	v1.Get("/custom-fields/values/:entity_type/:id", h.ContactProfile.GetCustomValues)
+	v1.Put("/custom-fields/values/:entity_type/:id", middleware.RequireRole(domain.RoleAdmin, domain.RoleAgent), h.ContactProfile.SetCustomValues)
+	v1.Patch("/custom-fields/:id", middleware.RequireRole(domain.RoleAdmin), h.ContactProfile.SaveCustomField)
+	v1.Delete("/custom-fields/:id", middleware.RequireRole(domain.RoleAdmin), h.ContactProfile.DeleteCustomField)
+
+	// RERA brokerage forms (pre-filled; signed through /documents/:id/request-signature)
+	// Property portals and lead sources
+	v1.Get("/settings/portals", middleware.RequireRole(domain.RoleAdmin), h.Portal.ListConnections)
+	v1.Post("/settings/portals/:portal", middleware.RequireRole(domain.RoleAdmin), h.Portal.Connect)
+	v1.Patch("/settings/portals/:portal", middleware.RequireRole(domain.RoleAdmin), h.Portal.SetEnabled)
+	v1.Delete("/settings/portals/:portal", middleware.RequireRole(domain.RoleAdmin), h.Portal.Disconnect)
+	v1.Get("/reports/lead-sources", middleware.RequireRole(domain.RoleAdmin), h.Portal.LeadSources)
+
+	v1.Get("/rera-forms/definitions", h.Rera.Definitions)
+	v1.Get("/rera-forms", h.Rera.List)
+	v1.Get("/rera-forms/:id", h.Rera.Get)
+	v1.Post("/rera-forms", middleware.RequireRole(domain.RoleAdmin, domain.RoleAgent), h.Rera.Create)
+
+	// Tasks and follow-ups
+	v1.Get("/tasks", h.Task.List)
+	v1.Post("/tasks", middleware.RequireRole(domain.RoleAdmin, domain.RoleAgent), h.Task.Create)
+	v1.Patch("/tasks/:id", middleware.RequireRole(domain.RoleAdmin, domain.RoleAgent), h.Task.Update)
+	v1.Patch("/tasks/:id/status", middleware.RequireRole(domain.RoleAdmin, domain.RoleAgent), h.Task.SetStatus)
+	v1.Delete("/tasks/:id", middleware.RequireRole(domain.RoleAdmin, domain.RoleAgent), h.Task.Delete)
 
 	// Privacy (PDPL): consent, data-subject export and erasure
 	v1.Get("/contacts/:id/consents", h.Privacy.ListConsents)

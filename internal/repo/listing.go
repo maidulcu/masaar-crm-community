@@ -261,3 +261,19 @@ func scanListings(rows pgx.Rows) ([]domain.Listing, error) {
 	}
 	return listings, nil
 }
+
+// ListPublished returns the company's published listings (up to 5,000), newest first,
+// for the portal feed.
+func (r *ListingRepo) ListPublished(ctx context.Context) ([]domain.Listing, error) {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := r.db.Query(ctx, listSelect+` WHERE l.company_id = $1 AND l.status = 'published'
+		ORDER BY l.updated_at DESC LIMIT 5000`, cid)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanListings(rows)
+}

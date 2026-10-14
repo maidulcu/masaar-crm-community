@@ -9,6 +9,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [v0.4.0] - Unreleased
 
+### Brokerage workflow (#85) — migrations `0070`–`0073`
+
+**Tasks and follow-ups**
+- Tasks (call, meeting, viewing, to-do, follow-up) with a due date, priority and assignee, linked to a lead, contact, deal, listing, viewing or offer. A **Tasks** page (mine / all / overdue), task panels on contact, deal and listing pages, and an overdue widget on the dashboard.
+- The assignee is reminded (in-app, live, and by email when mail is configured) about 15 minutes before a task is due, once; moving the due date or the assignee re-arms the reminder (`task_reminders` job).
+
+**Contacts**
+- Contact profile: secondary phones, nationality (ISO country), source, preferred contact time, address, job title, notes, and an **organisation** (B2B companies with trade licence and TRN; `/organisations`).
+- **Custom fields** for contacts, leads, deals and listings (text, number, date, select, yes/no), managed under Settings → Custom Fields, validated on save, and included in CSV import/export as `cf_<name>` columns. The tables existed since `0030` but were never wired up.
+- **Duplicate detection and merge** (`GET /contacts/duplicates`; `POST /contacts/merge`, admin only): contacts sharing an email, a name, or a phone are grouped; merging moves leads, offers, viewings, conversations, consent history, tasks and custom values to the contact you keep.
+
+**RERA forms (Dubai)**
+- Pre-filled **Form A** (seller/landlord – broker), **Form B** (buyer/tenant – broker), **Form I** (broker – broker) and **Form F** (MOU between seller and buyer) from the company, listing, agent, contact and offer. Each form is stored as a document, printable in English and Arabic, and can be sent for e-signature through the existing signing link. Form F is offered on accepted offers.
+- These are agreement records with the forms' key fields, not the official DLD templates, and nothing is submitted to the DLD. Check the current official forms before relying on them.
+
+**Property portals**
+- **Lead webhook** per portal (Property Finder, Bayut, Dubizzle, or any other): `POST /webhooks/portals/:portal?token=…`. The contact is matched or created by phone, the lead gets the portal as its source, a listing reference is noted on the lead, lead rotation assigns it, and `lead.created` is delivered to webhook subscribers. A lead delivered twice is created once.
+- **Listing feed** per portal: `GET /api/public/feeds/:portal/listings.xml?token=…` lists published listings with photos, agent (with BRN) and company (with ORN). Listings whose advertising permit is missing or expired are left out.
+- Tokens are created, rotated, paused and revoked under **Settings → Property Portals** (admin); they are stored hashed and shown once.
+- The portals' own lead and feed formats are not public. The webhook recognises common field names, and the feed uses a documented, generic XML format (`masaar-listings/1`). Mapping to a portal's exact schema is left for contributors with access to its documentation.
+- **Lead-source report** (`GET /reports/lead-sources`, Reports → Lead Sources): leads, wins, conversion and won deal value by source for a date range.
+
+**Calculators**
+- Buyer's purchase costs (DLD transfer fee, admin and trustee fees, commission, mortgage registration and bank fees), mortgage repayment, rental yield (gross and net) and commission with VAT. The rates are editable and remembered in the browser. Results can be printed or shared on WhatsApp. Linked from listings and offers. The default rates are indicative and should be checked against current DLD fees and the bank's offer.
+
+#### Upgrade notes
+- Set `PUBLIC_API_URL` to the API's public address (for example `https://api.crm.example.ae`) so the portal URLs shown to admins are correct behind a proxy. When it is empty, the address of the incoming request is used.
+- Migration `0071` deletes custom field values whose definition no longer exists, and keeps one value per field and record.
+
 ### UAE compliance core (#84) — migrations `0067`–`0069`
 
 **Tax invoices**

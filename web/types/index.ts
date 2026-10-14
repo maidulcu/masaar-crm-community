@@ -56,6 +56,7 @@ export interface Contact {
   created_at: string
   updated_at: string
   erased_at?: string | null
+  profile?: import('@/lib/api').ContactProfile
 }
 
 export interface PaginatedResult<T> {
@@ -83,7 +84,7 @@ export interface PipelineStage {
 // ─── Lead ─────────────────────────────────────────────────────────────────────
 
 export type LeadStage = 'new' | 'contacted' | 'qualified' | 'proposal' | 'won' | 'lost'
-export type LeadSource = 'whatsapp' | 'web' | 'referral' | 'event'
+export type LeadSource = 'whatsapp' | 'web' | 'referral' | 'event' | 'bos24' | 'property_finder' | 'bayut' | 'dubizzle' | 'portal'
 
 export interface Lead {
   id: string

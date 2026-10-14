@@ -12,6 +12,7 @@ import { companyCurrency, formatMoney } from '@/lib/money'
 import { INVOICE_STATUS_COLORS, INVOICE_STATUS_LABELS } from '@/lib/invoice'
 import InvoiceForm from '@/components/invoice/InvoiceForm'
 import Link from 'next/link'
+import TaskList from '@/components/task/TaskList'
 
 export default function DealDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -334,6 +335,11 @@ export default function DealDetailPage() {
               )}
             </table>
           )}
+        </div>
+
+        <div className="bg-white rounded-xl border border-gray-100 p-5">
+          <h2 className="font-semibold text-gray-900 text-sm mb-3">{t('المهام', 'Tasks')}</h2>
+          <TaskList filter={{ related_type: 'deal', related_id: id }} link={{ related_type: 'deal', related_id: id }} canEdit />
         </div>
 
         {/* Documents section */}

@@ -8,9 +8,13 @@ import { useAuthStore } from '@/store/auth'
 import { api } from '@/lib/api'
 import EmailComposeModal from '@/components/communication/EmailComposeModal'
 import PrivacyPanel from '@/components/contact/PrivacyPanel'
+import ProfilePanel from '@/components/contact/ProfilePanel'
+import CustomFieldsPanel from '@/components/contact/CustomFieldsPanel'
 import type { Contact, Lead, WhatsAppThread, User } from '@/types'
 import clsx from 'clsx'
 import { companyCurrency } from '@/lib/money'
+import TaskList from '@/components/task/TaskList'
+import ReraPanel from '@/components/rera/ReraPanel'
 
 const stageLabels: Record<string, { en: string; ar: string }> = {
   new: { en: 'New', ar: 'جديد' },
@@ -208,6 +212,14 @@ export default function ContactDetailPage() {
           </div>
         </div>
 
+        <ProfilePanel contactId={contact.id} profile={contact.profile} canEdit={isAgent && !contact.erased_at} onSaved={load} />
+        <CustomFieldsPanel entityType="contact" entityId={contact.id} canEdit={isAgent && !contact.erased_at} />
+
+        <div className="bg-white rounded-2xl border border-surface-200/70 p-5">
+          <h3 className="text-sm font-semibold text-surface-900 mb-3">{t('نماذج ريرا', 'RERA forms')}</h3>
+          <ReraPanel contactId={contact.id} types={['B']} canEdit={isAgent && !contact.erased_at} />
+        </div>
+
         <PrivacyPanel
           contactId={contact.id}
           canEdit={isAgent}
@@ -215,6 +227,11 @@ export default function ContactDetailPage() {
           erased={!!contact.erased_at}
           onErased={load}
         />
+
+        <div className="bg-white rounded-2xl border border-surface-200/70 p-5">
+          <h3 className="text-sm font-semibold text-surface-900 mb-3">{t('المهام', 'Tasks')}</h3>
+          <TaskList filter={{ related_type: 'contact', related_id: contact.id }} link={{ related_type: 'contact', related_id: contact.id }} canEdit={isAgent} />
+        </div>
 
         {/* Leads */}
         <div className="bg-white rounded-xl border border-surface-200/70 overflow-hidden">

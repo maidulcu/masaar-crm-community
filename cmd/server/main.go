@@ -122,6 +122,9 @@ func main() {
 	paymentReminderRepo := repo.NewPaymentReminderRepo(pool)
 	jobRepo := repo.NewJobRepo(pool)
 	privacyRepo := repo.NewPrivacyRepo(pool)
+	taskRepo := repo.NewTaskRepo(pool)
+	contactProfileRepo := repo.NewContactProfileRepo(pool)
+	reraRepo := repo.NewReraRepo(pool)
 
 	// ── Services / clients ───────────────────────────────────────────────────
 	hub := ws.NewHub()
@@ -205,11 +208,12 @@ func main() {
 	}
 
 	// ── Handlers ─────────────────────────────────────────────────────────────
+	leadRotation := handler.NewLeadRotationHandler(leadRotationRepo, leadRepo, userRepo, hub)
 	h := &api.Handlers{
 		Auth:                handler.NewAuthHandler(userRepo, companyRepo, rdb, cfg, auditRepo, emailSvc, smsClient),
 		User:                handler.NewUserHandler(userRepo, auditRepo, emailSvc, cfg, rdb),
 		Stats:               handler.NewStatsHandler(statsRepo),
-		Contact:             handler.NewContactHandler(contactRepo, auditRepo).UsePrivacy(privacyRepo),
+		Contact:             handler.NewContactHandler(contactRepo, auditRepo).UsePrivacy(privacyRepo).UseProfiles(contactProfileRepo),
 		Lead:                handler.NewLeadHandler(leadRepo, contactRepo, commHistRepo, scoringSvc, leadTagRepo, hub, auditRepo, dispatcher, pipelineStageRepo),
 		WhatsApp:            handler.NewWhatsAppHandler(waRepo, contactRepo, waOutboundRepo, commHistRepo, waMedia, taggingSvc, hub, cfg),
 		WhatsAppOutbound:    handler.NewWhatsAppOutboundHandler(waSender, waOutboundRepo, waRepo, commHistRepo, waMedia).UsePrivacy(privacyRepo),
@@ -234,7 +238,7 @@ func main() {
 		Inspection:          handler.NewInspectionHandler(inspectionTemplateRepo, inspectionRepo),
 		Maintenance:         handler.NewMaintenanceTaskHandler(maintenanceRepo),
 		LeaseRenewal:        handler.NewLeaseRenewalHandler(leaseRenewalRepo, renewalTemplateRepo, renewalLogRepo),
-		Document:            handler.NewDocumentHandler(documentRepo, auditRepo, dsClient),
+		Document:            handler.NewDocumentHandler(documentRepo, auditRepo, dsClient).UseRera(reraRepo),
 		ApiKey:              handler.NewApiKeyHandler(apiKeyRepo),
 		PublicLead:          handler.NewPublicLeadHandler(contactRepo, leadRepo, dispatcher).UsePrivacy(privacyRepo),
 		WebhookSub:          handler.NewWebhookSubHandler(webhookRepo, dispatcher),
@@ -244,16 +248,21 @@ func main() {
 		Listing:             handler.NewListingHandler(listingRepo, approvalRepo, auditRepo),
 		BOS24Integration:    handler.NewBOS24IntegrationHandler(bos24Repo, bos24Sync, cfg),
 		Offer:               handler.NewOfferHandler(offerRepo, contactRepo, leadRepo, dealRepo, hub),
-		LeadRotation:        handler.NewLeadRotationHandler(leadRotationRepo, leadRepo, userRepo, hub),
+		LeadRotation:        leadRotation,
 		Commission:          handler.NewCommissionHandler(commissionRepo),
 		Performance:         handler.NewPerformanceHandler(performanceRepo),
 		Viewing:             handler.NewViewingHandler(viewingRepo, notificationRepo, hub),
 		Marketing:           handler.NewMarketingHandler(listingRepo, contactRepo, companySettingsRepo, userRepo, emailSvc, cfg.AppURL).UsePrivacy(privacyRepo),
-		ImportExport:        handler.NewImportExportHandler(contactRepo, leadRepo, listingRepo).UsePrivacy(privacyRepo),
+		ImportExport:        handler.NewImportExportHandler(contactRepo, leadRepo, listingRepo).UsePrivacy(privacyRepo).UseProfiles(contactProfileRepo),
 		PipelineStage:       handler.NewPipelineStageHandler(pipelineStageRepo),
 		Approval:            handler.NewApprovalHandler(approvalRepo, listingRepo),
 		Job:                 handler.NewJobHandler(jobRepo),
 		Privacy:             handler.NewPrivacyHandler(privacyRepo, auditRepo, removeStored(mediaStore)),
+		Task:                handler.NewTaskHandler(taskRepo),
+		ContactProfile:      handler.NewContactProfileHandler(contactProfileRepo, auditRepo),
+		Rera:                handler.NewReraHandler(reraRepo, auditRepo),
+		Portal: handler.NewPortalHandler(repo.NewPortalRepo(pool), contactRepo, leadRepo, listingRepo, userRepo, companySettingsRepo,
+			dispatcher, leadRotation.AssignNewLead, cfg.PublicAPIURL, cfg.AppURL),
 	}
 	if cfg.DocusignWebhookSecret != "" {
 		h.DocusignWebhook = handler.NewDocusignWebhookHandler(documentRepo, cfg.DocusignWebhookSecret)
@@ -298,6 +307,7 @@ func main() {
 			jobs.OfferExpiry(offerRepo, notifier),
 			jobs.ExpiryAlerts(repo.NewComplianceRepo(pool), notifier),
 			jobs.Retention(privacyRepo, removeStored(bankStatementStore)),
+			jobs.TaskReminders(taskRepo, notifier),
 			jobs.PruneRunLog(jobRepo),
 		)
 		runner.Start(ctx)

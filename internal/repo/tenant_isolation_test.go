@@ -69,6 +69,9 @@ func setup(t *testing.T) *testEnv {
 			// children first; ignore errors — this is best-effort cleanup of throwaway data
 			for _, q := range []string{
 				`DELETE FROM notifications WHERE company_id = $1`,
+				`DELETE FROM tasks WHERE company_id = $1`,
+				`DELETE FROM portal_leads WHERE company_id = $1`,
+				`DELETE FROM portal_connections WHERE company_id = $1`,
 				`DELETE FROM whatsapp_threads WHERE company_id = $1`,
 				`DELETE FROM whatsapp_messages WHERE thread_id IN (SELECT id FROM whatsapp_threads WHERE company_id = $1)`,
 				`DELETE FROM lead_tags WHERE lead_id IN (SELECT id FROM leads WHERE company_id = $1)`,
@@ -78,6 +81,7 @@ func setup(t *testing.T) *testEnv {
 				`DELETE FROM vat_invoices WHERE company_id = $1 AND kind = 'credit_note'`,
 				`DELETE FROM vat_invoices WHERE company_id = $1`,
 				`DELETE FROM deals WHERE company_id = $1`,
+				`DELETE FROM documents WHERE company_id = $1`,
 				`DELETE FROM offers WHERE company_id = $1`,
 				`DELETE FROM viewings WHERE company_id = $1`,
 				`DELETE FROM listings WHERE company_id = $1`,

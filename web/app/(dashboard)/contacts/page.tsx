@@ -84,6 +84,10 @@ export default function ContactsPage() {
       <div className="flex-1 overflow-auto bg-surface-50">
         <div className="max-w-6xl mx-auto px-6 py-8">
 
+          <div className="flex justify-end mb-2">
+            <a href="/contacts/duplicates" className="text-xs text-primary-600 hover:underline">{t('البحث عن التكرارات', 'Find duplicates')}</a>
+          </div>
+
           {/* Search bar + Add button */}
           <div className="flex gap-2 mb-6">
             <form onSubmit={handleSearch} className="flex-1 flex gap-2">
