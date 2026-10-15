@@ -226,6 +226,7 @@ func (h *SettingsHandler) GetLocale(c *fiber.Ctx) error {
 		"currency":          loc.Currency,
 		"currency_decimals": decimals,
 		"timezone":          loc.Timezone,
+		"show_hijri":        loc.ShowHijri,
 		"rules":             jurisdiction.MustFor(loc.Country),
 	})
 }

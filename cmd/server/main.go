@@ -217,6 +217,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("two-factor key: %v", err)
 	}
+	handler.UseCompanyLocale(companySettingsRepo.Locale)
 	leadRotation := handler.NewLeadRotationHandler(leadRotationRepo, leadRepo, userRepo, hub)
 	notifier := jobs.NewNotifier(notificationRepo, userRepo, emailSvc, hub)
 	complianceRepo := repo.NewComplianceRepo(pool)
@@ -224,6 +225,7 @@ func main() {
 	leaseOpsRepo := repo.NewLeaseOpsRepo(pool)
 	kycRepo := repo.NewKYCRepo(pool)
 	broadcastRepo := repo.NewBroadcastRepo(pool)
+	einvoiceRepo := repo.NewEInvoiceRepo(pool)
 	h := &api.Handlers{
 		Auth:    handler.NewAuthHandler(userRepo, companyRepo, rdb, cfg, auditRepo, emailSvc, smsClient).UseTwoFactor(repo.NewTwoFactorRepo(pool), totpBox),
 		User:    handler.NewUserHandler(userRepo, auditRepo, emailSvc, cfg, rdb),
@@ -282,6 +284,7 @@ func main() {
 		LeaseOps:  handler.NewLeaseOpsHandler(leaseOpsRepo, paymentRepo, auditRepo),
 		KYC:       handler.NewKYCHandler(kycRepo, auditRepo, mediaStore, 10),
 		Broadcast: handler.NewBroadcastHandler(broadcastRepo, auditRepo),
+		EInvoice:  handler.NewEInvoiceHandler(einvoiceRepo, invoiceRepo, auditRepo, notifier),
 		Portal: handler.NewPortalHandler(repo.NewPortalRepo(pool), contactRepo, leadRepo, listingRepo, userRepo, companySettingsRepo,
 			dispatcher, leadRotation.AssignNewLead, cfg.PublicAPIURL, cfg.AppURL),
 	}
@@ -332,6 +335,7 @@ func main() {
 			jobs.LeaseAlerts(leaseOpsRepo, complianceRepo, notifier),
 			jobs.RentReminders(leaseOpsRepo, privacyRepo, emailSvc, waSender),
 			jobs.BroadcastSender(broadcastRepo, waSender),
+			jobs.EInvoiceStatus(einvoiceRepo, notifier),
 			jobs.PruneRunLog(jobRepo),
 		)
 		runner.Start(ctx)

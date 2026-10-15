@@ -85,6 +85,7 @@ func setup(t *testing.T) *testEnv {
 				`DELETE FROM leases WHERE company_id = $1`,
 				`DELETE FROM tenants WHERE company_id = $1`,
 				`DELETE FROM rental_properties WHERE company_id = $1`,
+				`DELETE FROM einvoices WHERE company_id = $1`,
 				`DELETE FROM vat_invoices WHERE company_id = $1 AND kind = 'credit_note'`,
 				`DELETE FROM vat_invoices WHERE company_id = $1`,
 				`DELETE FROM deals WHERE company_id = $1`,

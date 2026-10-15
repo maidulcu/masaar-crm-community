@@ -10,6 +10,7 @@ import clsx from 'clsx'
 import type { VATInvoice } from '@/types'
 import { formatMoney } from '@/lib/money'
 import { formatDate } from '@/lib/date'
+import { EInvoicePanel } from '@/components/invoice/EInvoicePanel'
 import { INVOICE_STATUS_COLORS, INVOICE_STATUS_LABELS, VAT_CATEGORY_LABELS, documentTitle } from '@/lib/invoice'
 
 export default function InvoiceDetailPage() {
@@ -286,6 +287,8 @@ export default function InvoiceDetailPage() {
           )}
           {error && <p role="alert" className="px-6 pb-4 text-xs text-red-600">{error}</p>}
         </div>
+
+        <EInvoicePanel invoice={invoice} isAdmin={isAdmin} />
 
         {creditNotes.length > 0 && (
           <div className="mt-6 bg-white rounded-2xl border border-gray-100 overflow-hidden">

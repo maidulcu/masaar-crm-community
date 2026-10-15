@@ -54,6 +54,8 @@ Masaar is a **free, open-source CRM designed specifically for UAE businesses**. 
 | **Two-factor Authentication** | Authenticator-app codes and backup codes, optional per user or required company-wide |
 | **KYC / AML** | Client identity documents, risk and PEP records, beneficial owners, KYC check before a deal is won, AML review queue and goAML export, compliance role |
 | **WhatsApp Broadcasts** | Approved templates to consenting segments, STOP/إيقاف opt-out, 24-hour window indicator, conversation assignment, business-hours auto-reply |
+| **UAE E-invoicing** | Invoices and credit notes as PINT AE (Peppol) XML, validated against the official rules in CI; provider connector interface with a mock provider and status tracking |
+| **Saudi Arabia** | Country rules (15 % VAT, SAR, weekend, regions), REGA licence on listings, optional Hijri dates |
 | **Calculators** | Purchase costs (DLD fees), mortgage, rental yield and commission with VAT, shareable on WhatsApp |
 | **User Settings** | Per-user password change and language preference (Arabic/English) |
 | **Role-Based Access** | Three roles: Admin, Agent, Viewer — enforced on every API route |

@@ -75,7 +75,52 @@ export interface CompanyLocale {
   currency: string
   currency_decimals: number
   timezone: string
+  show_hijri?: boolean
   rules: JurisdictionRules
+}
+export interface EInvoiceParty {
+  name?: string
+  tin?: string
+  trn?: string
+  legal_id?: string
+  legal_id_type?: string
+  legal_authority?: string
+  street?: string
+  city?: string
+  emirate?: string
+  country?: string
+  email?: string
+}
+export interface EInvoiceRequest {
+  buyer: EInvoiceParty
+  credit_reason?: string
+  due_date?: string // YYYY-MM-DD
+}
+export interface EInvoiceRecord {
+  invoice_id: string
+  provider: string
+  status: 'submitted' | 'accepted' | 'rejected' | 'error'
+  provider_ref: string
+  reason?: string
+  buyer: EInvoiceParty
+  credit_reason?: string
+  due_date?: string
+  submitted_at: string
+  decided_at?: string
+}
+export interface EInvoiceStatus {
+  provider: string
+  einvoice: EInvoiceRecord | null
+  credit_reasons: string[]
+}
+export interface EInvoiceSettings {
+  provider: string
+  tin: string
+  legal_id_type: 'TL' | 'EID' | 'PAS' | 'CD'
+  trade_license_authority: string
+  city: string
+  service_code: string
+  exemption_code: string
 }
 export interface Consent {
   id: number
@@ -757,6 +802,23 @@ export const api = {
     creditNotes: (id: string) => request(`/api/v1/invoices/${id}/credit-notes`),
     createCreditNote: (id: string, data: { reason: string; lines?: unknown[] }) =>
       request(`/api/v1/invoices/${id}/credit-notes`, { method: 'POST', body: JSON.stringify(data) }),
+  },
+
+  // ─── E-invoicing (PINT AE) ───────────────────────────────────────────────────
+
+  einvoice: {
+    status: (invoiceId: string) => request<EInvoiceStatus>(`/api/v1/invoices/${invoiceId}/einvoice`),
+    /** Builds the PINT AE XML without submitting it, and saves it as a file. */
+    exportXML: async (invoiceId: string, body: EInvoiceRequest, filename: string) =>
+      saveBlob(await requestBlob(`/api/v1/invoices/${invoiceId}/einvoice/xml`, { method: 'POST', body: JSON.stringify(body) }), filename),
+    submit: (invoiceId: string, body: EInvoiceRequest) =>
+      request<EInvoiceRecord>(`/api/v1/invoices/${invoiceId}/einvoice`, { method: 'POST', body: JSON.stringify(body) }),
+    /** The XML that was submitted. */
+    storedXML: async (invoiceId: string, filename: string) =>
+      saveBlob(await requestBlob(`/api/v1/invoices/${invoiceId}/einvoice.xml`), filename),
+    settings: () => request<{ settings: EInvoiceSettings; providers: string[] }>('/api/v1/settings/einvoicing'),
+    updateSettings: (s: EInvoiceSettings) =>
+      request<EInvoiceSettings>('/api/v1/settings/einvoicing', { method: 'PUT', body: JSON.stringify(s) }),
   },
 
   // ─── Stats ───────────────────────────────────────────────────────────────────

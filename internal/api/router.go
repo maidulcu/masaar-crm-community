@@ -40,6 +40,7 @@ type Handlers struct {
 	LeaseOps            *handler.LeaseOpsHandler
 	KYC                 *handler.KYCHandler
 	Broadcast           *handler.BroadcastHandler
+	EInvoice            *handler.EInvoiceHandler
 	Email               *handler.EmailHandler
 	RentalProperty      *handler.RentalPropertyHandler
 	Tenant              *handler.TenantHandler
@@ -893,6 +894,14 @@ func RegisterRoutes(app *fiber.App, h *Handlers, hub *ws.Hub, cfg *config.Config
 	)
 
 	// Leases — agents: create+view+update; admin: all; viewers: read-only
+	// UAE e-invoicing (#88)
+	v1.Get("/invoices/:id/einvoice", h.EInvoice.Status)
+	v1.Get("/invoices/:id/einvoice.xml", h.EInvoice.StoredXML)
+	v1.Post("/invoices/:id/einvoice/xml", middleware.RequireRole(domain.RoleAdmin, domain.RoleAgent), h.EInvoice.ExportXML)
+	v1.Post("/invoices/:id/einvoice", middleware.RequireRole(domain.RoleAdmin), h.EInvoice.Submit)
+	v1.Get("/settings/einvoicing", middleware.RequireRole(domain.RoleAdmin), h.EInvoice.GetSettings)
+	v1.Put("/settings/einvoicing", middleware.RequireRole(domain.RoleAdmin), h.EInvoice.UpdateSettings)
+
 	// WhatsApp broadcasts and inbox (#87)
 	v1.Post("/broadcasts/preview", middleware.RequireRole(domain.RoleAdmin), h.Broadcast.Preview)
 	v1.Get("/broadcasts", middleware.RequireRole(domain.RoleAdmin), h.Broadcast.List)

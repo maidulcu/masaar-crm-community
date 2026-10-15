@@ -217,7 +217,7 @@ func (h *LeadHandler) Create(c *fiber.Ctx) error {
 		lead.Stage = domain.StageNew
 	}
 	if lead.Currency == "" {
-		lead.Currency = "AED"
+		lead.Currency = defaultCurrency(c.Context())
 	}
 
 	if err := h.leads.Create(c.Context(), &lead); err != nil {

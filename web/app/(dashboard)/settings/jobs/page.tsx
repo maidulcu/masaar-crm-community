@@ -17,6 +17,7 @@ const JOB_LABELS: Record<string, { en: string; ar: string }> = {
   lease_alerts: { en: 'Lease, Ejari and rent-notice alerts', ar: 'تنبيهات العقود وإيجاري وإشعارات الإيجار' },
   rent_reminders: { en: 'Rent reminders to tenants', ar: 'تذكيرات الإيجار للمستأجرين' },
   whatsapp_broadcasts: { en: 'WhatsApp broadcasts', ar: 'رسائل واتساب الجماعية' },
+  einvoice_status: { en: 'E-invoice status', ar: 'حالة الفواتير الإلكترونية' },
 }
 
 export default function JobRunsPage() {
