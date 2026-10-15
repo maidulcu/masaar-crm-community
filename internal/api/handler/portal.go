@@ -212,7 +212,7 @@ func (h *PortalHandler) createLead(ctx context.Context, cid uuid.UUID, p string,
 		notes = append(notes, in.Message)
 	}
 	lead := &domain.Lead{ContactID: contact.ID, Stage: domain.StageNew, Source: domain.LeadSource(p),
-		Currency: "AED", Notes: strings.Join(notes, "\n")}
+		Currency: defaultCurrency(ctx), Notes: strings.Join(notes, "\n")}
 	if err := h.leads.Create(ctx, lead); err != nil {
 		return nil, err
 	}

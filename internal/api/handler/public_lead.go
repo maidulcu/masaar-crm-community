@@ -103,7 +103,7 @@ func (h *PublicLeadHandler) SubmitLead(c *fiber.Ctx) error {
 		req.Source = "web"
 	}
 	if req.Currency == "" {
-		req.Currency = "AED"
+		req.Currency = defaultCurrency(c.Context())
 	}
 
 	// Validate source

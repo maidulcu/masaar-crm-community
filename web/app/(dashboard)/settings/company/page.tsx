@@ -26,6 +26,7 @@ interface CompanyData {
   region: string
   currency: string
   timezone: string
+  show_hijri?: boolean
   orn: string
   trade_license_no: string
   trade_license_expiry: string | null
@@ -176,6 +177,11 @@ export default function CompanySettingsPage() {
                   <input id="cs-tz" dir="ltr" className={inputCls} value={form.timezone} onChange={update('timezone')} placeholder="Asia/Dubai" />
                 </div>
               </div>
+              <label className="flex items-center gap-2 text-sm text-gray-700">
+                <input type="checkbox" checked={!!form.show_hijri}
+                  onChange={(e) => setForm(p => ({ ...p, show_hijri: e.target.checked }))} />
+                {t('إظهار التاريخ الهجري (أم القرى) بجانب التواريخ', 'Also show dates in the Hijri (Umm al-Qura) calendar')}
+              </label>
 
               <hr className="border-gray-100" />
               <h3 className="text-sm font-semibold text-gray-700">{t('الضرائب والفواتير', 'Tax & Invoicing')}</h3>

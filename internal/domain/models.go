@@ -497,6 +497,7 @@ type CompanyLocale struct {
 	Region    string    `json:"region"`
 	Currency  string    `json:"currency"`
 	Timezone  string    `json:"timezone"`
+	ShowHijri bool      `json:"show_hijri"`
 }
 
 // ─── Notification ────────────────────────────────────────────────────────────
@@ -777,8 +778,10 @@ type CompanySettings struct {
 	Region             string     `json:"region"`   // ISO 3166-2, e.g. "AE-DU"; may be empty
 	Currency           string     `json:"currency"` // ISO 4217, e.g. "AED"
 	Timezone           string     `json:"timezone"` // IANA, e.g. "Asia/Dubai"
-	UpdatedAt          time.Time  `json:"updated_at"`
-	UpdatedBy          *uuid.UUID `json:"updated_by"`
+	// ShowHijri also shows dates in the Umm al-Qura calendar; nil (not sent) keeps the stored value.
+	ShowHijri *bool      `json:"show_hijri,omitempty"`
+	UpdatedAt time.Time  `json:"updated_at"`
+	UpdatedBy *uuid.UUID `json:"updated_by"`
 }
 
 // ─── Rental Properties ────────────────────────────────────────────────────────

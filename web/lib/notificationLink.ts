@@ -6,6 +6,7 @@ export function notificationHref(data: string | null | undefined): string | null
   try { d = JSON.parse(data) } catch { return null }
   const id = (k: string) => (typeof d[k] === 'string' && /^[0-9a-f-]{36}$/i.test(d[k] as string) ? (d[k] as string) : null)
   if (id('lease_id')) return `/leases/${id('lease_id')}`
+  if (id('invoice_id')) return `/invoices/${id('invoice_id')}`
   if (d.page === 'cheques') return '/cheques'
   if (id('task_id')) return '/tasks'
   if (id('listing_id')) return `/listings/${id('listing_id')}`

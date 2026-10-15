@@ -9,6 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [v0.4.0] - Unreleased
 
+### UAE e-invoicing and Saudi groundwork (#88) — migration `0078`
+
+**UAE e-invoicing (PINT AE)** — off by default; see [docs/einvoicing.md](docs/einvoicing.md)
+- Tax invoices and credit notes can be exported as **PINT AE** XML (UBL 2.1, the UAE Peppol specification), including mixed standard/exempt/out-of-scope lines and credit note reason codes. Missing data (TIN, legal registration, buyer address…) is listed instead of producing an invalid file.
+- The generated XML is checked in CI against the UBL 2.1 schema and the official PINT AE Schematron (`scripts/pint-ae/validate.sh`).
+- Submission through a provider **connector** interface, with a status job that records accepted and rejected e-invoices and notifies the issuer of a rejection. Only a **mock** provider ships; a real accredited service provider needs its own connector.
+- Settings → E-invoicing (provider, TIN, legal registration, exemption code); an E-invoice panel on each invoice for the buyer details, XML download and submission.
+- AED invoices only for now.
+
+**Saudi Arabia groundwork** — see [docs/adr/0001-ksa-groundwork.md](docs/adr/0001-ksa-groundwork.md)
+- Country **SA**: 15 % VAT, SAR, Asia/Riyadh, Friday–Saturday weekend, the 13 regions.
+- Listings in Saudi regions require a **REGA** advertising licence, enforced like Trakheesi/Madhmoun.
+- Optional **Hijri (Umm al-Qura)** dates next to Gregorian dates (Settings → Company).
+- Money defaults (new leads, deals, offers, expenses, listings, imports) follow the company currency instead of AED.
+- ZATCA e-invoicing, Ejar and Nafath are not part of the community edition.
+
+#### Upgrade notes
+- Nothing changes until an admin enables e-invoicing; existing invoices are unaffected.
+
 ### KYC/AML, WhatsApp broadcasts and two-factor authentication (#87) — migrations `0075`–`0077`
 
 **Two-factor authentication**

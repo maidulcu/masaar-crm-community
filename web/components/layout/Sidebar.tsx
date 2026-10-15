@@ -454,6 +454,16 @@ const sections: NavSection[] = [
         adminOnly: true,
       },
       {
+        href: '/settings/einvoicing',
+        label: { en: 'E-invoicing', ar: 'الفوترة الإلكترونية' },
+        icon: (
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6M7 3h7l5 5v13a1 1 0 01-1 1H7a1 1 0 01-1-1V4a1 1 0 011-1z" />
+          </svg>
+        ),
+        adminOnly: true,
+      },
+      {
         href: '/settings/inbox',
         label: { en: 'WhatsApp Inbox', ar: 'صندوق واتساب' },
         icon: (

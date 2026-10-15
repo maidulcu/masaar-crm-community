@@ -120,7 +120,7 @@ func (h *DealHandler) Create(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "amount must be non-negative"})
 	}
 	if deal.Currency == "" {
-		deal.Currency = "AED"
+		deal.Currency = defaultCurrency(c.Context())
 	}
 	if deal.Stage == "" {
 		deal.Stage = domain.DealStageOpen

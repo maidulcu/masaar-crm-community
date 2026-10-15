@@ -924,7 +924,7 @@ export type ListingStatus = 'draft' | 'published' | 'sold' | 'rented' | 'expired
 
 export interface PermitStatus {
   required: boolean
-  system?: 'trakheesi' | 'madhmoun'
+  system?: 'trakheesi' | 'madhmoun' | 'rega'
   valid: boolean
   overridden: boolean
   problem?: 'missing' | 'expired'
