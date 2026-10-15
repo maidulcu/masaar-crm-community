@@ -10,6 +10,7 @@ type NavItem = {
   label: { en: string; ar: string }
   icon: React.ReactNode
   adminOnly?: boolean
+  roles?: string[] // shown only to these roles
 }
 
 type NavSection = {
@@ -65,6 +66,16 @@ const sections: NavSection[] = [
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
           </svg>
         ),
+      },
+      {
+        href: '/broadcasts',
+        label: { en: 'Broadcasts', ar: 'الرسائل الجماعية' },
+        icon: (
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M11 5.9V19a1 1 0 01-1.7.7L5.6 16H3a1 1 0 01-1-1V9a1 1 0 011-1h2.6l3.7-3.7A1 1 0 0111 5.9zM15.5 8.5a5 5 0 010 7M18.4 5.6a9 9 0 010 12.8" />
+          </svg>
+        ),
+        adminOnly: true,
       },
       {
         href: '/inbox',
@@ -322,6 +333,16 @@ const sections: NavSection[] = [
         ),
       },
       {
+        href: '/compliance',
+        label: { en: 'Compliance (AML)', ar: 'الامتثال' },
+        icon: (
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m5.6-4A11.9 11.9 0 0112 3a11.9 11.9 0 01-8.6 3A12 12 0 0012 21a12 12 0 008.6-15z" />
+          </svg>
+        ),
+        roles: ['admin', 'compliance'],
+      },
+      {
         href: '/reports/lead-sources',
         label: { en: 'Lead Sources', ar: 'مصادر العملاء' },
         icon: (
@@ -428,6 +449,36 @@ const sections: NavSection[] = [
         icon: (
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+          </svg>
+        ),
+        adminOnly: true,
+      },
+      {
+        href: '/settings/einvoicing',
+        label: { en: 'E-invoicing', ar: 'الفوترة الإلكترونية' },
+        icon: (
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6M7 3h7l5 5v13a1 1 0 01-1 1H7a1 1 0 01-1-1V4a1 1 0 011-1z" />
+          </svg>
+        ),
+        adminOnly: true,
+      },
+      {
+        href: '/settings/inbox',
+        label: { en: 'WhatsApp Inbox', ar: 'صندوق واتساب' },
+        icon: (
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8v4l3 3M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+        ),
+        adminOnly: true,
+      },
+      {
+        href: '/settings/security',
+        label: { en: 'Security', ar: 'الأمان' },
+        icon: (
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 3l7 4v5c0 4.5-3 8-7 9-4-1-7-4.5-7-9V7l7-4z" />
           </svg>
         ),
         adminOnly: true,
@@ -571,7 +622,7 @@ export function Sidebar() {
               {isAr ? section.title.ar : section.title.en}
             </p>
             <div className="space-y-0.5">
-              {section.items.filter(item => !item.adminOnly || isAdmin).map((item) => {
+              {section.items.filter(item => (!item.adminOnly || isAdmin) && (!item.roles || item.roles.includes(user?.role ?? ''))).map((item) => {
 const active = item.href === '/analytics'
   ? pathname.startsWith('/analytics')
     : item.href === '/settings'

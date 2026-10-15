@@ -38,6 +38,9 @@ type Handlers struct {
 	Portal              *handler.PortalHandler
 	Cheque              *handler.ChequeHandler
 	LeaseOps            *handler.LeaseOpsHandler
+	KYC                 *handler.KYCHandler
+	Broadcast           *handler.BroadcastHandler
+	EInvoice            *handler.EInvoiceHandler
 	Email               *handler.EmailHandler
 	RentalProperty      *handler.RentalPropertyHandler
 	Tenant              *handler.TenantHandler
@@ -133,6 +136,9 @@ func RegisterRoutes(app *fiber.App, h *Handlers, hub *ws.Hub, cfg *config.Config
 	app.Post("/api/v1/auth/refresh", lim.refresh, h.Auth.Refresh)
 	app.Post("/api/v1/auth/forgot-password", lim.login, h.Auth.ForgotPassword)
 	app.Post("/api/v1/auth/reset-password", lim.authVerify, h.Auth.ResetPassword)
+	app.Post("/api/v1/auth/verify-totp", lim.authVerify, h.Auth.VerifyTOTP)
+	app.Post("/api/v1/auth/totp/enroll", lim.authVerify, h.Auth.EnrollPending)
+	app.Post("/api/v1/auth/totp/enroll/confirm", lim.authVerify, h.Auth.ConfirmEnrollPending)
 
 	// WhatsApp webhook — Meta calls this publicly
 	app.Get("/webhooks/whatsapp", h.WhatsApp.Verify)
@@ -201,6 +207,16 @@ func RegisterRoutes(app *fiber.App, h *Handlers, hub *ws.Hub, cfg *config.Config
 	)
 
 	v1.Delete("/auth/logout", h.Auth.Logout)
+
+	// Two-factor authentication (#87)
+	v1.Get("/users/me/2fa", h.Auth.TwoFactorStatus)
+	v1.Post("/users/me/2fa/setup", h.Auth.TwoFactorSetup)
+	v1.Post("/users/me/2fa/enable", h.Auth.TwoFactorEnable)
+	v1.Post("/users/me/2fa/disable", h.Auth.TwoFactorDisable)
+	v1.Post("/users/me/2fa/backup-codes", h.Auth.TwoFactorBackupCodes)
+	v1.Post("/users/:id/2fa/reset", middleware.RequireRole(domain.RoleAdmin), h.Auth.ResetUserTwoFactor)
+	v1.Get("/settings/security", middleware.RequireRole(domain.RoleAdmin), h.Auth.GetSecuritySettings)
+	v1.Put("/settings/security", middleware.RequireRole(domain.RoleAdmin), h.Auth.UpdateSecuritySettings)
 
 	// Dashboard stats — all authenticated users
 	v1.Get("/stats", h.Stats.Overview)
@@ -878,6 +894,48 @@ func RegisterRoutes(app *fiber.App, h *Handlers, hub *ws.Hub, cfg *config.Config
 	)
 
 	// Leases — agents: create+view+update; admin: all; viewers: read-only
+	// UAE e-invoicing (#88)
+	v1.Get("/invoices/:id/einvoice", h.EInvoice.Status)
+	v1.Get("/invoices/:id/einvoice.xml", h.EInvoice.StoredXML)
+	v1.Post("/invoices/:id/einvoice/xml", middleware.RequireRole(domain.RoleAdmin, domain.RoleAgent), h.EInvoice.ExportXML)
+	v1.Post("/invoices/:id/einvoice", middleware.RequireRole(domain.RoleAdmin), h.EInvoice.Submit)
+	v1.Get("/settings/einvoicing", middleware.RequireRole(domain.RoleAdmin), h.EInvoice.GetSettings)
+	v1.Put("/settings/einvoicing", middleware.RequireRole(domain.RoleAdmin), h.EInvoice.UpdateSettings)
+
+	// WhatsApp broadcasts and inbox (#87)
+	v1.Post("/broadcasts/preview", middleware.RequireRole(domain.RoleAdmin), h.Broadcast.Preview)
+	v1.Get("/broadcasts", middleware.RequireRole(domain.RoleAdmin), h.Broadcast.List)
+	v1.Post("/broadcasts", middleware.RequireRole(domain.RoleAdmin), h.Broadcast.Create)
+	v1.Get("/broadcasts/:id", middleware.RequireRole(domain.RoleAdmin), h.Broadcast.Get)
+	v1.Get("/broadcasts/:id/recipients", middleware.RequireRole(domain.RoleAdmin), h.Broadcast.Recipients)
+	v1.Post("/broadcasts/:id/start", middleware.RequireRole(domain.RoleAdmin), h.Broadcast.Start)
+	v1.Post("/broadcasts/:id/cancel", middleware.RequireRole(domain.RoleAdmin), h.Broadcast.Cancel)
+	v1.Patch("/threads/:id/assign", middleware.RequireRole(domain.RoleAdmin, domain.RoleAgent), h.Broadcast.AssignThread)
+	v1.Get("/settings/inbox", middleware.RequireRole(domain.RoleAdmin), h.Broadcast.GetInboxSettings)
+	v1.Put("/settings/inbox", middleware.RequireRole(domain.RoleAdmin), h.Broadcast.UpdateInboxSettings)
+
+	// KYC and AML (#87). Identity data: admins, agents and compliance officers; risk,
+	// screening and the AML queue: admins and compliance officers.
+	kycStaff := middleware.RequireRole(domain.RoleAdmin, domain.RoleAgent, domain.RoleCompliance)
+	compliance := middleware.RequireRole(domain.RoleAdmin, domain.RoleCompliance)
+	v1.Get("/contacts/:id/kyc", kycStaff, h.KYC.Profile)
+	v1.Put("/contacts/:id/kyc", compliance, h.KYC.UpdateProfile)
+	v1.Post("/contacts/:id/kyc/screen", compliance, h.KYC.Screen)
+	v1.Post("/contacts/:id/kyc/documents", kycStaff, h.KYC.AddDocument)
+	v1.Get("/kyc-documents/:id/file", kycStaff, h.KYC.DocumentFile)
+	v1.Delete("/kyc-documents/:id", compliance, h.KYC.DeleteDocument)
+	v1.Get("/organisations/:id/owners", kycStaff, h.KYC.Owners)
+	v1.Post("/organisations/:id/owners", kycStaff, h.KYC.SetOwner)
+	v1.Delete("/organisations/:id/owners/:contact_id", kycStaff, h.KYC.RemoveOwner)
+	v1.Get("/deals/:id/kyc", kycStaff, h.KYC.DealKYC)
+	v1.Post("/deals/:id/kyc-override", middleware.RequireRole(domain.RoleAdmin), h.KYC.OverrideDealKYC)
+	v1.Put("/deals/:id/payment", middleware.RequireRole(domain.RoleAdmin, domain.RoleAgent), h.KYC.SetDealPayment)
+	v1.Get("/compliance/aml", compliance, h.KYC.AMLQueue)
+	v1.Get("/compliance/aml/export.csv", compliance, h.KYC.AMLExport)
+	v1.Post("/compliance/aml/:id/review", compliance, h.KYC.ReviewAML)
+	v1.Get("/settings/aml", compliance, h.KYC.GetAMLSettings)
+	v1.Put("/settings/aml", middleware.RequireRole(domain.RoleAdmin), h.KYC.UpdateAMLSettings)
+
 	// Post-dated cheques and lease operations (#86)
 	agentOrAdmin := middleware.RequireRole(domain.RoleAdmin, domain.RoleAgent)
 	v1.Get("/cheques", h.Cheque.List)

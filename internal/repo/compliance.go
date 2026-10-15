@@ -47,7 +47,14 @@ func (r *ComplianceRepo) ListExpiring(ctx context.Context, until time.Time) ([]E
 		UNION ALL
 		SELECT 'trade_license', s.company_id, s.name, s.trade_license_expiry, NULL::uuid
 		  FROM company_settings s
-		 WHERE s.company_id = $1 AND s.trade_license_expiry IS NOT NULL AND s.trade_license_expiry <= $2`,
+		 WHERE s.company_id = $1 AND s.trade_license_expiry IS NOT NULL AND s.trade_license_expiry <= $2
+		UNION ALL
+		-- A client's identity document, the latest of its type only (a renewed one replaces it).
+		SELECT 'kyc_document', k.id, c.full_name || ' (' || k.doc_type || ')', k.expiry_date, k.created_by
+		  FROM kyc_documents k JOIN contacts c ON c.id = k.contact_id AND c.erased_at IS NULL
+		 WHERE k.company_id = $1 AND k.expiry_date IS NOT NULL AND k.expiry_date <= $2
+		   AND NOT EXISTS (SELECT 1 FROM kyc_documents n WHERE n.contact_id = k.contact_id AND n.doc_type = k.doc_type
+		                     AND n.expiry_date > k.expiry_date)`,
 		cid, until)
 	if err != nil {
 		return nil, err

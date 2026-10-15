@@ -1,6 +1,6 @@
 // ─── Auth ────────────────────────────────────────────────────────────────────
 
-export type UserRole = 'admin' | 'agent' | 'viewer'
+export type UserRole = 'admin' | 'agent' | 'viewer' | 'compliance'
 
 export interface User {
   id: string
@@ -19,7 +19,7 @@ export interface AuthUser {
   id: string
   name: string
   email: string
-  role: 'admin' | 'agent' | 'viewer'
+  role: 'admin' | 'agent' | 'viewer' | 'compliance'
   lang_pref: 'ar' | 'en'
 }
 
@@ -41,6 +41,17 @@ export interface LoginResponse {
   expires_in: number
   user: AuthUser
   company?: Company
+  /** Present after two-factor enrolment during sign-in: shown once. */
+  backup_codes?: string[]
+  backup_codes_left?: number
+}
+
+/** Answer to a sign-in that needs a second factor (no session yet). */
+export interface TwoFactorPending {
+  two_factor_required: true
+  setup_required: boolean
+  pending_token: string
+  expires_in: number
 }
 
 // ─── Contact ─────────────────────────────────────────────────────────────────
@@ -182,6 +193,12 @@ export interface WhatsAppThread {
   message_count: number
   ai_summary: string
   created_at: string
+  assigned_to?: string
+  assignee_name?: string
+  last_inbound_at?: string
+  /** The customer wrote in the last 24 hours: free-form replies are allowed. */
+  window_open: boolean
+  window_ends_at?: string
   contact?: Contact
 }
 
@@ -907,7 +924,7 @@ export type ListingStatus = 'draft' | 'published' | 'sold' | 'rented' | 'expired
 
 export interface PermitStatus {
   required: boolean
-  system?: 'trakheesi' | 'madhmoun'
+  system?: 'trakheesi' | 'madhmoun' | 'rega'
   valid: boolean
   overridden: boolean
   problem?: 'missing' | 'expired'

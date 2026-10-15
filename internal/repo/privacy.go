@@ -183,6 +183,7 @@ var exportQueries = []struct{ key, q string }{
 	{"leads", `SELECT * FROM leads WHERE company_id = $1 AND contact_id = $2`},
 	{"deals", `SELECT d.* FROM deals d JOIN leads l ON l.id = d.lead_id WHERE d.company_id = $1 AND l.contact_id = $2`},
 	{"offers", `SELECT * FROM offers WHERE company_id = $1 AND contact_id = $2`},
+	{"kyc_documents", `SELECT doc_type, number, issuing_country, issue_date, expiry_date, file_name, created_at FROM kyc_documents WHERE company_id = $1 AND contact_id = $2`},
 	{"viewings", `SELECT * FROM viewings WHERE company_id = $1 AND contact_id = $2`},
 	{"whatsapp_threads", `SELECT id, thread_status, last_message_at, message_count, ai_summary, created_at FROM whatsapp_threads WHERE company_id = $1 AND contact_id = $2`},
 	{"whatsapp_messages", `SELECT m.id, m.thread_id, m.direction, m.body, m.media_mime, m.media_filename, m.sent_at

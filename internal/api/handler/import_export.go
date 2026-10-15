@@ -255,7 +255,7 @@ func (h *ImportExportHandler) ImportLeads(c *fiber.Ctx) error {
 		}
 		currency := strings.TrimSpace(m["currency"])
 		if currency == "" {
-			currency = "AED"
+			currency = defaultCurrency(c.Context())
 		}
 
 		lead := &domain.Lead{

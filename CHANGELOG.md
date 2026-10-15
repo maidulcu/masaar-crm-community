@@ -9,6 +9,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [v0.4.0] - Unreleased
 
+### UAE e-invoicing and Saudi groundwork (#88) — migration `0078`
+
+**UAE e-invoicing (PINT AE)** — off by default; see [docs/einvoicing.md](docs/einvoicing.md)
+- Tax invoices and credit notes can be exported as **PINT AE** XML (UBL 2.1, the UAE Peppol specification), including mixed standard/exempt/out-of-scope lines and credit note reason codes. Missing data (TIN, legal registration, buyer address…) is listed instead of producing an invalid file.
+- The generated XML is checked in CI against the UBL 2.1 schema and the official PINT AE Schematron (`scripts/pint-ae/validate.sh`).
+- Submission through a provider **connector** interface, with a status job that records accepted and rejected e-invoices and notifies the issuer of a rejection. Only a **mock** provider ships; a real accredited service provider needs its own connector.
+- Settings → E-invoicing (provider, TIN, legal registration, exemption code); an E-invoice panel on each invoice for the buyer details, XML download and submission.
+- AED invoices only for now.
+
+**Saudi Arabia groundwork** — see [docs/adr/0001-ksa-groundwork.md](docs/adr/0001-ksa-groundwork.md)
+- Country **SA**: 15 % VAT, SAR, Asia/Riyadh, Friday–Saturday weekend, the 13 regions.
+- Listings in Saudi regions require a **REGA** advertising licence, enforced like Trakheesi/Madhmoun.
+- Optional **Hijri (Umm al-Qura)** dates next to Gregorian dates (Settings → Company).
+- Money defaults (new leads, deals, offers, expenses, listings, imports) follow the company currency instead of AED.
+- ZATCA e-invoicing, Ejar and Nafath are not part of the community edition.
+
+#### Upgrade notes
+- Nothing changes until an admin enables e-invoicing; existing invoices are unaffected.
+
+### KYC/AML, WhatsApp broadcasts and two-factor authentication (#87) — migrations `0075`–`0077`
+
+**Two-factor authentication**
+- Optional per user, with an authenticator app (TOTP, RFC 6238): turn on from Settings with a QR code; 8 single-use backup codes (stored hashed); turning it off needs the password and a code.
+- Every sign-in path (password, magic link, SMS code) answers with a short-lived pending token instead of a session when a second factor is needed; `POST /auth/verify-totp` exchanges it with a code or a backup code. A code cannot be used twice. Five wrong codes lock the account for 15 minutes (the same lock as wrong passwords).
+- Admins can require two-factor for the whole company (Settings → Security); users without it set it up at their next sign-in. Admins can reset a user's two-factor (lost phone).
+- Secrets are encrypted at rest with AES-GCM; set `TWO_FACTOR_KEY` (otherwise derived from `JWT_SECRET`).
+
+**KYC and AML (record keeping and workflow; no automatic compliance decisions)**
+- Identity documents per contact (Emirates ID, passport, residence visa, trade licence; number, issuing country, dates, a private copy), risk rating with reason, PEP flag, and screening result entered by hand. A screening-provider interface (`kyc.Screener`) is available; none is bundled.
+- Beneficial owners of corporate clients (organisations), with their KYC status.
+- Alerts before a client's identity document expires.
+- **A deal cannot be marked won** while the buyer has no valid Emirates ID or passport on file, unless an admin overrides it with a reason (audit-logged).
+- Deals record their payment method (cash, cheque, transfer, virtual assets, mixed) and cash part. Cash at or above the configured threshold (AED 55,000 by default) or payment in virtual assets sends the deal to the **AML review queue** (Compliance page), where the decision (no report / reported, with the goAML reference) is recorded. A CSV export gathers what a goAML report needs; it is not a goAML XML submission.
+- A **compliance** role: reads like a viewer, plus the KYC and AML screens. Viewing identity documents and the AML queue is audit-logged.
+
+**WhatsApp**
+- **Broadcasts** of an approved template to a segment (lead tag, stage, source, listing interest), only to contacts who granted WhatsApp consent; the others are recorded as skipped. Sent by a background job at a configurable rate per minute, with per-recipient delivery status from Meta's receipts. Consent is checked again just before each message.
+- Replying **STOP / إيقاف** (or UNSUBSCRIBE, إلغاء الاشتراك) records a WhatsApp opt-out and confirms it; **START / اشتراك** opts back in. Only whole-message replies count.
+- Inbox: the **24-hour customer-service window** is shown on each conversation, and free-form messages outside it are refused with a clear message (an approved template is needed); conversations can be **assigned** to an agent.
+- **Business-hours auto-reply**: weekly hours in the company timezone plus special periods (Ramadan hours, holidays); outside them a customer's message gets the auto-reply, at most once every 12 hours per conversation. Settings → WhatsApp Inbox.
+
+#### Upgrade notes
+- Set `TWO_FACTOR_KEY` to a long random value before anyone turns on two-factor, and keep it stable.
+- Existing deals have no payment method recorded and are not flagged until one is set.
+
 ### Property management (#86) — migration `0074`
 
 **Post-dated cheque register**

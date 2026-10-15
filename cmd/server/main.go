@@ -35,6 +35,7 @@ import (
 	"github.com/maidulcu/masaar-crm/internal/mediastore"
 	"github.com/maidulcu/masaar-crm/internal/repo"
 	"github.com/maidulcu/masaar-crm/internal/sms"
+	"github.com/maidulcu/masaar-crm/internal/totp"
 	"github.com/maidulcu/masaar-crm/internal/webhook"
 	"github.com/maidulcu/masaar-crm/internal/whatsapp"
 	"github.com/maidulcu/masaar-crm/internal/ws"
@@ -208,23 +209,36 @@ func main() {
 	}
 
 	// ── Handlers ─────────────────────────────────────────────────────────────
+	twoFactorKey := cfg.TwoFactorKey
+	if twoFactorKey == "" {
+		twoFactorKey = cfg.JWTSecret
+	}
+	totpBox, err := totp.NewBox(twoFactorKey)
+	if err != nil {
+		log.Fatalf("two-factor key: %v", err)
+	}
+	handler.UseCompanyLocale(companySettingsRepo.Locale)
 	leadRotation := handler.NewLeadRotationHandler(leadRotationRepo, leadRepo, userRepo, hub)
 	notifier := jobs.NewNotifier(notificationRepo, userRepo, emailSvc, hub)
 	complianceRepo := repo.NewComplianceRepo(pool)
 	chequeRepo := repo.NewChequeRepo(pool)
 	leaseOpsRepo := repo.NewLeaseOpsRepo(pool)
+	kycRepo := repo.NewKYCRepo(pool)
+	broadcastRepo := repo.NewBroadcastRepo(pool)
+	einvoiceRepo := repo.NewEInvoiceRepo(pool)
 	h := &api.Handlers{
-		Auth:                handler.NewAuthHandler(userRepo, companyRepo, rdb, cfg, auditRepo, emailSvc, smsClient),
-		User:                handler.NewUserHandler(userRepo, auditRepo, emailSvc, cfg, rdb),
-		Stats:               handler.NewStatsHandler(statsRepo),
-		Contact:             handler.NewContactHandler(contactRepo, auditRepo).UsePrivacy(privacyRepo).UseProfiles(contactProfileRepo),
-		Lead:                handler.NewLeadHandler(leadRepo, contactRepo, commHistRepo, scoringSvc, leadTagRepo, hub, auditRepo, dispatcher, pipelineStageRepo),
-		WhatsApp:            handler.NewWhatsAppHandler(waRepo, contactRepo, waOutboundRepo, commHistRepo, waMedia, taggingSvc, hub, cfg),
+		Auth:    handler.NewAuthHandler(userRepo, companyRepo, rdb, cfg, auditRepo, emailSvc, smsClient).UseTwoFactor(repo.NewTwoFactorRepo(pool), totpBox),
+		User:    handler.NewUserHandler(userRepo, auditRepo, emailSvc, cfg, rdb),
+		Stats:   handler.NewStatsHandler(statsRepo),
+		Contact: handler.NewContactHandler(contactRepo, auditRepo).UsePrivacy(privacyRepo).UseProfiles(contactProfileRepo),
+		Lead:    handler.NewLeadHandler(leadRepo, contactRepo, commHistRepo, scoringSvc, leadTagRepo, hub, auditRepo, dispatcher, pipelineStageRepo),
+		WhatsApp: handler.NewWhatsAppHandler(waRepo, contactRepo, waOutboundRepo, commHistRepo, waMedia, taggingSvc, hub, cfg).
+			UseInbox(broadcastRepo, privacyRepo, waSender, companySettingsRepo.Locale),
 		WhatsAppOutbound:    handler.NewWhatsAppOutboundHandler(waSender, waOutboundRepo, waRepo, commHistRepo, waMedia).UsePrivacy(privacyRepo),
 		AI:                  handler.NewAIHandler(aiSensitive, aiCloud, contactRepo, leadRepo, waRepo),
 		Message:             handler.NewMessageHandler(aiSensitive, waRepo, contactRepo, leadRepo, commHistRepo, leadTagRepo, scoringSvc, hub),
 		Notification:        handler.NewNotificationHandler(notificationRepo),
-		Deal:                handler.NewDealHandler(dealRepo, invoiceRepo, auditRepo),
+		Deal:                handler.NewDealHandler(dealRepo, invoiceRepo, auditRepo).UseKYC(kycRepo),
 		Invoice:             handler.NewInvoiceHandler(invoiceRepo, dealRepo, companySettingsRepo, dealRepo, auditRepo),
 		Property:            handler.NewPropertyHandler(bos24Client, companySettingsRepo),
 		Settings:            handler.NewSettingsHandler(apiSettingsRepo, companySettingsRepo),
@@ -267,7 +281,10 @@ func main() {
 		Rera:                handler.NewReraHandler(reraRepo, auditRepo),
 		Cheque: handler.NewChequeHandler(chequeRepo, auditRepo, notifier, complianceRepo.AdminIDs,
 			bankStatementStore, int64(cfg.BankStatementMaxMB)),
-		LeaseOps: handler.NewLeaseOpsHandler(leaseOpsRepo, paymentRepo, auditRepo),
+		LeaseOps:  handler.NewLeaseOpsHandler(leaseOpsRepo, paymentRepo, auditRepo),
+		KYC:       handler.NewKYCHandler(kycRepo, auditRepo, mediaStore, 10),
+		Broadcast: handler.NewBroadcastHandler(broadcastRepo, auditRepo),
+		EInvoice:  handler.NewEInvoiceHandler(einvoiceRepo, invoiceRepo, auditRepo, notifier),
 		Portal: handler.NewPortalHandler(repo.NewPortalRepo(pool), contactRepo, leadRepo, listingRepo, userRepo, companySettingsRepo,
 			dispatcher, leadRotation.AssignNewLead, cfg.PublicAPIURL, cfg.AppURL),
 	}
@@ -317,6 +334,8 @@ func main() {
 			jobs.ChequeDeposits(chequeRepo, complianceRepo, notifier),
 			jobs.LeaseAlerts(leaseOpsRepo, complianceRepo, notifier),
 			jobs.RentReminders(leaseOpsRepo, privacyRepo, emailSvc, waSender),
+			jobs.BroadcastSender(broadcastRepo, waSender),
+			jobs.EInvoiceStatus(einvoiceRepo, notifier),
 			jobs.PruneRunLog(jobRepo),
 		)
 		runner.Start(ctx)

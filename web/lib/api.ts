@@ -1,5 +1,5 @@
 import { getToken, saveSession, getUser, clearSession } from './auth'
-import type { AuthUser, Payment } from '@/types'
+import type { AuthUser, LoginResponse, Payment } from '@/types'
 
 const BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080'
 
@@ -75,7 +75,52 @@ export interface CompanyLocale {
   currency: string
   currency_decimals: number
   timezone: string
+  show_hijri?: boolean
   rules: JurisdictionRules
+}
+export interface EInvoiceParty {
+  name?: string
+  tin?: string
+  trn?: string
+  legal_id?: string
+  legal_id_type?: string
+  legal_authority?: string
+  street?: string
+  city?: string
+  emirate?: string
+  country?: string
+  email?: string
+}
+export interface EInvoiceRequest {
+  buyer: EInvoiceParty
+  credit_reason?: string
+  due_date?: string // YYYY-MM-DD
+}
+export interface EInvoiceRecord {
+  invoice_id: string
+  provider: string
+  status: 'submitted' | 'accepted' | 'rejected' | 'error'
+  provider_ref: string
+  reason?: string
+  buyer: EInvoiceParty
+  credit_reason?: string
+  due_date?: string
+  submitted_at: string
+  decided_at?: string
+}
+export interface EInvoiceStatus {
+  provider: string
+  einvoice: EInvoiceRecord | null
+  credit_reasons: string[]
+}
+export interface EInvoiceSettings {
+  provider: string
+  tin: string
+  legal_id_type: 'TL' | 'EID' | 'PAS' | 'CD'
+  trade_license_authority: string
+  city: string
+  service_code: string
+  exemption_code: string
 }
 export interface Consent {
   id: number
@@ -268,6 +313,100 @@ export interface PaymentReminderRow {
   delivery_error: string
 }
 
+export interface KYCDocument {
+  id: string
+  contact_id: string
+  doc_type: 'emirates_id' | 'passport' | 'residence_visa' | 'trade_licence' | 'other'
+  number: string
+  issuing_country: string
+  issue_date?: string
+  expiry_date?: string
+  has_file: boolean
+  file_name: string
+  created_at: string
+}
+
+export interface KYCProfile {
+  contact_id: string
+  full_name: string
+  nationality: string
+  date_of_birth: string | null
+  risk: '' | 'low' | 'medium' | 'high'
+  risk_reason: string
+  is_pep: boolean
+  screening: 'not_screened' | 'clear' | 'possible_match' | 'match'
+  screening_source: string
+  screened_at: string | null
+  notes: string
+  reviewed_at: string | null
+  documents: KYCDocument[]
+  missing: string[]
+}
+
+export interface DealKYC {
+  deal_id: string
+  contact_id: string
+  contact_name: string
+  missing: string[]
+  override_reason?: string
+  override_at?: string
+  can_win: boolean
+  payment_method: string
+  cash_amount: number
+  aml_status: string
+  aml_reasons: string[]
+}
+
+export interface AMLCase {
+  deal_id: string
+  title: string
+  stage: string
+  amount: number
+  currency: string
+  payment_method: string
+  cash_amount: number
+  status: 'flagged' | 'no_report' | 'reported'
+  reasons: string[]
+  flagged_at?: string
+  reviewed_at?: string
+  notes: string
+  goaml_reference: string
+  contact_id: string
+  contact_name: string
+  contact_risk: string
+  contact_is_pep: boolean
+  screening: string
+  owner_name: string
+}
+
+export interface BeneficialOwner { contact_id: string; full_name: string; ownership_pct: number | null; role: string; kyc_missing: string[] }
+
+export interface BroadcastSegment { tag?: string; lead_stage?: string; source?: string; listing_id?: string }
+
+export interface Broadcast {
+  id: string
+  name: string
+  template_name: string
+  language: string
+  params: string[]
+  segment: BroadcastSegment
+  status: 'draft' | 'sending' | 'done' | 'cancelled'
+  created_at: string
+  started_at?: string
+  finished_at?: string
+  counts: Record<string, number>
+}
+
+export interface HoursSpan { open: string; close: string }
+export interface HoursSpecial extends HoursSpan { label: string; from: string; to: string }
+export interface InboxSettings {
+  broadcast_per_minute: number
+  auto_reply_enabled: boolean
+  auto_reply_en: string
+  auto_reply_ar: string
+  hours: { week: HoursSpan[]; specials: HoursSpecial[] } | null
+}
+
 export interface JobRun {
   id: number
   job_name: string
@@ -428,6 +567,12 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ token, password }),
       }),
+    verifyTOTP: (pending_token: string, code: string) =>
+      request<LoginResponse>('/api/v1/auth/verify-totp', { method: 'POST', body: JSON.stringify({ pending_token, code }) }),
+    enrollTOTP: (pending_token: string) =>
+      request<{ secret: string; otpauth_url: string }>('/api/v1/auth/totp/enroll', { method: 'POST', body: JSON.stringify({ pending_token }) }),
+    confirmEnrollTOTP: (pending_token: string, code: string) =>
+      request<LoginResponse>('/api/v1/auth/totp/enroll/confirm', { method: 'POST', body: JSON.stringify({ pending_token, code }) }),
     register: (data: { name: string; email: string; password: string; company_name: string; subdomain: string; turnstile_token?: string }) =>
       request('/api/v1/auth/register', {
         method: 'POST',
@@ -657,6 +802,23 @@ export const api = {
     creditNotes: (id: string) => request(`/api/v1/invoices/${id}/credit-notes`),
     createCreditNote: (id: string, data: { reason: string; lines?: unknown[] }) =>
       request(`/api/v1/invoices/${id}/credit-notes`, { method: 'POST', body: JSON.stringify(data) }),
+  },
+
+  // ─── E-invoicing (PINT AE) ───────────────────────────────────────────────────
+
+  einvoice: {
+    status: (invoiceId: string) => request<EInvoiceStatus>(`/api/v1/invoices/${invoiceId}/einvoice`),
+    /** Builds the PINT AE XML without submitting it, and saves it as a file. */
+    exportXML: async (invoiceId: string, body: EInvoiceRequest, filename: string) =>
+      saveBlob(await requestBlob(`/api/v1/invoices/${invoiceId}/einvoice/xml`, { method: 'POST', body: JSON.stringify(body) }), filename),
+    submit: (invoiceId: string, body: EInvoiceRequest) =>
+      request<EInvoiceRecord>(`/api/v1/invoices/${invoiceId}/einvoice`, { method: 'POST', body: JSON.stringify(body) }),
+    /** The XML that was submitted. */
+    storedXML: async (invoiceId: string, filename: string) =>
+      saveBlob(await requestBlob(`/api/v1/invoices/${invoiceId}/einvoice.xml`), filename),
+    settings: () => request<{ settings: EInvoiceSettings; providers: string[] }>('/api/v1/settings/einvoicing'),
+    updateSettings: (s: EInvoiceSettings) =>
+      request<EInvoiceSettings>('/api/v1/settings/einvoicing', { method: 'PUT', body: JSON.stringify(s) }),
   },
 
   // ─── Stats ───────────────────────────────────────────────────────────────────
@@ -1305,6 +1467,65 @@ export const api = {
     settings: () => request<PropertySettings>('/api/v1/settings/property'),
     updateSettings: (data: PropertySettings) =>
       request<PropertySettings>('/api/v1/settings/property', { method: 'PUT', body: JSON.stringify(data) }),
+  },
+
+  broadcasts: {
+    preview: (segment: BroadcastSegment) => request<{ total: number; eligible: number; no_consent: number; opted_out: number }>('/api/v1/broadcasts/preview', { method: 'POST', body: JSON.stringify(segment) }),
+    list: () => request<Broadcast[]>('/api/v1/broadcasts'),
+    get: (id: string) => request<Broadcast>(`/api/v1/broadcasts/${id}`),
+    create: (data: { name: string; template_name: string; language: string; params: string[]; segment: BroadcastSegment }) =>
+      request<Broadcast>('/api/v1/broadcasts', { method: 'POST', body: JSON.stringify(data) }),
+    start: (id: string) => request<Broadcast>(`/api/v1/broadcasts/${id}/start`, { method: 'POST' }),
+    cancel: (id: string) => request<void>(`/api/v1/broadcasts/${id}/cancel`, { method: 'POST' }),
+    recipients: (id: string, status = '') =>
+      request<{ contact_id: string; name: string; phone: string; status: string; skip_reason?: string; error?: string; sent_at?: string }[]>(`/api/v1/broadcasts/${id}/recipients?status=${status}`),
+    assignThread: (threadId: string, userId: string | null) =>
+      request<void>(`/api/v1/threads/${threadId}/assign`, { method: 'PATCH', body: JSON.stringify({ user_id: userId }) }),
+    inboxSettings: () => request<InboxSettings>('/api/v1/settings/inbox'),
+    updateInboxSettings: (data: InboxSettings) => request<InboxSettings>('/api/v1/settings/inbox', { method: 'PUT', body: JSON.stringify(data) }),
+  },
+
+  kyc: {
+    profile: (contactId: string) => request<KYCProfile>(`/api/v1/contacts/${contactId}/kyc`),
+    update: (contactId: string, data: Partial<KYCProfile>) =>
+      request<KYCProfile>(`/api/v1/contacts/${contactId}/kyc`, { method: 'PUT', body: JSON.stringify(data) }),
+    screen: (contactId: string) => request<KYCProfile>(`/api/v1/contacts/${contactId}/kyc/screen`, { method: 'POST' }),
+    addDocument: (contactId: string, form: FormData) =>
+      request<KYCDocument>(`/api/v1/contacts/${contactId}/kyc/documents`, { method: 'POST', body: form }),
+    downloadDocument: async (id: string, filename: string) =>
+      saveBlob(await requestBlob(`/api/v1/kyc-documents/${id}/file`), filename),
+    deleteDocument: (id: string) => request<void>(`/api/v1/kyc-documents/${id}`, { method: 'DELETE' }),
+    owners: (orgId: string) => request<BeneficialOwner[]>(`/api/v1/organisations/${orgId}/owners`),
+    setOwner: (orgId: string, data: { contact_id: string; ownership_pct?: number | null; role: string }) =>
+      request<void>(`/api/v1/organisations/${orgId}/owners`, { method: 'POST', body: JSON.stringify(data) }),
+    removeOwner: (orgId: string, contactId: string) => request<void>(`/api/v1/organisations/${orgId}/owners/${contactId}`, { method: 'DELETE' }),
+    deal: (dealId: string) => request<DealKYC>(`/api/v1/deals/${dealId}/kyc`),
+    override: (dealId: string, reason: string) =>
+      request<void>(`/api/v1/deals/${dealId}/kyc-override`, { method: 'POST', body: JSON.stringify({ reason }) }),
+    setPayment: (dealId: string, payment_method: string, cash_amount: number) =>
+      request<{ aml_status: string; aml_reasons: string[] }>(`/api/v1/deals/${dealId}/payment`, { method: 'PUT', body: JSON.stringify({ payment_method, cash_amount }) }),
+    amlQueue: (status = 'flagged') => request<AMLCase[]>(`/api/v1/compliance/aml?status=${status}`),
+    review: (dealId: string, data: { decision: 'no_report' | 'reported'; notes: string; goaml_reference?: string }) =>
+      request<void>(`/api/v1/compliance/aml/${dealId}/review`, { method: 'POST', body: JSON.stringify(data) }),
+    exportCSV: async (from: string, to: string) =>
+      saveBlob(await requestBlob(`/api/v1/compliance/aml/export.csv?from=${from}&to=${to}`), `aml-cases-${from}.csv`),
+    settings: () => request<{ cash_threshold: number; flag_virtual_asset: boolean }>('/api/v1/settings/aml'),
+    updateSettings: (data: { cash_threshold: number; flag_virtual_asset: boolean }) =>
+      request<{ cash_threshold: number; flag_virtual_asset: boolean }>('/api/v1/settings/aml', { method: 'PUT', body: JSON.stringify(data) }),
+  },
+
+  twoFactor: {
+    status: () => request<{ enabled: boolean; required_by_company: boolean; backup_codes_left: number }>('/api/v1/users/me/2fa'),
+    setup: () => request<{ secret: string; otpauth_url: string }>('/api/v1/users/me/2fa/setup', { method: 'POST' }),
+    enable: (code: string) => request<{ backup_codes: string[] }>('/api/v1/users/me/2fa/enable', { method: 'POST', body: JSON.stringify({ code }) }),
+    disable: (password: string, code: string) =>
+      request<void>('/api/v1/users/me/2fa/disable', { method: 'POST', body: JSON.stringify({ password, code }) }),
+    newBackupCodes: (code: string) =>
+      request<{ backup_codes: string[] }>('/api/v1/users/me/2fa/backup-codes', { method: 'POST', body: JSON.stringify({ code }) }),
+    resetUser: (userId: string) => request<void>(`/api/v1/users/${userId}/2fa/reset`, { method: 'POST' }),
+    companySettings: () => request<{ require_2fa: boolean; users_without_2fa: number }>('/api/v1/settings/security'),
+    setCompanyRequirement: (require_2fa: boolean) =>
+      request<void>('/api/v1/settings/security', { method: 'PUT', body: JSON.stringify({ require_2fa }) }),
   },
 
   portals: {
