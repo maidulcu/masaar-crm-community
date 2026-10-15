@@ -15,6 +15,7 @@ import { api } from '@/lib/api'
 import { useLang } from '@/context/LangContext'
 import { useAuthStore } from '@/store/auth'
 import type { KanbanBoard, KanbanBoardResponse, KanbanTotals, Lead, LeadStage, Contact, PaginatedResult, CommunicationHistory, User, PipelineStage } from '@/types'
+import { companyCurrency, currencyChoices } from '@/lib/money'
 
 // Cards fetched per column on load, and per "load more" click.
 const BOARD_PER_STAGE = 50
@@ -230,7 +231,7 @@ export default function PipelinePage() {
       contact_id: formData.get('contact_id'),
       source: formData.get('source') || 'whatsapp',
       deal_value: parseFloat(formData.get('deal_value') as string) || 0,
-      currency: (formData.get('currency') as string) || 'AED',
+      currency: (formData.get('currency') as string) || companyCurrency(),
       notes: formData.get('notes') as string || '',
       assigned_to: (formData.get('assigned_to') as string) || null,
     }
@@ -421,11 +422,10 @@ export default function PipelinePage() {
               />
               <select
                 name="currency"
-                defaultValue="AED"
+                defaultValue={companyCurrency()}
                 className="w-24 px-2 py-2.5 border border-surface-200 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-500/40"
               >
-                <option value="AED">AED</option>
-                <option value="USD">USD</option>
+                {currencyChoices().map(c => <option key={c} value={c}>{c}</option>)}
               </select>
             </div>
           </FormField>

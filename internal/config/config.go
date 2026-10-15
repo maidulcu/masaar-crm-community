@@ -79,6 +79,10 @@ type Config struct {
 	AppEnv string
 	AppURL string // base URL for generating links in emails, e.g. https://crm.yourcompany.ae
 
+	// JobsEnabled runs background jobs (reminders, expiries) in this process. Replicas
+	// coordinate through the database, so leaving it on everywhere is safe.
+	JobsEnabled bool
+
 	// SaaS registration
 	AllowRegistration bool
 	// AppCompanyID is the company that owns system-originated events (inbound
@@ -172,6 +176,7 @@ func Load() *Config {
 		AppEnv:                 getEnv("APP_ENV", "development"),
 		AppURL:                 getEnv("APP_URL", "http://localhost:3000"),
 		AllowRegistration:      getEnv("ALLOW_REGISTRATION", "false") == "true",
+		JobsEnabled:            getEnv("JOBS_ENABLED", "true") != "false",
 		AppCompanyID:           getEnv("APP_COMPANY_ID", "00000000-0000-0000-0000-000000000001"),
 		TrialDurationDays:      getEnvInt("TRIAL_DURATION_DAYS", 90),
 		TrialPlanID:            getEnv("TRIAL_PLAN_ID", "starter"),

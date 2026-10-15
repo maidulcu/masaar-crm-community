@@ -31,6 +31,7 @@ import (
 	"github.com/maidulcu/masaar-crm/internal/config"
 	"github.com/maidulcu/masaar-crm/internal/docusign"
 	"github.com/maidulcu/masaar-crm/internal/email"
+	"github.com/maidulcu/masaar-crm/internal/jobs"
 	"github.com/maidulcu/masaar-crm/internal/mediastore"
 	"github.com/maidulcu/masaar-crm/internal/repo"
 	"github.com/maidulcu/masaar-crm/internal/sms"
@@ -119,6 +120,7 @@ func main() {
 	pipelineStageRepo := repo.NewPipelineStageRepo(pool)
 	approvalRepo := repo.NewApprovalRepo(pool)
 	paymentReminderRepo := repo.NewPaymentReminderRepo(pool)
+	jobRepo := repo.NewJobRepo(pool)
 
 	// ── Services / clients ───────────────────────────────────────────────────
 	hub := ws.NewHub()
@@ -249,6 +251,7 @@ func main() {
 		ImportExport:        handler.NewImportExportHandler(contactRepo, leadRepo, listingRepo),
 		PipelineStage:       handler.NewPipelineStageHandler(pipelineStageRepo),
 		Approval:            handler.NewApprovalHandler(approvalRepo),
+		Job:                 handler.NewJobHandler(jobRepo),
 	}
 	if cfg.DocusignWebhookSecret != "" {
 		h.DocusignWebhook = handler.NewDocusignWebhookHandler(documentRepo, cfg.DocusignWebhookSecret)
@@ -284,6 +287,18 @@ func main() {
 
 	api.RegisterRoutes(app, h, hub, cfg, rdb, pool, apiKeyRepo, billingRepo, companyRepo)
 
+	// ── Background jobs ──────────────────────────────────────────────────────
+	var runner *jobs.Runner
+	if cfg.JobsEnabled {
+		notifier := jobs.NewNotifier(notificationRepo, userRepo, emailSvc, hub)
+		runner = jobs.NewRunner(jobRepo, 30*time.Second,
+			jobs.ViewingReminders(viewingRepo, notifier),
+			jobs.OfferExpiry(offerRepo, notifier),
+			jobs.PruneRunLog(jobRepo),
+		)
+		runner.Start(ctx)
+	}
+
 	errCh := make(chan error, 1)
 	go func() { errCh <- app.Listen(":" + cfg.Port) }()
 	log.Printf("Masaar CRM listening on :%s (env=%s)", cfg.Port, cfg.AppEnv)
@@ -299,6 +314,9 @@ func main() {
 		defer cancel()
 		if err := app.ShutdownWithContext(shutdownCtx); err != nil {
 			log.Printf("shutdown: %v", err)
+		}
+		if runner != nil {
+			runner.Wait() // ctx is cancelled: finishes the run in progress, starts no more
 		}
 	}
 }

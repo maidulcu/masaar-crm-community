@@ -1,13 +1,18 @@
-// All timestamps from the API are UTC. This module formats them in Gulf Standard
-// Time (GST = UTC+4, no DST) which is the legal timezone for UAE.
+import { currentLocale } from '@/store/locale'
+
+// All timestamps from the API are UTC. This module formats them in the company's
+// timezone (Settings → Company), which defaults to Asia/Dubai (GST, UTC+4, no DST).
 
 const GST_LOCALE = 'en-AE'
-const GST_TZ = 'Asia/Dubai' // IANA identifier for GST (UTC+4, no DST)
+
+function tz(): string {
+  return currentLocale().timezone || 'Asia/Dubai'
+}
 
 /** Format a UTC timestamp as a human-readable date in GST. */
 export function formatDate(iso: string | Date): string {
   return new Intl.DateTimeFormat(GST_LOCALE, {
-    timeZone: GST_TZ,
+    timeZone: tz(),
     year: 'numeric',
     month: 'short',
     day: 'numeric',
@@ -17,7 +22,7 @@ export function formatDate(iso: string | Date): string {
 /** Format a UTC timestamp as date + time in GST. */
 export function formatDateTime(iso: string | Date): string {
   return new Intl.DateTimeFormat(GST_LOCALE, {
-    timeZone: GST_TZ,
+    timeZone: tz(),
     year: 'numeric',
     month: 'short',
     day: 'numeric',

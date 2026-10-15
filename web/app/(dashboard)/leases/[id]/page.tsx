@@ -9,6 +9,7 @@ import { useLang } from '@/context/LangContext'
 import type { Lease, Payment, PaginatedResult } from '@/types'
 import DocumentAttachmentSection from '@/components/DocumentAttachmentSection'
 import clsx from 'clsx'
+import { companyCurrency } from '@/lib/money'
 
 const statusColor: Record<string, string> = {
   active:     'bg-green-100 text-green-700',
@@ -59,7 +60,7 @@ export default function LeaseDetailPage() {
       year: 'numeric', month: 'short', day: 'numeric',
     }) : '—'
 
-  const fmtAmount = (amount: number, currency = 'AED') =>
+  const fmtAmount = (amount: number, currency = companyCurrency()) =>
     new Intl.NumberFormat(lang === 'ar' ? 'ar-AE' : 'en-AE', {
       style: 'currency', currency,
     }).format(amount)

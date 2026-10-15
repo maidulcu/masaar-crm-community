@@ -8,6 +8,7 @@ import { useLang } from '@/context/LangContext'
 import { useAuthStore } from '@/store/auth'
 import { api } from '@/lib/api'
 import type { Listing, PaginatedResult } from '@/types'
+import { companyCurrency, currencyChoices } from '@/lib/money'
 
 const EMIRATES = ['Abu Dhabi', 'Dubai', 'Sharjah', 'Ajman', 'Umm Al Quwain', 'Ras Al Khaimah', 'Fujairah']
 const PROPERTY_TYPES = ['apartment', 'villa', 'townhouse', 'commercial', 'land', 'studio', 'warehouse', 'office']
@@ -43,7 +44,7 @@ export default function ListingsPage() {
   const [page, setPage] = useState(1)
   const [total, setTotal] = useState(0)
   const [open, setOpen] = useState(false)
-  const [form, setForm] = useState(blank)
+  const [form, setForm] = useState(() => ({ ...blank, currency: companyCurrency() }))
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const limit = 20
@@ -85,7 +86,7 @@ export default function ListingsPage() {
         available_from: form.available_from || null,
       })
       setOpen(false)
-      setForm(blank)
+      setForm({ ...blank, currency: companyCurrency() })
       load()
     } catch (err: any) {
       setError(err.message || t('حدث خطأ', 'Something went wrong'))
@@ -215,9 +216,7 @@ export default function ListingsPage() {
             </FormField>
             <FormField label={t('العملة', 'Currency')}>
               <select className={inputCls} value={form.currency} onChange={e => set('currency', e.target.value)}>
-                <option value="AED">AED</option>
-                <option value="USD">USD</option>
-                <option value="EUR">EUR</option>
+                {currencyChoices(form.currency).map(c => <option key={c} value={c}>{c}</option>)}
               </select>
             </FormField>
           </div>

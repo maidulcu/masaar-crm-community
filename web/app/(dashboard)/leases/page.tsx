@@ -6,6 +6,7 @@ import { Modal, FormField, FormError } from '@/components/ui/Modal'
 import { useLang } from '@/context/LangContext'
 import { api } from '@/lib/api'
 import type { Lease, Tenant, RentalProperty, PaginatedResult } from '@/types'
+import { companyCurrency } from '@/lib/money'
 
 const FREQUENCIES = ['monthly', 'quarterly', 'semi_annual', 'annual', 'bi_monthly']
 
@@ -26,7 +27,7 @@ export default function LeasesPage() {
   const [page, setPage] = useState(1)
   const [total, setTotal] = useState(0)
   const [open, setOpen] = useState(false)
-  const [form, setForm] = useState(blank)
+  const [form, setForm] = useState(() => ({ ...blank, currency: companyCurrency() }))
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const limit = 20
@@ -57,7 +58,7 @@ export default function LeasesPage() {
     try {
       await api.leases.create(form)
       setOpen(false)
-      setForm(blank)
+      setForm({ ...blank, currency: companyCurrency() })
       load()
     } catch (err: any) {
       setError(err.message || t('حدث خطأ', 'Something went wrong'))
@@ -166,10 +167,10 @@ export default function LeasesPage() {
           </div>
 
           <div className="grid grid-cols-2 gap-3">
-            <FormField label={t('الإيجار الشهري (AED)', 'Monthly Rent (AED)')}>
+            <FormField label={t(`الإيجار الشهري (${companyCurrency()})`, `Monthly Rent (${companyCurrency()})`)}>
               <input type="number" min={0} required className={inputCls} value={form.monthly_rent} onChange={e => set('monthly_rent', +e.target.value)} />
             </FormField>
-            <FormField label={t('مبلغ التأمين (AED)', 'Security Deposit (AED)')}>
+            <FormField label={t(`مبلغ التأمين (${companyCurrency()})`, `Security Deposit (${companyCurrency()})`)}>
               <input type="number" min={0} className={inputCls} value={form.security_deposit} onChange={e => set('security_deposit', +e.target.value)} />
             </FormField>
           </div>

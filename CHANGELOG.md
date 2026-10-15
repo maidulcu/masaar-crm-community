@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [v0.4.0] - Unreleased
+
+Foundations for the UAE-launch roadmap (#82, milestone #83). Includes migrations `0065` and `0066`.
+
+### Added
+- **Background jobs.** A scheduler runs inside the API (`internal/jobs`). Each job is claimed in the database before it runs, so with several replicas it still runs once per interval, and a lease stops a slow run from being started twice. Runs that handled something or failed are logged per company for 30 days and listed under **Settings → Background Jobs** (`GET /api/v1/admin/jobs/runs`). Set `JOBS_ENABLED=false` to keep a process from running jobs.
+  - **Viewing reminders:** the assigned agent is notified (in-app, live, and by email when mail is configured) up to an hour before a viewing, once. Rescheduling a viewing re-arms its reminder.
+  - **Offer expiry:** submitted or under-review offers past `valid_until` become `expired` and the agent is notified.
+- **Country rules** (`internal/jurisdiction`): VAT rates and categories, currency and its decimals, timezone, weekend days, regions (emirates) and tax-number format, per country. Only the UAE is defined so far.
+- **Company country, emirate, currency and timezone** (Settings → Company). `GET /api/v1/settings/locale` (every role) and `GET /api/v1/settings/jurisdictions`. The web app formats amounts in the company currency and dates in the company timezone instead of hard-coded AED/Asia/Dubai.
+
+### Changed
+- **Money columns hold 3 decimals** (`NUMERIC(p+1,3)`), so BHD, KWD and OMR amounts are stored exactly. Existing values are unchanged. Invoices keep 2 decimals until the invoice model is reworked (#84).
+- The company VAT number (TRN) is **optional** (businesses below the registration threshold have none); when given it must have 15 digits.
+
+### Fixed
+- **Settings → Company never loaded or saved.** The page used field names the API does not have (`company_name`, `address`, `iban`, …) and read a `data` wrapper the API never returns, so the form stayed empty and every save failed. It now uses the API's fields.
+- Notifications created without an id (e.g. "viewing scheduled") were all inserted with the nil UUID, so every one after the first failed silently.
+
+### Upgrade notes
+- Migration `0066` rewrites the tables that hold money columns (deals, leads, leases, payments, listings, offers, …). On a large database, run it in a maintenance window.
+- A company whose stored VAT number is not 15 digits must correct it the next time it saves company settings.
+
 ## [v0.3.4] - Unreleased
 
 ### Security / bug / performance audit

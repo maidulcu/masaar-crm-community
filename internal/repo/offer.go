@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -347,20 +346,48 @@ func (r *OfferRepo) Delete(ctx context.Context, id uuid.UUID) error {
 	return err
 }
 
-// ExpireOlderThan marks submitted/under_review offers whose valid_until has passed.
-// Called by a background job. Intentionally NOT company-scoped: it is a system-wide
-// sweep that only flips overdue offers to 'expired' and returns no tenant data.
-func (r *OfferRepo) ExpireOlderThan(ctx context.Context, before time.Time) (int64, error) {
-	tag, err := r.db.Exec(ctx, `
-		UPDATE offers SET status='expired', updated_at=NOW()
-		WHERE status IN ('submitted','under_review')
-		  AND valid_until IS NOT NULL
-		  AND valid_until < $1
-	`, before)
+// ExpiredOffer identifies an offer that ExpireDue moved to 'expired'.
+type ExpiredOffer struct {
+	ID           uuid.UUID
+	AgentID      *uuid.UUID
+	ListingTitle string
+	ContactName  string
+}
+
+// ExpireDue marks the company's submitted/under-review offers whose valid_until has
+// passed as 'expired' and returns them, so the agent can be told. The UPDATE only
+// matches offers still open, so an offer is reported once.
+func (r *OfferRepo) ExpireDue(ctx context.Context) ([]ExpiredOffer, error) {
+	cid, err := tenant.From(ctx)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
-	return tag.RowsAffected(), nil
+	rows, err := r.db.Query(ctx, `
+		WITH expired AS (
+			UPDATE offers SET status='expired', updated_at=NOW()
+			 WHERE company_id = $1
+			   AND status IN ('submitted','under_review')
+			   AND valid_until IS NOT NULL
+			   AND valid_until < NOW()
+			RETURNING id, agent_id, listing_id, contact_id
+		)
+		SELECT e.id, e.agent_id, COALESCE(l.title,''), COALESCE(c.full_name,'')
+		  FROM expired e
+		  LEFT JOIN listings l ON l.id = e.listing_id AND l.company_id = $1
+		  LEFT JOIN contacts c ON c.id = e.contact_id AND c.company_id = $1`, cid)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []ExpiredOffer
+	for rows.Next() {
+		var o ExpiredOffer
+		if err := rows.Scan(&o.ID, &o.AgentID, &o.ListingTitle, &o.ContactName); err != nil {
+			return nil, err
+		}
+		out = append(out, o)
+	}
+	return out, rows.Err()
 }
 
 func joinAnd(parts []string) string {

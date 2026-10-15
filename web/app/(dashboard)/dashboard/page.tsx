@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { Header } from '@/components/layout/Header'
 import { api } from '@/lib/api'
 import { useLang } from '@/context/LangContext'
+import { companyCurrency } from '@/lib/money'
 
 interface Stats {
   total_contacts: number
@@ -99,7 +100,7 @@ export default function DashboardPage() {
                 <StatCard
                   label={t('صفقات مفتوحة', 'Open Deals')}
                   value={fmt(stats?.open_deals ?? 0)}
-                  sub={stats?.open_deals_value ? `AED ${fmt(stats.open_deals_value)}` : undefined}
+                  sub={stats?.open_deals_value ? `${companyCurrency()} ${fmt(stats.open_deals_value)}` : undefined}
                   href="/deals"
                   color="text-gold-600"
                 />
@@ -119,7 +120,7 @@ export default function DashboardPage() {
                 </div>
                 <div className="text-end">
                   <p className="text-[11px] text-emerald-600 mb-1.5">{t('إجمالي القيمة', 'Total Value')}</p>
-                  <p className="text-xl font-bold text-emerald-700 tabular-nums">AED {fmt(stats?.won_deals_value ?? 0)}</p>
+                  <p className="text-xl font-bold text-emerald-700 tabular-nums">{companyCurrency()} {fmt(stats?.won_deals_value ?? 0)}</p>
                 </div>
                 <div className="w-11 h-11 rounded-2xl bg-emerald-100 text-emerald-600 flex items-center justify-center ms-2 shrink-0">
                   <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">

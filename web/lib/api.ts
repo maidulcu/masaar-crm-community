@@ -56,6 +56,37 @@ export async function silentRefresh(): Promise<string | null> {
   return refreshPromise
 }
 
+export interface JurisdictionRegion { code: string; name_en: string; name_ar: string }
+export interface JurisdictionRules {
+  country: string
+  name_en: string
+  name_ar: string
+  currency: string
+  currency_decimals: number
+  timezone: string
+  weekend: number[] // 0 = Sunday … 6 = Saturday
+  vat_rates: Record<string, number>
+  tax_id_digits: number
+  regions: JurisdictionRegion[]
+}
+export interface CompanyLocale {
+  country: string
+  region: string
+  currency: string
+  currency_decimals: number
+  timezone: string
+  rules: JurisdictionRules
+}
+export interface JobRun {
+  id: number
+  job_name: string
+  started_at: string
+  finished_at: string
+  status: 'ok' | 'error'
+  items: number
+  error?: string
+}
+
 async function request<T>(path: string, init: RequestInit = {}, _retry = true): Promise<T> {
   const token = getToken()
   const auth = authInit(path)
@@ -717,6 +748,8 @@ export const api = {
   // ─── Settings ────────────────────────────────────────────────────────────────
 
   settings: {
+    locale: () => request<CompanyLocale>('/api/v1/settings/locale'),
+    jurisdictions: () => request<JurisdictionRules[]>('/api/v1/settings/jurisdictions'),
     getCompany: () => request('/api/v1/settings/company'),
     updateCompany: (data: unknown) =>
       request('/api/v1/settings/company', { method: 'PATCH', body: JSON.stringify(data) }),
@@ -966,6 +999,10 @@ export const api = {
       if (params.limit) q.set('limit', String(params.limit))
       return request(`/api/v1/audit-logs?${q}`)
     },
+  },
+
+  jobs: {
+    runs: (limit = 100) => request<JobRun[]>(`/api/v1/admin/jobs/runs?limit=${limit}`),
   },
 
   importExport: {

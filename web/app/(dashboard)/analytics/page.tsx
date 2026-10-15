@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { useLang } from '@/context/LangContext'
 import { api } from '@/lib/api'
 import Link from 'next/link'
+import { companyCurrency } from '@/lib/money'
 
 interface TenantAnalytics {
   total_tenants: number
@@ -90,7 +91,7 @@ export default function AnalyticsPage() {
       financial: 'Financial',
       maintenance: 'Maintenance',
       viewAll: 'View All',
-      aed: 'AED',
+      aed: companyCurrency(),
       percent: '%',
       days: 'days',
       tasks: 'tasks',
@@ -119,7 +120,7 @@ export default function AnalyticsPage() {
       financial: 'المالي',
       maintenance: 'الصيانة',
       viewAll: 'عرض الكل',
-      aed: 'د.إ',
+      aed: companyCurrency() === 'AED' ? 'د.إ' : companyCurrency(),
       percent: '%',
       days: 'أيام',
       tasks: 'مهام',
