@@ -193,6 +193,12 @@ export interface WhatsAppThread {
   message_count: number
   ai_summary: string
   created_at: string
+  assigned_to?: string
+  assignee_name?: string
+  last_inbound_at?: string
+  /** The customer wrote in the last 24 hours: free-form replies are allowed. */
+  window_open: boolean
+  window_ends_at?: string
   contact?: Contact
 }
 

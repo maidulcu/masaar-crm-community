@@ -39,6 +39,7 @@ type Handlers struct {
 	Cheque              *handler.ChequeHandler
 	LeaseOps            *handler.LeaseOpsHandler
 	KYC                 *handler.KYCHandler
+	Broadcast           *handler.BroadcastHandler
 	Email               *handler.EmailHandler
 	RentalProperty      *handler.RentalPropertyHandler
 	Tenant              *handler.TenantHandler
@@ -892,6 +893,18 @@ func RegisterRoutes(app *fiber.App, h *Handlers, hub *ws.Hub, cfg *config.Config
 	)
 
 	// Leases — agents: create+view+update; admin: all; viewers: read-only
+	// WhatsApp broadcasts and inbox (#87)
+	v1.Post("/broadcasts/preview", middleware.RequireRole(domain.RoleAdmin), h.Broadcast.Preview)
+	v1.Get("/broadcasts", middleware.RequireRole(domain.RoleAdmin), h.Broadcast.List)
+	v1.Post("/broadcasts", middleware.RequireRole(domain.RoleAdmin), h.Broadcast.Create)
+	v1.Get("/broadcasts/:id", middleware.RequireRole(domain.RoleAdmin), h.Broadcast.Get)
+	v1.Get("/broadcasts/:id/recipients", middleware.RequireRole(domain.RoleAdmin), h.Broadcast.Recipients)
+	v1.Post("/broadcasts/:id/start", middleware.RequireRole(domain.RoleAdmin), h.Broadcast.Start)
+	v1.Post("/broadcasts/:id/cancel", middleware.RequireRole(domain.RoleAdmin), h.Broadcast.Cancel)
+	v1.Patch("/threads/:id/assign", middleware.RequireRole(domain.RoleAdmin, domain.RoleAgent), h.Broadcast.AssignThread)
+	v1.Get("/settings/inbox", middleware.RequireRole(domain.RoleAdmin), h.Broadcast.GetInboxSettings)
+	v1.Put("/settings/inbox", middleware.RequireRole(domain.RoleAdmin), h.Broadcast.UpdateInboxSettings)
+
 	// KYC and AML (#87). Identity data: admins, agents and compliance officers; risk,
 	// screening and the AML queue: admins and compliance officers.
 	kycStaff := middleware.RequireRole(domain.RoleAdmin, domain.RoleAgent, domain.RoleCompliance)

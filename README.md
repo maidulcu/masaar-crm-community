@@ -51,6 +51,9 @@ Masaar is a **free, open-source CRM designed specifically for UAE businesses**. 
 | **Property Portals** | Lead webhooks and a listing XML feed per portal (Property Finder, Bayut, Dubizzle, others), lead-source report |
 | **Post-dated Cheques** | Cheque schedule per lease, deposit list, bounced-cheque workflow; cleared cheques mark rent paid |
 | **Lease Alerts & Notices** | Alerts before leases and Ejari registrations expire and before the rent-change notice deadline; bilingual notices to tenants; rent reminders by email and WhatsApp |
+| **Two-factor Authentication** | Authenticator-app codes and backup codes, optional per user or required company-wide |
+| **KYC / AML** | Client identity documents, risk and PEP records, beneficial owners, KYC check before a deal is won, AML review queue and goAML export, compliance role |
+| **WhatsApp Broadcasts** | Approved templates to consenting segments, STOP/إيقاف opt-out, 24-hour window indicator, conversation assignment, business-hours auto-reply |
 | **Calculators** | Purchase costs (DLD fees), mortgage, rental yield and commission with VAT, shareable on WhatsApp |
 | **User Settings** | Per-user password change and language preference (Arabic/English) |
 | **Role-Based Access** | Three roles: Admin, Agent, Viewer — enforced on every API route |
@@ -255,6 +258,11 @@ All protected routes require `Authorization: Bearer <token>`. Full interactive d
 | `POST` | `/webhooks/portals/:portal?token=` | Receive a lead from a property portal | Token |
 | `GET` | `/api/public/feeds/:portal/listings.xml?token=` | Listing feed for a portal | Token |
 | `GET` | `/api/v1/reports/lead-sources` | Leads, wins and revenue by source | Admin |
+| `POST` | `/api/v1/auth/verify-totp` | Complete sign-in with a two-factor code | Pending token |
+| `POST` | `/api/v1/users/me/2fa/setup` | Start setting up two-factor | Auth |
+| `GET` | `/api/v1/contacts/:id/kyc` | A contact's KYC record | Agent, Admin, Compliance |
+| `GET` | `/api/v1/compliance/aml` | AML review queue | Admin, Compliance |
+| `POST` | `/api/v1/broadcasts` | Create a WhatsApp broadcast | Admin |
 | `GET` | `/api/v1/cheques` | Cheque register (filters: status, from, to, lease) | Auth |
 | `POST` | `/api/v1/leases/:id/cheques/schedule` | Create a lease's cheque schedule | Agent, Admin |
 | `POST` | `/api/v1/cheques/:id/status` | Deposit, clear, bounce, hold or return a cheque | Agent, Admin |

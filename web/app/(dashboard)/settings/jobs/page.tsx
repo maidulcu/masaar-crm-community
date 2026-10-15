@@ -16,6 +16,7 @@ const JOB_LABELS: Record<string, { en: string; ar: string }> = {
   cheque_deposits: { en: 'Cheques to deposit', ar: 'الشيكات المستحقة للإيداع' },
   lease_alerts: { en: 'Lease, Ejari and rent-notice alerts', ar: 'تنبيهات العقود وإيجاري وإشعارات الإيجار' },
   rent_reminders: { en: 'Rent reminders to tenants', ar: 'تذكيرات الإيجار للمستأجرين' },
+  whatsapp_broadcasts: { en: 'WhatsApp broadcasts', ar: 'رسائل واتساب الجماعية' },
 }
 
 export default function JobRunsPage() {

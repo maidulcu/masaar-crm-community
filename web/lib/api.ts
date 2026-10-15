@@ -336,6 +336,32 @@ export interface AMLCase {
 
 export interface BeneficialOwner { contact_id: string; full_name: string; ownership_pct: number | null; role: string; kyc_missing: string[] }
 
+export interface BroadcastSegment { tag?: string; lead_stage?: string; source?: string; listing_id?: string }
+
+export interface Broadcast {
+  id: string
+  name: string
+  template_name: string
+  language: string
+  params: string[]
+  segment: BroadcastSegment
+  status: 'draft' | 'sending' | 'done' | 'cancelled'
+  created_at: string
+  started_at?: string
+  finished_at?: string
+  counts: Record<string, number>
+}
+
+export interface HoursSpan { open: string; close: string }
+export interface HoursSpecial extends HoursSpan { label: string; from: string; to: string }
+export interface InboxSettings {
+  broadcast_per_minute: number
+  auto_reply_enabled: boolean
+  auto_reply_en: string
+  auto_reply_ar: string
+  hours: { week: HoursSpan[]; specials: HoursSpecial[] } | null
+}
+
 export interface JobRun {
   id: number
   job_name: string
@@ -1379,6 +1405,22 @@ export const api = {
     settings: () => request<PropertySettings>('/api/v1/settings/property'),
     updateSettings: (data: PropertySettings) =>
       request<PropertySettings>('/api/v1/settings/property', { method: 'PUT', body: JSON.stringify(data) }),
+  },
+
+  broadcasts: {
+    preview: (segment: BroadcastSegment) => request<{ total: number; eligible: number; no_consent: number; opted_out: number }>('/api/v1/broadcasts/preview', { method: 'POST', body: JSON.stringify(segment) }),
+    list: () => request<Broadcast[]>('/api/v1/broadcasts'),
+    get: (id: string) => request<Broadcast>(`/api/v1/broadcasts/${id}`),
+    create: (data: { name: string; template_name: string; language: string; params: string[]; segment: BroadcastSegment }) =>
+      request<Broadcast>('/api/v1/broadcasts', { method: 'POST', body: JSON.stringify(data) }),
+    start: (id: string) => request<Broadcast>(`/api/v1/broadcasts/${id}/start`, { method: 'POST' }),
+    cancel: (id: string) => request<void>(`/api/v1/broadcasts/${id}/cancel`, { method: 'POST' }),
+    recipients: (id: string, status = '') =>
+      request<{ contact_id: string; name: string; phone: string; status: string; skip_reason?: string; error?: string; sent_at?: string }[]>(`/api/v1/broadcasts/${id}/recipients?status=${status}`),
+    assignThread: (threadId: string, userId: string | null) =>
+      request<void>(`/api/v1/threads/${threadId}/assign`, { method: 'PATCH', body: JSON.stringify({ user_id: userId }) }),
+    inboxSettings: () => request<InboxSettings>('/api/v1/settings/inbox'),
+    updateInboxSettings: (data: InboxSettings) => request<InboxSettings>('/api/v1/settings/inbox', { method: 'PUT', body: JSON.stringify(data) }),
   },
 
   kyc: {

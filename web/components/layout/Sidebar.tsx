@@ -68,6 +68,16 @@ const sections: NavSection[] = [
         ),
       },
       {
+        href: '/broadcasts',
+        label: { en: 'Broadcasts', ar: 'الرسائل الجماعية' },
+        icon: (
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M11 5.9V19a1 1 0 01-1.7.7L5.6 16H3a1 1 0 01-1-1V9a1 1 0 011-1h2.6l3.7-3.7A1 1 0 0111 5.9zM15.5 8.5a5 5 0 010 7M18.4 5.6a9 9 0 010 12.8" />
+          </svg>
+        ),
+        adminOnly: true,
+      },
+      {
         href: '/inbox',
         label: { en: 'Inbox', ar: 'الرسائل' },
         icon: (
@@ -439,6 +449,16 @@ const sections: NavSection[] = [
         icon: (
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+          </svg>
+        ),
+        adminOnly: true,
+      },
+      {
+        href: '/settings/inbox',
+        label: { en: 'WhatsApp Inbox', ar: 'صندوق واتساب' },
+        icon: (
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8v4l3 3M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
         ),
         adminOnly: true,
