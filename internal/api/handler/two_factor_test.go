@@ -42,7 +42,8 @@ func TestTwoFactorSignIn(t *testing.T) {
 
 	cid, alice, bob := uuid.New(), uuid.New(), uuid.New()
 	aliceEmail, bobEmail := "alice-"+cid.String()[:8]+"@test.local", "bob-"+cid.String()[:8]+"@test.local"
-	hash, _ := bcrypt.GenerateFromPassword([]byte("Passw0rd!x"), bcrypt.MinCost)
+	password := "pw-" + uuid.NewString() // generated: no credential-like literals in the repository
+	hash, _ := bcrypt.GenerateFromPassword([]byte(password), bcrypt.MinCost)
 	exec := func(q string, args ...any) {
 		t.Helper()
 		if _, err := pool.Exec(ctx, q, args...); err != nil {
@@ -62,7 +63,7 @@ func TestTwoFactorSignIn(t *testing.T) {
 	})
 
 	box, _ := totp.NewBox("test key")
-	cfg := &config.Config{JWTSecret: "test-secret-0123456789", JWTAccessExpiryMin: 15, JWTRefreshExpiryDays: 7}
+	cfg := &config.Config{JWTSecret: uuid.NewString(), JWTAccessExpiryMin: 15, JWTRefreshExpiryDays: 7}
 	h := NewAuthHandler(repo.NewUserRepo(pool), repo.NewCompanyRepo(pool), rdb, cfg, repo.NewAuditLogRepo(pool), nil, nil).
 		UseTwoFactor(repo.NewTwoFactorRepo(pool), box)
 
@@ -101,7 +102,7 @@ func TestTwoFactorSignIn(t *testing.T) {
 	}
 	login := func(email string) map[string]any {
 		t.Helper()
-		code, out := call("/login", map[string]string{"email": email, "password": "Passw0rd!x"})
+		code, out := call("/login", map[string]string{"email": email, "password": password})
 		if code != 200 {
 			t.Fatalf("login %s: %d %v", email, code, out)
 		}
@@ -182,7 +183,7 @@ func TestTwoFactorSignIn(t *testing.T) {
 	if code != 200 || bobSess["access_token"] == nil || len(bobSess["backup_codes"].([]any)) != 8 {
 		t.Fatalf("enrol: %d %v", code, bobSess)
 	}
-	if code, _ := call("/me/disable", map[string]string{"password": "Passw0rd!x", "code": next}); code != 403 {
+	if code, _ := call("/me/disable", map[string]string{"password": password, "code": next}); code != 403 {
 		t.Fatalf("disable while required: %d", code)
 	}
 
@@ -195,7 +196,7 @@ func TestTwoFactorSignIn(t *testing.T) {
 	if last != 429 {
 		t.Fatalf("fifth wrong code: %d", last)
 	}
-	if code, _ := call("/login", map[string]string{"email": bobEmail, "password": "Passw0rd!x"}); code != 429 {
+	if code, _ := call("/login", map[string]string{"email": bobEmail, "password": password}); code != 429 {
 		t.Fatalf("password login while locked: %d", code)
 	}
 }
