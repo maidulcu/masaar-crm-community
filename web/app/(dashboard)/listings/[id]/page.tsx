@@ -244,7 +244,9 @@ export default function ListingDetailPage() {
               <p className="text-xs text-gray-500">
                 {listing.permit.system === 'trakheesi'
                   ? t('تصريح الإعلان (تراخيصي)', 'Advertising permit (Trakheesi)')
-                  : t('رقم الإعلان الموثق (مضمون)', 'Verified listing number (Madhmoun)')}
+                  : listing.permit.system === 'rega'
+                    ? t('ترخيص الإعلان العقاري (الهيئة العامة للعقار)', 'Advertising licence (REGA)')
+                    : t('رقم الإعلان الموثق (مضمون)', 'Verified listing number (Madhmoun)')}
               </p>
               <p className="font-mono font-semibold text-gray-900" dir="ltr">{listing.permit_number || '—'}</p>
               {listing.permit_expiry && <p className="text-xs text-gray-500">{t('ينتهي', 'Expires')} {listing.permit_expiry.slice(0, 10)}</p>}

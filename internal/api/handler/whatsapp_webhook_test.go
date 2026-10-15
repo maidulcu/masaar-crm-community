@@ -208,6 +208,8 @@ func newWAEnv(t *testing.T) *waEnv {
 				`DELETE FROM whatsapp_outbound WHERE company_id = $1`,
 				`DELETE FROM whatsapp_messages WHERE thread_id IN (SELECT id FROM whatsapp_threads WHERE company_id = $1)`,
 				`DELETE FROM whatsapp_threads WHERE company_id = $1`,
+				`DELETE FROM contact_consents WHERE company_id = $1`,
+				`DELETE FROM communication_history WHERE company_id = $1`,
 				`DELETE FROM contacts WHERE company_id = $1`,
 				`DELETE FROM users WHERE company_id = $1`,
 				`DELETE FROM company_settings WHERE company_id = $1`,
@@ -231,7 +233,8 @@ func newWAEnv(t *testing.T) *waEnv {
 	media := NewWAMediaService(sender, store, waRepo, 1) // 1 MB cap keeps the oversize test small
 	cfg := &config.Config{WAAppSecret: waTestSecret, AppCompanyID: id.String(), WAVerifyToken: "verify-me"}
 	comms := repo.NewCommunicationHistoryRepo(pool)
-	wa := NewWhatsAppHandler(waRepo, repo.NewContactRepo(pool), repo.NewWhatsAppOutboundRepo(pool), comms, media, nil, ws.NewHub(), cfg)
+	wa := NewWhatsAppHandler(waRepo, repo.NewContactRepo(pool), repo.NewWhatsAppOutboundRepo(pool), comms, media, nil, ws.NewHub(), cfg).
+		UseInbox(repo.NewBroadcastRepo(pool), repo.NewPrivacyRepo(pool), sender, repo.NewCompanySettingsRepo(pool).Locale)
 	out := NewWhatsAppOutboundHandler(sender, repo.NewWhatsAppOutboundRepo(pool), waRepo, comms, media)
 
 	app := fiber.New(fiber.Config{BodyLimit: 10 * 1024 * 1024})

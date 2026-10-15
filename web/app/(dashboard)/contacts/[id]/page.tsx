@@ -8,6 +8,7 @@ import { useAuthStore } from '@/store/auth'
 import { api } from '@/lib/api'
 import EmailComposeModal from '@/components/communication/EmailComposeModal'
 import PrivacyPanel from '@/components/contact/PrivacyPanel'
+import KYCPanel from '@/components/kyc/KYCPanel'
 import ProfilePanel from '@/components/contact/ProfilePanel'
 import CustomFieldsPanel from '@/components/contact/CustomFieldsPanel'
 import type { Contact, Lead, WhatsAppThread, User } from '@/types'
@@ -219,6 +220,10 @@ export default function ContactDetailPage() {
           <h3 className="text-sm font-semibold text-surface-900 mb-3">{t('نماذج ريرا', 'RERA forms')}</h3>
           <ReraPanel contactId={contact.id} types={['B']} canEdit={isAgent && !contact.erased_at} />
         </div>
+
+        {(isAgent || user?.role === 'compliance') && !contact.erased_at && (
+          <KYCPanel contactId={contact.id} canAdd={isAgent || user?.role === 'compliance'} canReview={isAdmin || user?.role === 'compliance'} />
+        )}
 
         <PrivacyPanel
           contactId={contact.id}

@@ -31,6 +31,7 @@ export default function ThreadPage() {
   const isAgent = user?.role === 'admin' || user?.role === 'agent'
 
   const [thread, setThread] = useState<WhatsAppThread | null>(null)
+  const [agents, setAgents] = useState<{ id: string; name: string }[]>([])
   const [messages, setMessages] = useState<WhatsAppMessage[]>([])
   const [outbound, setOutbound] = useState<WhatsAppOutbound[]>([])
   const [summary, setSummary] = useState('')
@@ -72,6 +73,11 @@ export default function ThreadPage() {
     setOutbound(Array.isArray(ob) ? ob : [])
     setSummary(t.ai_summary || '')
   }, [id])
+
+  useEffect(() => {
+    if (!isAgent) return
+    api.users.list().then((u) => setAgents(Array.isArray(u) ? (u as { id: string; name: string; is_active?: boolean }[]).filter((x) => x.is_active !== false) : [])).catch(() => {})
+  }, [isAgent])
 
   useEffect(() => {
     if (!id) return
@@ -270,6 +276,31 @@ export default function ThreadPage() {
             <p className="font-medium text-sm text-gray-900">{thread?.contact?.full_name}</p>
             <p className="text-xs text-gray-400">{thread?.contact?.phone_wa}</p>
           </div>
+          {thread && (
+            <span
+              title={thread.window_open
+                ? t('يمكن إرسال رسائل حرة حتى انتهاء النافذة', 'Free-form messages can be sent until the window closes')
+                : t('لم يكتب العميل خلال 24 ساعة: يمكن إرسال قالب معتمد فقط', 'The customer has not written in 24 hours: only an approved template can be sent')}
+              className={clsx('text-[11px] px-2 py-0.5 rounded-full whitespace-nowrap',
+                thread.window_open ? 'bg-green-50 text-green-700' : 'bg-amber-50 text-amber-700')}>
+              {thread.window_open
+                ? `${t('النافذة مفتوحة حتى', 'Window open until')} ${thread.window_ends_at ? new Date(thread.window_ends_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}`
+                : t('خارج نافذة 24 ساعة', 'Outside the 24-hour window')}
+            </span>
+          )}
+          {isAgent && thread && (
+            <select
+              aria-label={t('المسؤول عن المحادثة', 'Assigned to')}
+              value={thread.assigned_to ?? ''}
+              onChange={async (e) => {
+                const v = e.target.value || null
+                try { await api.broadcasts.assignThread(thread.id, v); setThread({ ...thread, assigned_to: v ?? undefined }) } catch {}
+              }}
+              className="text-xs border border-gray-200 rounded-lg px-2 py-1">
+              <option value="">{t('غير مسندة', 'Unassigned')}</option>
+              {agents.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+            </select>
+          )}
         </div>
 
         <div className="flex items-center gap-2">

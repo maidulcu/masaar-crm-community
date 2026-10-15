@@ -9,14 +9,27 @@ function tz(): string {
   return currentLocale().timezone || 'Asia/Dubai'
 }
 
-/** Format a UTC timestamp as a human-readable date in GST. */
-export function formatDate(iso: string | Date): string {
-  return new Intl.DateTimeFormat(GST_LOCALE, {
+/** The date in the Umm al-Qura (Hijri) calendar, e.g. "12 Rabi I 1448 AH". */
+export function formatHijri(iso: string | Date): string {
+  return new Intl.DateTimeFormat('en-SA-u-ca-islamic-umalqura', {
     timeZone: tz(),
     year: 'numeric',
     month: 'short',
     day: 'numeric',
   }).format(new Date(iso))
+}
+
+/** Format a UTC timestamp as a human-readable date in the company timezone, followed
+ *  by the Hijri date when the company enabled it (Settings → Company). */
+export function formatDate(iso: string | Date): string {
+  const d = new Date(iso)
+  const out = new Intl.DateTimeFormat(GST_LOCALE, {
+    timeZone: tz(),
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+  }).format(d)
+  return currentLocale().show_hijri && !isNaN(d.getTime()) ? `${out} (${formatHijri(d)})` : out
 }
 
 /** Format a UTC timestamp as date + time in GST. */
