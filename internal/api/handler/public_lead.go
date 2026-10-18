@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"net/mail"
 	"regexp"
 
 	"github.com/gofiber/fiber/v2"
@@ -74,6 +75,11 @@ func (h *PublicLeadHandler) SubmitLead(c *fiber.Ctx) error {
 	// Validate input lengths to prevent DoS / payload bloat
 	if len(req.Email) > 254 {
 		return c.Status(fiber.StatusUnprocessableEntity).JSON(fiber.Map{"error": "email is too long (max 254 characters)"})
+	}
+	if req.Email != "" {
+		if _, err := mail.ParseAddress(req.Email); err != nil {
+			return c.Status(fiber.StatusUnprocessableEntity).JSON(fiber.Map{"error": "invalid email format"})
+		}
 	}
 	if len(req.Notes) > 2000 {
 		return c.Status(fiber.StatusUnprocessableEntity).JSON(fiber.Map{"error": "notes are too long (max 2000 characters)"})
@@ -160,7 +166,10 @@ func (h *PublicLeadHandler) SubmitLead(c *fiber.Ctx) error {
 	}
 
 	// Fire outbound webhook asynchronously
-	companyID, _ := uuid.Parse(c.Locals("company_id").(string))
+	var companyID uuid.UUID
+	if cidStr, ok := c.Locals("company_id").(string); ok {
+		companyID, _ = uuid.Parse(cidStr)
+	}
 	h.dispatcher.Dispatch(companyID, webhook.EventLeadCreated, fiber.Map{
 		"lead_id":    lead.ID,
 		"contact_id": contact.ID,

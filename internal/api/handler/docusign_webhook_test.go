@@ -21,6 +21,11 @@ func TestDocusignWebhookHandler_HMAC(t *testing.T) {
 	mac.Write(payload)
 	validSig := base64.StdEncoding.EncodeToString(mac.Sum(nil))
 
+	invalidJSON := []byte(`{invalid-json`)
+	mac2 := hmac.New(sha256.New, []byte(secret))
+	mac2.Write(invalidJSON)
+	invalidJSONSig := base64.StdEncoding.EncodeToString(mac2.Sum(nil))
+
 	tests := []struct {
 		name           string
 		secret         string
@@ -55,6 +60,13 @@ func TestDocusignWebhookHandler_HMAC(t *testing.T) {
 			signature:      validSig,
 			body:           payload,
 			expectedStatus: http.StatusUnauthorized,
+		},
+		{
+			name:           "malformed json payload",
+			secret:         secret,
+			signature:      invalidJSONSig,
+			body:           invalidJSON,
+			expectedStatus: http.StatusBadRequest,
 		},
 	}
 

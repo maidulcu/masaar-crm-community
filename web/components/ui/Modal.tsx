@@ -1,5 +1,6 @@
 'use client'
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useId } from 'react'
+import { useLang } from '@/context/LangContext'
 import clsx from 'clsx'
 import { useLang } from '@/context/LangContext'
 
@@ -12,6 +13,7 @@ interface ModalProps {
 
 export function Modal({ open, onClose, title, children }: ModalProps) {
   const dialogRef = useRef<HTMLDialogElement>(null)
+  const titleId = useId()
   const { t } = useLang()
 
   useEffect(() => {
@@ -38,8 +40,7 @@ export function Modal({ open, onClose, title, children }: ModalProps) {
   return (
     <dialog
       ref={dialogRef}
-      aria-labelledby="modal-title"
-      aria-modal="true"
+      aria-labelledby={titleId}
       className={clsx(
         'backdrop:bg-surface-900/50 backdrop:backdrop-blur-sm bg-transparent p-0 m-auto',
         'open:animate-fade-in'
@@ -50,10 +51,10 @@ export function Modal({ open, onClose, title, children }: ModalProps) {
     >
       <div className="bg-white rounded-2xl shadow-pop ring-1 ring-surface-200/60 w-full max-w-lg p-6 animate-scale-in">
         <div className="flex items-center justify-between mb-5">
-          <h2 id="modal-title" className="text-lg font-semibold text-surface-900 tracking-tight">{title}</h2>
+          <h2 id={titleId} className="text-lg font-semibold text-surface-900 tracking-tight">{title}</h2>
           <button
             onClick={onClose}
-            aria-label={t('إغلاق', 'Close')}
+            aria-label={t('إغلاق النافذة', 'Close modal')}
             className="inline-flex items-center justify-center w-8 h-8 rounded-lg text-surface-400 hover:text-surface-900 hover:bg-surface-100 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500"
           >
             <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
