@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"fmt"
+	"mime"
 	"strconv"
 
 	"github.com/gofiber/fiber/v2"
@@ -255,6 +256,6 @@ func (h *InvoiceHandler) DownloadPDF(c *fiber.Ctx) error {
 
 	filename := fmt.Sprintf("invoice-%s.pdf", inv.InvoiceNo)
 	c.Set("Content-Type", "application/pdf")
-	c.Set("Content-Disposition", "attachment; filename="+filename)
+	c.Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": safeFilename(filename)}))
 	return c.Send(pdfBytes)
 }
