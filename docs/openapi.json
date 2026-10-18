@@ -46,6 +46,113 @@
         ],
         "type": "object"
       },
+      "WebhookData_lead_created": {
+        "properties": {
+          "contact": {
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "phone": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "contact_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "deal_value": {
+            "type": "number"
+          },
+          "external_ref": {
+            "type": "string"
+          },
+          "external_source": {
+            "type": "string"
+          },
+          "lead_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "stage": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "lead_id",
+          "contact_id",
+          "source"
+        ],
+        "type": "object"
+      },
+      "WebhookData_lead_lost": {
+        "properties": {
+          "lead_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "previous_stage": {
+            "type": "string"
+          },
+          "stage": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "lead_id",
+          "stage",
+          "previous_stage"
+        ],
+        "type": "object"
+      },
+      "WebhookData_lead_stage_changed": {
+        "properties": {
+          "lead_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "previous_stage": {
+            "type": "string"
+          },
+          "stage": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "lead_id",
+          "stage",
+          "previous_stage"
+        ],
+        "type": "object"
+      },
+      "WebhookData_lead_won": {
+        "properties": {
+          "lead_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "previous_stage": {
+            "type": "string"
+          },
+          "stage": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "lead_id",
+          "stage",
+          "previous_stage"
+        ],
+        "type": "object"
+      },
+      "WebhookData_webhook_test": {
+        "type": "object"
+      },
       "bizhours.Schedule": {
         "properties": {
           "specials": {
@@ -26018,5 +26125,522 @@
       "description": "This Masaar server",
       "url": "/"
     }
-  ]
+  ],
+  "webhooks": {
+    "lead.created": {
+      "post": {
+        "description": "A lead was created: in the app, through the API, the lead intake or a portal. Retried up to 3 times (after 1 s and 4 s) until the URL answers 2xx.",
+        "operationId": "webhookLeadCreated",
+        "parameters": [
+          {
+            "description": "Message id (msg_...): the same on every retry; use it to ignore duplicates.",
+            "in": "header",
+            "name": "webhook-id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Unix seconds when this attempt was signed. Reject old ones (e.g. older than 5 minutes).",
+            "in": "header",
+            "name": "webhook-timestamp",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "\"v1,\" + base64(HMAC-SHA256(key, webhook-id + \".\" + webhook-timestamp + \".\" + raw body)), where key is the subscription secret without \"whsec_\", base64-decoded. Any Standard Webhooks library verifies it.",
+            "in": "header",
+            "name": "webhook-signature",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Legacy: \"sha256=\" + hex(HMAC-SHA256(secret string, raw body)).",
+            "in": "header",
+            "name": "X-Masaar-Signature",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Legacy: the event name.",
+            "in": "header",
+            "name": "X-Masaar-Event",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Legacy: same value as webhook-id.",
+            "in": "header",
+            "name": "X-Masaar-Delivery",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "data": {
+                    "$ref": "#/components/schemas/WebhookData_lead_created"
+                  },
+                  "event": {
+                    "const": "lead.created",
+                    "description": "Same as type, for older receivers.",
+                    "type": "string"
+                  },
+                  "timestamp": {
+                    "format": "date-time",
+                    "type": "string"
+                  },
+                  "type": {
+                    "const": "lead.created",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "type",
+                  "event",
+                  "timestamp",
+                  "data"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "description": "Received. Any other answer is retried."
+          }
+        },
+        "security": [],
+        "summary": "lead.created"
+      }
+    },
+    "lead.lost": {
+      "post": {
+        "description": "A lead moved to a lost stage (sent after lead.stage_changed). Retried up to 3 times (after 1 s and 4 s) until the URL answers 2xx.",
+        "operationId": "webhookLeadLost",
+        "parameters": [
+          {
+            "description": "Message id (msg_...): the same on every retry; use it to ignore duplicates.",
+            "in": "header",
+            "name": "webhook-id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Unix seconds when this attempt was signed. Reject old ones (e.g. older than 5 minutes).",
+            "in": "header",
+            "name": "webhook-timestamp",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "\"v1,\" + base64(HMAC-SHA256(key, webhook-id + \".\" + webhook-timestamp + \".\" + raw body)), where key is the subscription secret without \"whsec_\", base64-decoded. Any Standard Webhooks library verifies it.",
+            "in": "header",
+            "name": "webhook-signature",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Legacy: \"sha256=\" + hex(HMAC-SHA256(secret string, raw body)).",
+            "in": "header",
+            "name": "X-Masaar-Signature",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Legacy: the event name.",
+            "in": "header",
+            "name": "X-Masaar-Event",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Legacy: same value as webhook-id.",
+            "in": "header",
+            "name": "X-Masaar-Delivery",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "data": {
+                    "$ref": "#/components/schemas/WebhookData_lead_lost"
+                  },
+                  "event": {
+                    "const": "lead.lost",
+                    "description": "Same as type, for older receivers.",
+                    "type": "string"
+                  },
+                  "timestamp": {
+                    "format": "date-time",
+                    "type": "string"
+                  },
+                  "type": {
+                    "const": "lead.lost",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "type",
+                  "event",
+                  "timestamp",
+                  "data"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "description": "Received. Any other answer is retried."
+          }
+        },
+        "security": [],
+        "summary": "lead.lost"
+      }
+    },
+    "lead.stage_changed": {
+      "post": {
+        "description": "A lead moved to another pipeline stage. Retried up to 3 times (after 1 s and 4 s) until the URL answers 2xx.",
+        "operationId": "webhookLeadStageChanged",
+        "parameters": [
+          {
+            "description": "Message id (msg_...): the same on every retry; use it to ignore duplicates.",
+            "in": "header",
+            "name": "webhook-id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Unix seconds when this attempt was signed. Reject old ones (e.g. older than 5 minutes).",
+            "in": "header",
+            "name": "webhook-timestamp",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "\"v1,\" + base64(HMAC-SHA256(key, webhook-id + \".\" + webhook-timestamp + \".\" + raw body)), where key is the subscription secret without \"whsec_\", base64-decoded. Any Standard Webhooks library verifies it.",
+            "in": "header",
+            "name": "webhook-signature",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Legacy: \"sha256=\" + hex(HMAC-SHA256(secret string, raw body)).",
+            "in": "header",
+            "name": "X-Masaar-Signature",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Legacy: the event name.",
+            "in": "header",
+            "name": "X-Masaar-Event",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Legacy: same value as webhook-id.",
+            "in": "header",
+            "name": "X-Masaar-Delivery",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "data": {
+                    "$ref": "#/components/schemas/WebhookData_lead_stage_changed"
+                  },
+                  "event": {
+                    "const": "lead.stage_changed",
+                    "description": "Same as type, for older receivers.",
+                    "type": "string"
+                  },
+                  "timestamp": {
+                    "format": "date-time",
+                    "type": "string"
+                  },
+                  "type": {
+                    "const": "lead.stage_changed",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "type",
+                  "event",
+                  "timestamp",
+                  "data"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "description": "Received. Any other answer is retried."
+          }
+        },
+        "security": [],
+        "summary": "lead.stage_changed"
+      }
+    },
+    "lead.won": {
+      "post": {
+        "description": "A lead moved to a won stage (sent after lead.stage_changed). Retried up to 3 times (after 1 s and 4 s) until the URL answers 2xx.",
+        "operationId": "webhookLeadWon",
+        "parameters": [
+          {
+            "description": "Message id (msg_...): the same on every retry; use it to ignore duplicates.",
+            "in": "header",
+            "name": "webhook-id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Unix seconds when this attempt was signed. Reject old ones (e.g. older than 5 minutes).",
+            "in": "header",
+            "name": "webhook-timestamp",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "\"v1,\" + base64(HMAC-SHA256(key, webhook-id + \".\" + webhook-timestamp + \".\" + raw body)), where key is the subscription secret without \"whsec_\", base64-decoded. Any Standard Webhooks library verifies it.",
+            "in": "header",
+            "name": "webhook-signature",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Legacy: \"sha256=\" + hex(HMAC-SHA256(secret string, raw body)).",
+            "in": "header",
+            "name": "X-Masaar-Signature",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Legacy: the event name.",
+            "in": "header",
+            "name": "X-Masaar-Event",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Legacy: same value as webhook-id.",
+            "in": "header",
+            "name": "X-Masaar-Delivery",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "data": {
+                    "$ref": "#/components/schemas/WebhookData_lead_won"
+                  },
+                  "event": {
+                    "const": "lead.won",
+                    "description": "Same as type, for older receivers.",
+                    "type": "string"
+                  },
+                  "timestamp": {
+                    "format": "date-time",
+                    "type": "string"
+                  },
+                  "type": {
+                    "const": "lead.won",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "type",
+                  "event",
+                  "timestamp",
+                  "data"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "description": "Received. Any other answer is retried."
+          }
+        },
+        "security": [],
+        "summary": "lead.won"
+      }
+    },
+    "webhook.test": {
+      "post": {
+        "description": "A test ping from POST /api/v1/settings/webhooks/{id}/test. Retried up to 3 times (after 1 s and 4 s) until the URL answers 2xx.",
+        "operationId": "webhookWebhookTest",
+        "parameters": [
+          {
+            "description": "Message id (msg_...): the same on every retry; use it to ignore duplicates.",
+            "in": "header",
+            "name": "webhook-id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Unix seconds when this attempt was signed. Reject old ones (e.g. older than 5 minutes).",
+            "in": "header",
+            "name": "webhook-timestamp",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "\"v1,\" + base64(HMAC-SHA256(key, webhook-id + \".\" + webhook-timestamp + \".\" + raw body)), where key is the subscription secret without \"whsec_\", base64-decoded. Any Standard Webhooks library verifies it.",
+            "in": "header",
+            "name": "webhook-signature",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Legacy: \"sha256=\" + hex(HMAC-SHA256(secret string, raw body)).",
+            "in": "header",
+            "name": "X-Masaar-Signature",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Legacy: the event name.",
+            "in": "header",
+            "name": "X-Masaar-Event",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Legacy: same value as webhook-id.",
+            "in": "header",
+            "name": "X-Masaar-Delivery",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "data": {
+                    "$ref": "#/components/schemas/WebhookData_webhook_test"
+                  },
+                  "event": {
+                    "const": "webhook.test",
+                    "description": "Same as type, for older receivers.",
+                    "type": "string"
+                  },
+                  "timestamp": {
+                    "format": "date-time",
+                    "type": "string"
+                  },
+                  "type": {
+                    "const": "webhook.test",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "type",
+                  "event",
+                  "timestamp",
+                  "data"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "description": "Received. Any other answer is retried."
+          }
+        },
+        "security": [],
+        "summary": "webhook.test"
+      }
+    }
+  }
 }

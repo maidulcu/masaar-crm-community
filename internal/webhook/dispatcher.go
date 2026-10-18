@@ -6,12 +6,15 @@ import (
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -29,10 +32,47 @@ const (
 	EventPaymentReceived  = "payment.received"
 	EventLeaseSigned      = "lease.signed"
 	EventContactCreated   = "contact.created"
+	EventTest             = "webhook.test"
 )
 
-// Payload is the envelope sent to registered webhook URLs.
+// EventInfo describes an event Masaar sends, for the docs and the OpenAPI webhooks section.
+type EventInfo struct {
+	Name, Description string
+	Data              map[string]any // JSON Schema of the "data" field
+}
+
+var (
+	uuidProp   = map[string]any{"type": "string", "format": "uuid"}
+	stringProp = map[string]any{"type": "string"}
+)
+
+// SentEvents are the events Masaar sends today. payment.received, lease.signed and
+// contact.created are reserved names that nothing sends yet.
+var SentEvents = []EventInfo{
+	{EventLeadCreated, "A lead was created: in the app, through the API, the lead intake or a portal.", map[string]any{
+		"type": "object", "required": []any{"lead_id", "contact_id", "source"},
+		"properties": map[string]any{
+			"lead_id": uuidProp, "contact_id": uuidProp, "stage": stringProp, "source": stringProp,
+			"deal_value":      map[string]any{"type": "number"},
+			"contact":         map[string]any{"type": "object", "properties": map[string]any{"name": stringProp, "phone": stringProp}},
+			"external_source": stringProp, "external_ref": stringProp,
+		},
+	}},
+	{EventLeadStageChanged, "A lead moved to another pipeline stage.", stageData},
+	{EventLeadWon, "A lead moved to a won stage (sent after lead.stage_changed).", stageData},
+	{EventLeadLost, "A lead moved to a lost stage (sent after lead.stage_changed).", stageData},
+	{EventTest, "A test ping from POST /api/v1/settings/webhooks/{id}/test.", map[string]any{"type": "object"}},
+}
+
+var stageData = map[string]any{
+	"type": "object", "required": []any{"lead_id", "stage", "previous_stage"},
+	"properties": map[string]any{"lead_id": uuidProp, "stage": stringProp, "previous_stage": stringProp},
+}
+
+// Payload is the envelope sent to registered webhook URLs. "type" is the Standard Webhooks
+// name for the event; "event" carries the same value for receivers written before it.
 type Payload struct {
+	Type      string      `json:"type"`
 	Event     string      `json:"event"`
 	Timestamp string      `json:"timestamp"`
 	Data      interface{} `json:"data"`
@@ -59,6 +99,7 @@ type SubscriptionStore interface {
 type job struct {
 	companyID uuid.UUID
 	event     string
+	msgID     string // webhook-id: one per event, the same on every retry and subscriber
 	body      []byte
 }
 
@@ -92,6 +133,7 @@ func NewDispatcher(store SubscriptionStore) *Dispatcher {
 // here, so later changes to the caller's value cannot leak into (or race with) the delivery.
 func (d *Dispatcher) Dispatch(companyID uuid.UUID, event string, data interface{}) {
 	body, err := json.Marshal(Payload{
+		Type:      event,
 		Event:     event,
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
 		Data:      data,
@@ -107,7 +149,7 @@ func (d *Dispatcher) Dispatch(companyID uuid.UUID, event string, data interface{
 		return
 	}
 	select {
-	case d.queue <- job{companyID: companyID, event: event, body: body}:
+	case d.queue <- job{companyID: companyID, event: event, msgID: "msg_" + uuid.NewString(), body: body}:
 	default:
 		log.Printf("webhook dispatcher: queue full, dropping %s event", event)
 	}
@@ -149,13 +191,15 @@ func (d *Dispatcher) dispatch(j job) {
 		return
 	}
 	for _, sub := range subs {
-		d.send(ctx, sub, j.event, j.body)
+		d.send(ctx, sub, j)
 	}
 }
 
 // send delivers a signed webhook to a single subscription with up to 3 retries.
-func (d *Dispatcher) send(ctx context.Context, sub repo.WebhookSubscription, event string, body []byte) {
+func (d *Dispatcher) send(ctx context.Context, sub repo.WebhookSubscription, j job) {
+	event, body := j.event, j.body
 	sig := sign(body, sub.Secret)
+	key := signingKey(sub.Secret)
 
 	var (
 		statusCode int
@@ -169,10 +213,17 @@ func (d *Dispatcher) send(ctx context.Context, sub repo.WebhookSubscription, eve
 			break
 		}
 
+		// Standard Webhooks (https://www.standardwebhooks.com): the timestamp is the attempt's,
+		// so a receiver's replay window also accepts retries.
+		ts := strconv.FormatInt(time.Now().Unix(), 10)
 		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("webhook-id", j.msgID)
+		req.Header.Set("webhook-timestamp", ts)
+		req.Header.Set("webhook-signature", SignStandard(key, j.msgID, ts, body))
+		// Masaar's original headers, kept for receivers that verify them.
 		req.Header.Set("X-Masaar-Signature", "sha256="+sig)
 		req.Header.Set("X-Masaar-Event", event)
-		req.Header.Set("X-Masaar-Delivery", uuid.New().String())
+		req.Header.Set("X-Masaar-Delivery", j.msgID)
 		req.Header.Set("User-Agent", "Masaar-CRM-Webhooks/1.0")
 
 		resp, err := d.client.Do(req)
@@ -211,18 +262,39 @@ func sleepCtx(ctx context.Context, d time.Duration) bool {
 	}
 }
 
-// sign computes HMAC-SHA256 of body using secret.
+// sign computes the legacy X-Masaar-Signature value: hex HMAC-SHA256 of body, keyed with the
+// secret string as is.
 func sign(body []byte, secret string) string {
 	mac := hmac.New(sha256.New, []byte(secret))
 	mac.Write(body)
 	return hex.EncodeToString(mac.Sum(nil))
 }
 
-// GenerateSecret creates a 32-byte random hex string for a new subscription.
+// signingKey derives the Standard Webhooks key from a subscription secret the way the standard
+// libraries do: drop a "whsec_" prefix, then base64-decode. Secrets created before whsec_
+// (64 hex characters) are valid base64 too, so those libraries accept them unchanged.
+func signingKey(secret string) []byte {
+	s := strings.TrimPrefix(secret, "whsec_")
+	if key, err := base64.StdEncoding.DecodeString(s); err == nil && len(key) > 0 {
+		return key
+	}
+	return []byte(s)
+}
+
+// SignStandard returns the webhook-signature header value: "v1," + base64 HMAC-SHA256 of
+// "<msgID>.<timestamp>.<body>".
+func SignStandard(key []byte, msgID, timestamp string, body []byte) string {
+	mac := hmac.New(sha256.New, key)
+	mac.Write([]byte(msgID + "." + timestamp + "."))
+	mac.Write(body)
+	return "v1," + base64.StdEncoding.EncodeToString(mac.Sum(nil))
+}
+
+// GenerateSecret creates a new subscription secret: "whsec_" + 32 random bytes, base64.
 func GenerateSecret() (string, error) {
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
 		return "", fmt.Errorf("generate secret: %w", err)
 	}
-	return hex.EncodeToString(b), nil
+	return "whsec_" + base64.StdEncoding.EncodeToString(b), nil
 }

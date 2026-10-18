@@ -421,9 +421,9 @@ Register a URL and Masaar CRM will push signed events to it automatically:
 | `lead.stage_changed` | Lead moves in pipeline |
 | `lead.won` | Lead marked won |
 | `lead.lost` | Lead marked lost |
-| `payment.received` | Payment recorded |
-| `lease.signed` | Lease activated |
-| `contact.created` | New contact added |
+| `webhook.test` | Test ping from `POST /api/v1/settings/webhooks/:id/test` |
+
+`payment.received`, `lease.signed` and `contact.created` are reserved names: nothing sends them yet. The events and their `data` are also described in the `webhooks` section of [`/openapi.json`](#openapi).
 
 **Setup via API (Admin only):**
 
@@ -433,7 +433,7 @@ curl -X POST https://crm.yourcompany.ae/api/v1/settings/webhooks \
   -H "Authorization: Bearer JWT_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"name":"My App","url":"https://myapp.com/crm-events","events":"lead.created,lead.won"}'
-# Returns: {"id":"...","secret":"..."}  ← store secret, shown once
+# Returns: {"id":"...","secret":"whsec_..."}  ← store secret, shown once
 
 # List registered webhooks
 GET /api/v1/settings/webhooks
@@ -449,6 +449,7 @@ DELETE /api/v1/settings/webhooks/:id
 
 ```json
 {
+  "type": "lead.created",
   "event": "lead.created",
   "timestamp": "2025-01-15T10:30:00Z",
   "data": {
@@ -461,25 +462,35 @@ DELETE /api/v1/settings/webhooks/:id
 }
 ```
 
-**Signature verification:**
+`type` and `event` carry the same value (`event` is kept for older receivers).
 
-Every request includes `X-Masaar-Signature: sha256=<hmac>`. Verify in your endpoint:
+**Signature verification ([Standard Webhooks](https://www.standardwebhooks.com)):**
+
+Every request carries three headers:
+
+| Header | Value |
+|--------|-------|
+| `webhook-id` | Message id (`msg_…`), the same on every retry: use it to skip duplicates |
+| `webhook-timestamp` | Unix seconds when this attempt was signed: reject old ones (e.g. older than 5 minutes) |
+| `webhook-signature` | `v1,` + base64 HMAC-SHA256 of `webhook-id + "." + webhook-timestamp + "." + raw body` |
+
+The HMAC key is the subscription secret without its `whsec_` prefix, base64-decoded. Any Standard Webhooks library does this for you; pass it the secret exactly as Masaar showed it (secrets created before `whsec_` work unchanged):
 
 ```python
-import hmac, hashlib
+from standardwebhooks.webhooks import Webhook   # pip install standardwebhooks
 
-def verify(body: bytes, signature: str, secret: str) -> bool:
-    expected = hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
-    return hmac.compare_digest(f"sha256={expected}", signature)
+payload = Webhook(secret).verify(raw_body, request.headers)  # raises on a bad signature or old timestamp
 ```
 
 ```javascript
-const crypto = require('crypto');
-function verify(body, signature, secret) {
-  const expected = 'sha256=' + crypto.createHmac('sha256', secret).update(body).digest('hex');
-  return crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(signature));
-}
+import { Webhook } from 'standardwebhooks';   // npm install standardwebhooks
+
+const payload = new Webhook(secret).verify(rawBody, req.headers);
 ```
+
+Verify the raw request body, before any JSON parsing.
+
+**Legacy header.** Requests also still carry `X-Masaar-Signature: sha256=<hex HMAC-SHA256 of the body, keyed with the secret string>`, plus `X-Masaar-Event` and `X-Masaar-Delivery` (now the same as `webhook-id`). Existing receivers keep working; new ones should use the headers above.
 
 Delivery retries: 3 attempts with 1s / 4s backoff. Failures tracked in `webhook_deliveries` table.
 

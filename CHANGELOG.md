@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [v0.4.0] - Unreleased
 
+### Outbound webhooks signed per Standard Webhooks (integration standards, step 3)
+
+- **Every delivery carries `webhook-id`, `webhook-timestamp` and `webhook-signature`** ([Standard Webhooks](https://www.standardwebhooks.com)): `v1,` + base64 HMAC-SHA256 of `id.timestamp.body`. Receivers can verify with any Standard Webhooks library; signatures match the spec's reference vector.
+- **`webhook-id` is the same on every retry** (and on every subscriber of that event), so receivers can drop duplicates. `X-Masaar-Delivery` now carries the same id instead of a new UUID per attempt.
+- **New secrets look like `whsec_…`** (32 random bytes). Secrets created earlier keep working: the libraries read them the same way, and `X-Masaar-Signature` / `X-Masaar-Event` are still sent unchanged.
+- The payload gains `"type"` (Standard Webhooks name) next to the existing `"event"`.
+- `/openapi.json` documents the events in its OpenAPI 3.1 `webhooks` section (headers, payload and `data` schema per event).
+- Docs corrected: `payment.received`, `lease.signed` and `contact.created` were listed as webhook events but are never sent; they are now marked as reserved.
+
 ### OpenAPI 3.1 at `/openapi.json` (integration standards, step 2)
 
 - **`GET /openapi.json`** serves an OpenAPI 3.1 description of the API, without authentication, for Postman, Zapier, Make and code generators. It documents 349 operations, each with an `operationId`; API-key routes list their scope (`ApiKeyAuth`, `x-api-key-scope`), `Idempotency-Key` and the RFC 9457 `Problem` body. It passes the Redocly linter.

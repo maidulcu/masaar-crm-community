@@ -143,7 +143,7 @@ func (h *WebhookSubHandler) Create(c *fiber.Ctx) error {
 		URL:       sub.URL,
 		Events:    sub.Events,
 		Active:    sub.Active,
-		Secret:    secret, // shown once — verify with X-Masaar-Signature header
+		Secret:    secret, // shown once — "whsec_…", verify the webhook-signature header (Standard Webhooks)
 		CreatedAt: sub.CreatedAt.Format("2006-01-02T15:04:05Z"),
 	})
 }
@@ -190,7 +190,7 @@ func (h *WebhookSubHandler) Test(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid company id"})
 	}
 
-	h.dispatcher.Dispatch(compID, "webhook.test", fiber.Map{
+	h.dispatcher.Dispatch(compID, webhook.EventTest, fiber.Map{
 		"message": "This is a test event from Masaar CRM",
 	})
 
