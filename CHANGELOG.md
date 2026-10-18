@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [v0.4.0] - Unreleased
 
+### Sign-up can be hidden in the web app
+
+- **`NEXT_PUBLIC_SIGNUP_ENABLED=false`** (build time) hides the sign-up links on the login page and makes `/signup` say registration is closed, for instances whose accounts are created elsewhere (pair it with `ALLOW_REGISTRATION=false`, the API default). Defaults to `true`; nothing changes otherwise.
+- Optional **`NEXT_PUBLIC_ACCOUNT_PROVIDER_NAME`** / **`NEXT_PUBLIC_ACCOUNT_PROVIDER_URL`**: with sign-up off, the login page and `/signup` tell visitors that accounts come from that service and link to it.
+
 ### Outbound webhooks signed per Standard Webhooks (integration standards, step 3)
 
 - **Every delivery carries `webhook-id`, `webhook-timestamp` and `webhook-signature`** ([Standard Webhooks](https://www.standardwebhooks.com)): `v1,` + base64 HMAC-SHA256 of `id.timestamp.body`. Receivers can verify with any Standard Webhooks library; signatures match the spec's reference vector.
