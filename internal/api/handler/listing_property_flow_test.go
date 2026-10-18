@@ -298,7 +298,7 @@ func TestRentalProperty_DefaultsValidationAndGuards(t *testing.T) {
 	if got := e.val(t, `SELECT name FROM rental_properties WHERE id = $1`, idB); got != "Tower B" {
 		t.Errorf("a body id redirected the update onto another property: %q", got)
 	}
-	if e.val(t, `SELECT currency FROM rental_properties WHERE id = $1`, id) != "USD" || e.val(t, `SELECT purchase_price::text FROM rental_properties WHERE id = $1`, id) != "1500000.00" {
+	if e.val(t, `SELECT currency FROM rental_properties WHERE id = $1`, id) != "USD" || e.val(t, `SELECT (purchase_price = 1500000)::text FROM rental_properties WHERE id = $1`, id) != "true" {
 		t.Error("currency / purchase_price were not saved (the response said they were)")
 	}
 	if c, _ := e.req(t, "PATCH", "/b/rental-properties/"+id, fiber.Map{"name": "Stolen"}); c != 404 {

@@ -266,7 +266,8 @@ func TestLease_ValidationOverlapAndGuards(t *testing.T) {
 	if v := e.val(t, `SELECT start_date::text FROM leases WHERE id=$1`, id); v != "2026-01-01" {
 		t.Fatalf("start_date rewritten to %s", v)
 	}
-	if v := e.val(t, `SELECT monthly_rent::text FROM leases WHERE id=$1`, id); v != "6000.00" && v != "6000" {
+	// compared as a number: money columns carry 3 decimals since migration 0066
+	if v := e.val(t, `SELECT monthly_rent::text FROM leases WHERE id=$1`, id); e.val(t, `SELECT (monthly_rent = 6000)::text FROM leases WHERE id=$1`, id) != "true" {
 		t.Fatalf("monthly_rent not updated: %s", v)
 	}
 	if code, _ := e.req(t, "DELETE", "/b/leases/"+id, nil); code != 404 {
