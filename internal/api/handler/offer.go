@@ -128,7 +128,7 @@ func (h *OfferHandler) Create(c *fiber.Ctx) error {
 		Notes:       body.Notes,
 	}
 	if body.Currency == "" {
-		offer.Currency = "AED"
+		offer.Currency = defaultCurrency(c.Context())
 	}
 	if body.ValidUntil != "" {
 		t, err := time.Parse(time.RFC3339, body.ValidUntil)
@@ -294,7 +294,7 @@ func (h *OfferHandler) Accept(c *fiber.Ctx) error {
 			Source:    "web",
 			Notes:     "Auto-created from accepted offer",
 		}
-		lead.Currency = "AED"
+		lead.Currency = offer.Currency
 		if err := h.leadRepo.Create(c.Context(), lead); err == nil {
 			leadID = lead.ID
 		}

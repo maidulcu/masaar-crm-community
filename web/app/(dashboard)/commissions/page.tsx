@@ -4,6 +4,7 @@ import { Header } from '@/components/layout/Header'
 import { api } from '@/lib/api'
 import { useLang } from '@/context/LangContext'
 import { useAuthStore } from '@/store/auth'
+import { companyCurrency } from '@/lib/money'
 
 interface Commission {
   id: string
@@ -205,12 +206,12 @@ export default function CommissionsPage() {
                       <div key={item.label} className="bg-gray-50 rounded-lg p-3 col-span-1">
                         <p className="text-[10px] text-gray-400 uppercase tracking-wide">{item.label}</p>
                         <p className="text-sm font-bold text-gray-800">{item.count} deals</p>
-                        <p className="text-xs text-gray-600">AED {fmt(item.rev)}</p>
+                        <p className="text-xs text-gray-600">{companyCurrency()} {fmt(item.rev)}</p>
                       </div>
                     ))}
                     <div className="bg-brand-50 rounded-lg p-3 col-span-2">
                       <p className="text-[10px] text-brand-600 uppercase tracking-wide">Total Revenue</p>
-                      <p className="text-lg font-bold text-brand-700">AED {fmt(calculated.total_revenue)}</p>
+                      <p className="text-lg font-bold text-brand-700">{companyCurrency()} {fmt(calculated.total_revenue)}</p>
                     </div>
                   </div>
                 )}
@@ -253,9 +254,9 @@ export default function CommissionsPage() {
                         <div className="flex items-center gap-3 text-xs text-gray-500">
                           <span>{new Date(c.commission_period_start).toLocaleDateString()} → {new Date(c.commission_period_end).toLocaleDateString()}</span>
                           <span>·</span>
-                          <span>{c.deals_count} deals (AED {fmt(c.deals_revenue)})</span>
+                          <span>{c.deals_count} deals ({companyCurrency()} {fmt(c.deals_revenue)})</span>
                           <span>·</span>
-                          <span>{c.leases_count} leases (AED {fmt(c.leases_revenue)})</span>
+                          <span>{c.leases_count} leases ({companyCurrency()} {fmt(c.leases_revenue)})</span>
                         </div>
                         {c.payment_date && (
                           <p className="text-xs text-green-600 mt-0.5">
@@ -278,7 +279,7 @@ export default function CommissionsPage() {
                         ) : (
                           <button onClick={() => { if (!isDemo && isAdmin) { setEditID(c.id); setEditAmount(String(c.total_commission ?? 0)); setEditNotes(c.notes) } }}
                             className={`text-sm font-bold text-gray-800 ${isAdmin && !isDemo ? 'hover:text-brand-600 cursor-pointer' : 'cursor-default'}`}>
-                            {c.total_commission != null ? `AED ${fmt(c.total_commission)}` : '—'}
+                            {c.total_commission != null ? `${companyCurrency()} ${fmt(c.total_commission)}` : '—'}
                           </button>
                         )}
                       </div>

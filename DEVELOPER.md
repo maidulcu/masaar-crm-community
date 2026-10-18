@@ -607,14 +607,19 @@ Content-Type: application/json
   "notes": "Interested in Marina apartments",
   "deal_value": 500000,
   "property_type": "2BR",
-  "area": "Marina"
+  "area": "Marina",
+  "external_source": "myportal",
+  "external_ref": "enquiry:48213"
 }
 ```
 
-- Requires API key with scope `lead:create`
+- Requires API key with scope `lead:create`; a suspended company's key gets `403 account_suspended`
+- `source` is one of `web`, `referral`, `event`, `whatsapp`, `property_finder`, `bayut`, `dubizzle`, `portal` (default `web`); anything else is `422`
+- `external_source` + `external_ref` (optional, sent together; `portal` requires them) make the push idempotent: the same pair again returns the existing lead with `200` and `"duplicate": true` instead of creating a second one. Unique per company
 - Contact auto-created or matched by phone number
 - Rate limited at 300 req/min (same as WhatsApp webhook)
-- Returns `lead_id`, `contact_id`, `stage`, `source`
+- Returns `lead_id`, `contact_id`, `stage`, `source`, `external_source`, `external_ref`, `duplicate`
+- Each lead created is written to the audit log with the API key as the actor
 
 ### Phase 3 — Outbound Webhooks ✅ Live
 

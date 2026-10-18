@@ -29,6 +29,14 @@ func BenchmarkNormalizeCanonical(b *testing.B) {
 	}
 }
 
+func BenchmarkNormalizeWhatsAppDigits(b *testing.B) {
+	in := "971501234567"
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		Normalize(in)
+	}
+}
+
 func BenchmarkNormalizeFormatted(b *testing.B) {
 	in := "+971 50 123 4567"
 	b.ResetTimer()

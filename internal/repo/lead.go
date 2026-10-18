@@ -2,11 +2,13 @@ package repo
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/maidulcu/masaar-crm/internal/domain"
 	"github.com/maidulcu/masaar-crm/internal/tenant"
@@ -214,24 +216,57 @@ func (r *LeadRepo) List(ctx context.Context, f LeadFilter) ([]domain.Lead, error
 	return leads, nil
 }
 
+// ErrDuplicateExternalRef means this company already holds a lead with the same
+// external source and ref; the push is a retry, not a new lead.
+var ErrDuplicateExternalRef = errors.New("lead with this external ref already exists")
+
 func (r *LeadRepo) Create(ctx context.Context, l *domain.Lead) error {
 	cid, err := tenant.From(ctx)
 	if err != nil {
 		return err
 	}
 	// The contact (and agent, if any) must belong to the same company; a foreign
-	// UUID inserts nothing and surfaces as ErrNoRows.
+	// UUID inserts nothing and surfaces as ErrNoRows. So does a repeated external ref.
 	const q = `
-		INSERT INTO leads (id, company_id, contact_id, stage, source, deal_value, currency, notes, assigned_to)
-		SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9
+		INSERT INTO leads (id, company_id, contact_id, stage, source, deal_value, currency, notes, assigned_to,
+		                   external_source, external_ref)
+		SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9, NULLIF($10,''), NULLIF($11,'')
 		WHERE EXISTS (SELECT 1 FROM contacts WHERE id = $3 AND company_id = $2)
 		  AND ($9::uuid IS NULL OR EXISTS (SELECT 1 FROM users WHERE id = $9 AND company_id = $2))
+		ON CONFLICT (company_id, external_source, external_ref) WHERE external_ref IS NOT NULL DO NOTHING
 		RETURNING created_at, updated_at
 	`
 	l.ID = uuid.New()
-	return r.db.QueryRow(ctx, q,
+	err = r.db.QueryRow(ctx, q,
 		l.ID, cid, l.ContactID, l.Stage, l.Source, l.DealValue, l.Currency, l.Notes, l.AssignedTo,
+		l.ExternalSource, l.ExternalRef,
 	).Scan(&l.CreatedAt, &l.UpdatedAt)
+	if errors.Is(err, pgx.ErrNoRows) && l.ExternalRef != "" {
+		if _, findErr := r.FindByExternalRef(ctx, l.ExternalSource, l.ExternalRef); findErr == nil {
+			return ErrDuplicateExternalRef
+		}
+	}
+	return err
+}
+
+// FindByExternalRef returns the company's lead pushed with this external source and ref,
+// including a soft-deleted one, so a retry never brings back a lead someone removed.
+func (r *LeadRepo) FindByExternalRef(ctx context.Context, source, ref string) (*domain.Lead, error) {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return nil, err
+	}
+	l := &domain.Lead{ExternalSource: source, ExternalRef: ref}
+	err = r.db.QueryRow(ctx, `
+		SELECT id, contact_id, stage, source, deleted_at, created_at, updated_at
+		FROM leads
+		WHERE company_id = $1 AND external_source = $2 AND external_ref = $3`,
+		cid, source, ref,
+	).Scan(&l.ID, &l.ContactID, &l.Stage, &l.Source, &l.DeletedAt, &l.CreatedAt, &l.UpdatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return l, nil
 }
 
 func (r *LeadRepo) UpdateNotes(ctx context.Context, id uuid.UUID, notes string) error {

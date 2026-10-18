@@ -50,6 +50,10 @@ export default function ContactsPage() {
       full_name: formData.get('full_name'),
       email: formData.get('email') || undefined,
       language: formData.get('language') || 'en',
+      // Only channels the agent ticked are recorded as consent; unticked means "not asked".
+      consent: Object.fromEntries(
+        ['whatsapp', 'email'].filter((ch) => formData.get(`consent_${ch}`) === 'on').map((ch) => [ch, true]),
+      ),
     }
 
     try {
@@ -79,6 +83,10 @@ export default function ContactsPage() {
 
       <div className="flex-1 overflow-auto bg-surface-50">
         <div className="max-w-6xl mx-auto px-6 py-8">
+
+          <div className="flex justify-end mb-2">
+            <a href="/contacts/duplicates" className="text-xs text-primary-600 hover:underline">{t('البحث عن التكرارات', 'Find duplicates')}</a>
+          </div>
 
           {/* Search bar + Add button */}
           <div className="flex gap-2 mb-6">
@@ -225,6 +233,18 @@ export default function ContactsPage() {
               <option value="ar">العربية</option>
             </select>
           </FormField>
+
+          <fieldset className="space-y-1.5">
+            <legend className="text-xs font-medium text-surface-600 mb-1">{t('موافقة على التواصل', 'Consent to be contacted')}</legend>
+            <label className="flex items-center gap-2 text-sm text-surface-700">
+              <input type="checkbox" name="consent_whatsapp" className="rounded border-surface-300" />
+              {t('وافق على رسائل واتساب', 'Agreed to WhatsApp messages')}
+            </label>
+            <label className="flex items-center gap-2 text-sm text-surface-700">
+              <input type="checkbox" name="consent_email" className="rounded border-surface-300" />
+              {t('وافق على رسائل البريد الإلكتروني', 'Agreed to emails')}
+            </label>
+          </fieldset>
 
           {submitError && <FormError error={submitError} />}
 

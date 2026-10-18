@@ -1,23 +1,41 @@
-// All timestamps from the API are UTC. This module formats them in Gulf Standard
-// Time (GST = UTC+4, no DST) which is the legal timezone for UAE.
+import { currentLocale } from '@/store/locale'
+
+// All timestamps from the API are UTC. This module formats them in the company's
+// timezone (Settings → Company), which defaults to Asia/Dubai (GST, UTC+4, no DST).
 
 const GST_LOCALE = 'en-AE'
-const GST_TZ = 'Asia/Dubai' // IANA identifier for GST (UTC+4, no DST)
 
-/** Format a UTC timestamp as a human-readable date in GST. */
-export function formatDate(iso: string | Date): string {
-  return new Intl.DateTimeFormat(GST_LOCALE, {
-    timeZone: GST_TZ,
+function tz(): string {
+  return currentLocale().timezone || 'Asia/Dubai'
+}
+
+/** The date in the Umm al-Qura (Hijri) calendar, e.g. "12 Rabi I 1448 AH". */
+export function formatHijri(iso: string | Date): string {
+  return new Intl.DateTimeFormat('en-SA-u-ca-islamic-umalqura', {
+    timeZone: tz(),
     year: 'numeric',
     month: 'short',
     day: 'numeric',
   }).format(new Date(iso))
 }
 
+/** Format a UTC timestamp as a human-readable date in the company timezone, followed
+ *  by the Hijri date when the company enabled it (Settings → Company). */
+export function formatDate(iso: string | Date): string {
+  const d = new Date(iso)
+  const out = new Intl.DateTimeFormat(GST_LOCALE, {
+    timeZone: tz(),
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+  }).format(d)
+  return currentLocale().show_hijri && !isNaN(d.getTime()) ? `${out} (${formatHijri(d)})` : out
+}
+
 /** Format a UTC timestamp as date + time in GST. */
 export function formatDateTime(iso: string | Date): string {
   return new Intl.DateTimeFormat(GST_LOCALE, {
-    timeZone: GST_TZ,
+    timeZone: tz(),
     year: 'numeric',
     month: 'short',
     day: 'numeric',

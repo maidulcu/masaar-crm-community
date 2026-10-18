@@ -7,8 +7,15 @@ import { useLang } from '@/context/LangContext'
 import { useAuthStore } from '@/store/auth'
 import { api } from '@/lib/api'
 import EmailComposeModal from '@/components/communication/EmailComposeModal'
+import PrivacyPanel from '@/components/contact/PrivacyPanel'
+import KYCPanel from '@/components/kyc/KYCPanel'
+import ProfilePanel from '@/components/contact/ProfilePanel'
+import CustomFieldsPanel from '@/components/contact/CustomFieldsPanel'
 import type { Contact, Lead, WhatsAppThread, User } from '@/types'
 import clsx from 'clsx'
+import { companyCurrency } from '@/lib/money'
+import TaskList from '@/components/task/TaskList'
+import ReraPanel from '@/components/rera/ReraPanel'
 
 const stageLabels: Record<string, { en: string; ar: string }> = {
   new: { en: 'New', ar: 'جديد' },
@@ -206,6 +213,31 @@ export default function ContactDetailPage() {
           </div>
         </div>
 
+        <ProfilePanel contactId={contact.id} profile={contact.profile} canEdit={isAgent && !contact.erased_at} onSaved={load} />
+        <CustomFieldsPanel entityType="contact" entityId={contact.id} canEdit={isAgent && !contact.erased_at} />
+
+        <div className="bg-white rounded-2xl border border-surface-200/70 p-5">
+          <h3 className="text-sm font-semibold text-surface-900 mb-3">{t('نماذج ريرا', 'RERA forms')}</h3>
+          <ReraPanel contactId={contact.id} types={['B']} canEdit={isAgent && !contact.erased_at} />
+        </div>
+
+        {(isAgent || user?.role === 'compliance') && !contact.erased_at && (
+          <KYCPanel contactId={contact.id} canAdd={isAgent || user?.role === 'compliance'} canReview={isAdmin || user?.role === 'compliance'} />
+        )}
+
+        <PrivacyPanel
+          contactId={contact.id}
+          canEdit={isAgent}
+          isAdmin={isAdmin}
+          erased={!!contact.erased_at}
+          onErased={load}
+        />
+
+        <div className="bg-white rounded-2xl border border-surface-200/70 p-5">
+          <h3 className="text-sm font-semibold text-surface-900 mb-3">{t('المهام', 'Tasks')}</h3>
+          <TaskList filter={{ related_type: 'contact', related_id: contact.id }} link={{ related_type: 'contact', related_id: contact.id }} canEdit={isAgent} />
+        </div>
+
         {/* Leads */}
         <div className="bg-white rounded-xl border border-surface-200/70 overflow-hidden">
           <div className="px-5 py-3.5 border-b border-surface-200/70 flex items-center justify-between">
@@ -222,7 +254,7 @@ export default function ContactDetailPage() {
                     {lang === 'ar' ? (stageLabels[l.stage]?.ar || l.stage) : (stageLabels[l.stage]?.en || l.stage)}
                   </span>
                   <span className="flex-1 text-sm text-surface-700">{l.notes ? l.notes.substring(0, 80) + (l.notes.length > 80 ? '...' : '') : t('بدون ملاحظات', 'No notes')}</span>
-                  {l.deal_value > 0 && <span className="text-sm font-medium text-surface-900">AED {l.deal_value.toLocaleString()}</span>}
+                  {l.deal_value > 0 && <span className="text-sm font-medium text-surface-900">{companyCurrency()} {l.deal_value.toLocaleString()}</span>}
                   <span className="text-[10px] text-surface-400">{l.created_at ? fmtDate(l.created_at) : ''}</span>
                 </Link>
               ))}
