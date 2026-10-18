@@ -57,6 +57,9 @@ type PublicLeadRequest struct {
 	// A repeat of the same pair returns the existing lead (200) instead of a new one.
 	ExternalSource string `json:"external_source"` // e.g. "waqov"
 	ExternalRef    string `json:"external_ref"`    // e.g. "enquiry:48213"
+	// Consent the person gave on the form, per channel (whatsapp, email, sms, phone):
+	// true = opted in, false = declined. Omitted channels record nothing.
+	Consent map[string]bool `json:"consent"`
 }
 
 // SubmitLead creates a lead from an external source using API key auth.
