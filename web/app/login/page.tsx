@@ -13,6 +13,11 @@ type LoginMode = 'password' | 'magic-link' | 'sms'
 
 const TURNSTILE_SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? ''
 const DEMO_ENABLED = process.env.NEXT_PUBLIC_DEMO_ENABLED === 'true'
+// Instances whose accounts are provisioned elsewhere (registration closed) hide the signup links.
+const SIGNUP_ENABLED = process.env.NEXT_PUBLIC_SIGNUP_ENABLED !== 'false'
+// Optional: the service that creates accounts on such instances, shown to visitors instead.
+const PROVIDER_NAME = process.env.NEXT_PUBLIC_ACCOUNT_PROVIDER_NAME ?? ''
+const PROVIDER_URL = process.env.NEXT_PUBLIC_ACCOUNT_PROVIDER_URL ?? ''
 
 async function verifyTurnstile(token: string): Promise<boolean> {
   const res = await fetch('/api/verify-turnstile', {
@@ -253,14 +258,16 @@ export default function LoginPage() {
               >
                 {t('لديك حساب؟ سجل دخولك', 'Already have an account? Sign in')}
               </button>
-              <div>
-                <span className="text-xs text-surface-400">
-                  {t('أو', 'or')}{' '}
-                </span>
-                <a href="/signup" className="text-xs font-medium text-primary-600 hover:text-primary-700 transition-colors">
-                  {t('أنشئ حساباً جديداً', 'Create a new account')}
-                </a>
-              </div>
+              {SIGNUP_ENABLED && (
+                <div>
+                  <span className="text-xs text-surface-400">
+                    {t('أو', 'or')}{' '}
+                  </span>
+                  <a href="/signup" className="text-xs font-medium text-primary-600 hover:text-primary-700 transition-colors">
+                    {t('أنشئ حساباً جديداً', 'Create a new account')}
+                  </a>
+                </div>
+              )}
             </div>
           </>
         ) : (
@@ -562,12 +569,29 @@ export default function LoginPage() {
             )}
 
             <div className="mt-4 text-center space-y-3">
-              <p className="text-xs text-surface-500">
-                {t('ليس لديك حساب؟', "Don't have an account?")}{' '}
-                <a href="/signup" className="text-primary-600 hover:text-primary-700 font-medium">
-                  {t('إنشاء حساب', 'Sign up')}
-                </a>
-              </p>
+              {SIGNUP_ENABLED ? (
+                <p className="text-xs text-surface-500">
+                  {t('ليس لديك حساب؟', "Don't have an account?")}{' '}
+                  <a href="/signup" className="text-primary-600 hover:text-primary-700 font-medium">
+                    {t('إنشاء حساب', 'Sign up')}
+                  </a>
+                </p>
+              ) : PROVIDER_NAME && (
+                <div className="rounded-lg bg-primary-50 border border-primary-100 px-4 py-3 text-xs text-surface-600 space-y-1">
+                  <p className="font-semibold text-surface-800">
+                    {t(`مسار CRM متاح مع اشتراكك في ${PROVIDER_NAME}.`, `Masaar CRM is included with your ${PROVIDER_NAME} plan.`)}
+                  </p>
+                  <p>
+                    {t(`افتحه من لوحة ${PROVIDER_NAME} (فتح CRM)، أو سجّل الدخول أعلاه إن كان لديك حساب.`,
+                       `Open it from your ${PROVIDER_NAME} dashboard (Open CRM), or sign in above if you already have access.`)}
+                  </p>
+                  {PROVIDER_URL && (
+                    <a href={PROVIDER_URL} className="inline-block font-medium text-primary-600 hover:text-primary-700">
+                      {t(`الذهاب إلى ${PROVIDER_NAME} ←`, `Go to ${PROVIDER_NAME} →`)}
+                    </a>
+                  )}
+                </div>
+              )}
               <button
                 type="button"
                 onClick={() => { setShowLogin(false); resetMode('password') }}
