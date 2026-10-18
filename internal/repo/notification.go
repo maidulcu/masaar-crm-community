@@ -3,6 +3,7 @@ package repo
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -22,6 +23,12 @@ func (r *NotificationRepo) Create(ctx context.Context, n *domain.Notification) e
 	cid, err := tenant.From(ctx)
 	if err != nil {
 		return err
+	}
+	if n.ID == uuid.Nil {
+		n.ID = uuid.New() // callers often leave it empty; a nil id collides on the second insert
+	}
+	if n.CreatedAt.IsZero() {
+		n.CreatedAt = time.Now()
 	}
 	// The recipient must belong to the same company.
 	query := `

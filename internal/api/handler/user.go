@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -221,9 +222,10 @@ func (h *UserHandler) CreateUser(c *fiber.Ctx) error {
 	}
 
 	validRoles := map[domain.Role]bool{
-		domain.RoleAdmin:  true,
-		domain.RoleAgent:  true,
-		domain.RoleViewer: true,
+		domain.RoleAdmin:      true,
+		domain.RoleAgent:      true,
+		domain.RoleViewer:     true,
+		domain.RoleCompliance: true,
 	}
 	if !validRoles[body.Role] {
 		body.Role = domain.RoleAgent
@@ -294,7 +296,7 @@ func (h *UserHandler) InviteUser(c *fiber.Ctx) error {
 	}
 
 	validRoles := map[domain.Role]bool{
-		domain.RoleAdmin: true, domain.RoleAgent: true, domain.RoleViewer: true,
+		domain.RoleAdmin: true, domain.RoleAgent: true, domain.RoleViewer: true, domain.RoleCompliance: true,
 	}
 	if !validRoles[body.Role] {
 		body.Role = domain.RoleAgent
@@ -391,7 +393,7 @@ func (h *UserHandler) UpdateUser(c *fiber.Ctx) error {
 	}
 
 	validRoles := map[domain.Role]bool{
-		domain.RoleAdmin: true, domain.RoleAgent: true, domain.RoleViewer: true,
+		domain.RoleAdmin: true, domain.RoleAgent: true, domain.RoleViewer: true, domain.RoleCompliance: true,
 	}
 	if !validRoles[body.Role] {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid role"})
@@ -409,6 +411,53 @@ func (h *UserHandler) UpdateUser(c *fiber.Ctx) error {
 
 	h.audit.Log(c.Context(), callerID, repo.AuditUpdate, repo.AuditUser, targetID,
 		fiber.Map{"name": body.Name, "role": body.Role})
+	return c.SendStatus(fiber.StatusNoContent)
+}
+
+// SetBRN godoc
+// @Summary      Set a broker's RERA registration number
+// @Description  Admin only. Stores the user's BRN and its expiry; expiry alerts are sent 30 and 7 days before.
+// @Tags         Users
+// @Accept       json
+// @Param        id    path  string                                  true  "User ID"
+// @Param        body  body  object{brn=string,brn_expiry=string}    true  "BRN and expiry (YYYY-MM-DD)"
+// @Success      204
+// @Security     BearerAuth
+// @Router       /users/{id}/brn [patch]
+func (h *UserHandler) SetBRN(c *fiber.Ctx) error {
+	targetID, err := uuid.Parse(c.Params("id"))
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid user id"})
+	}
+	var body struct {
+		BRN       string `json:"brn"`
+		BRNExpiry string `json:"brn_expiry"`
+	}
+	if err := c.BodyParser(&body); err != nil {
+		return badRequest(c, err)
+	}
+	body.BRN = strings.TrimSpace(body.BRN)
+	if len(body.BRN) > 20 {
+		return c.Status(fiber.StatusUnprocessableEntity).JSON(fiber.Map{"error": "brn is too long"})
+	}
+	var expiry *time.Time
+	if body.BRNExpiry != "" {
+		d, err := time.Parse("2006-01-02", body.BRNExpiry)
+		if err != nil {
+			return c.Status(fiber.StatusUnprocessableEntity).JSON(fiber.Map{"error": "brn_expiry must be YYYY-MM-DD"})
+		}
+		expiry = &d
+	}
+	companyID, ok := callerCompanyID(c)
+	if !ok {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "unauthorized"})
+	}
+	if err := h.users.SetBRN(c.Context(), companyID, targetID, body.BRN, expiry); err != nil {
+		return userMutationError(c, err, "failed to update user")
+	}
+	if callerID, ok := c.Locals("user_id").(uuid.UUID); ok {
+		h.audit.Log(c.Context(), callerID, repo.AuditUpdate, repo.AuditUser, targetID, fiber.Map{"brn": body.BRN, "brn_expiry": body.BRNExpiry})
+	}
 	return c.SendStatus(fiber.StatusNoContent)
 }
 

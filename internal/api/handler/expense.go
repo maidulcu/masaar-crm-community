@@ -164,7 +164,7 @@ func (h *ExpenseHandler) CreateExpense(c *fiber.Ctx) error {
 		CategoryID:    req.CategoryID,
 		PropertyID:    req.PropertyID,
 		Amount:        req.Amount,
-		Currency:      "AED",
+		Currency:      defaultCurrency(c.Context()),
 		ExpenseDate:   req.ExpenseDate,
 		Description:   req.Description,
 		VendorName:    req.VendorName,

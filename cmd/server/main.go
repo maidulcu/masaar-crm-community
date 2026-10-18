@@ -31,9 +31,11 @@ import (
 	"github.com/maidulcu/masaar-crm/internal/config"
 	"github.com/maidulcu/masaar-crm/internal/docusign"
 	"github.com/maidulcu/masaar-crm/internal/email"
+	"github.com/maidulcu/masaar-crm/internal/jobs"
 	"github.com/maidulcu/masaar-crm/internal/mediastore"
 	"github.com/maidulcu/masaar-crm/internal/repo"
 	"github.com/maidulcu/masaar-crm/internal/sms"
+	"github.com/maidulcu/masaar-crm/internal/totp"
 	"github.com/maidulcu/masaar-crm/internal/webhook"
 	"github.com/maidulcu/masaar-crm/internal/whatsapp"
 	"github.com/maidulcu/masaar-crm/internal/ws"
@@ -119,6 +121,11 @@ func main() {
 	pipelineStageRepo := repo.NewPipelineStageRepo(pool)
 	approvalRepo := repo.NewApprovalRepo(pool)
 	paymentReminderRepo := repo.NewPaymentReminderRepo(pool)
+	jobRepo := repo.NewJobRepo(pool)
+	privacyRepo := repo.NewPrivacyRepo(pool)
+	taskRepo := repo.NewTaskRepo(pool)
+	contactProfileRepo := repo.NewContactProfileRepo(pool)
+	reraRepo := repo.NewReraRepo(pool)
 
 	// ── Services / clients ───────────────────────────────────────────────────
 	hub := ws.NewHub()
@@ -202,26 +209,44 @@ func main() {
 	}
 
 	// ── Handlers ─────────────────────────────────────────────────────────────
+	twoFactorKey := cfg.TwoFactorKey
+	if twoFactorKey == "" {
+		twoFactorKey = cfg.JWTSecret
+	}
+	totpBox, err := totp.NewBox(twoFactorKey)
+	if err != nil {
+		log.Fatalf("two-factor key: %v", err)
+	}
+	handler.UseCompanyLocale(companySettingsRepo.Locale)
+	leadRotation := handler.NewLeadRotationHandler(leadRotationRepo, leadRepo, userRepo, hub)
+	notifier := jobs.NewNotifier(notificationRepo, userRepo, emailSvc, hub)
+	complianceRepo := repo.NewComplianceRepo(pool)
+	chequeRepo := repo.NewChequeRepo(pool)
+	leaseOpsRepo := repo.NewLeaseOpsRepo(pool)
+	kycRepo := repo.NewKYCRepo(pool)
+	broadcastRepo := repo.NewBroadcastRepo(pool)
+	einvoiceRepo := repo.NewEInvoiceRepo(pool)
 	h := &api.Handlers{
-		Auth:                handler.NewAuthHandler(userRepo, companyRepo, rdb, cfg, auditRepo, emailSvc, smsClient),
-		User:                handler.NewUserHandler(userRepo, auditRepo, emailSvc, cfg, rdb),
-		Stats:               handler.NewStatsHandler(statsRepo),
-		Contact:             handler.NewContactHandler(contactRepo, auditRepo),
-		Lead:                handler.NewLeadHandler(leadRepo, contactRepo, commHistRepo, scoringSvc, leadTagRepo, hub, auditRepo, dispatcher, pipelineStageRepo),
-		WhatsApp:            handler.NewWhatsAppHandler(waRepo, contactRepo, waOutboundRepo, commHistRepo, waMedia, taggingSvc, hub, cfg),
-		WhatsAppOutbound:    handler.NewWhatsAppOutboundHandler(waSender, waOutboundRepo, waRepo, commHistRepo, waMedia),
+		Auth:    handler.NewAuthHandler(userRepo, companyRepo, rdb, cfg, auditRepo, emailSvc, smsClient).UseTwoFactor(repo.NewTwoFactorRepo(pool), totpBox),
+		User:    handler.NewUserHandler(userRepo, auditRepo, emailSvc, cfg, rdb),
+		Stats:   handler.NewStatsHandler(statsRepo),
+		Contact: handler.NewContactHandler(contactRepo, auditRepo).UsePrivacy(privacyRepo).UseProfiles(contactProfileRepo),
+		Lead:    handler.NewLeadHandler(leadRepo, contactRepo, commHistRepo, scoringSvc, leadTagRepo, hub, auditRepo, dispatcher, pipelineStageRepo),
+		WhatsApp: handler.NewWhatsAppHandler(waRepo, contactRepo, waOutboundRepo, commHistRepo, waMedia, taggingSvc, hub, cfg).
+			UseInbox(broadcastRepo, privacyRepo, waSender, companySettingsRepo.Locale),
+		WhatsAppOutbound:    handler.NewWhatsAppOutboundHandler(waSender, waOutboundRepo, waRepo, commHistRepo, waMedia).UsePrivacy(privacyRepo),
 		AI:                  handler.NewAIHandler(aiSensitive, aiCloud, contactRepo, leadRepo, waRepo),
 		Message:             handler.NewMessageHandler(aiSensitive, waRepo, contactRepo, leadRepo, commHistRepo, leadTagRepo, scoringSvc, hub),
 		Notification:        handler.NewNotificationHandler(notificationRepo),
-		Deal:                handler.NewDealHandler(dealRepo, invoiceRepo, auditRepo),
-		Invoice:             handler.NewInvoiceHandler(invoiceRepo, dealRepo, companySettingsRepo),
+		Deal:                handler.NewDealHandler(dealRepo, invoiceRepo, auditRepo).UseKYC(kycRepo),
+		Invoice:             handler.NewInvoiceHandler(invoiceRepo, dealRepo, companySettingsRepo, dealRepo, auditRepo),
 		Property:            handler.NewPropertyHandler(bos24Client, companySettingsRepo),
 		Settings:            handler.NewSettingsHandler(apiSettingsRepo, companySettingsRepo),
-		Email:               handler.NewEmailHandler(emailSvc, emailRepo),
+		Email:               handler.NewEmailHandler(emailSvc, emailRepo).UsePrivacy(privacyRepo),
 		RentalProperty:      handler.NewRentalPropertyHandler(rentalPropertyRepo),
 		Tenant:              handler.NewTenantHandler(tenantRepo),
 		LeaseTemplate:       handler.NewLeaseTemplateHandler(leaseTemplateRepo),
-		Lease:               handler.NewLeaseHandler(leaseRepo),
+		Lease:               handler.NewLeaseHandler(leaseRepo).UseCheques(chequeRepo),
 		Payment:             handler.NewPaymentHandler(paymentRepo),
 		BankIntegration:     handler.NewBankIntegrationHandler(bankIntegrationRepo),
 		BankStatement:       handler.NewBankStatementHandler(bankStatementRepo, bankStatementStore, cfg.BankStatementMaxMB),
@@ -231,29 +256,42 @@ func main() {
 		Inspection:          handler.NewInspectionHandler(inspectionTemplateRepo, inspectionRepo),
 		Maintenance:         handler.NewMaintenanceTaskHandler(maintenanceRepo),
 		LeaseRenewal:        handler.NewLeaseRenewalHandler(leaseRenewalRepo, renewalTemplateRepo, renewalLogRepo),
-		Document:            handler.NewDocumentHandler(documentRepo, auditRepo, dsClient),
+		Document:            handler.NewDocumentHandler(documentRepo, auditRepo, dsClient).UseRera(reraRepo),
 		ApiKey:              handler.NewApiKeyHandler(apiKeyRepo),
 		PublicLead:          handler.NewPublicLeadHandler(contactRepo, leadRepo, auditRepo, dispatcher),
 		WebhookSub:          handler.NewWebhookSubHandler(webhookRepo, dispatcher),
 		Billing:             handler.NewBillingHandler(billingRepo, companySettingsRepo, stripeCfg),
 		MessageTemplate:     handler.NewMessageTemplateHandler(messageTemplateRepo),
 		AuditLog:            handler.NewAuditHandler(auditRepo),
-		Listing:             handler.NewListingHandler(listingRepo, approvalRepo),
+		Listing:             handler.NewListingHandler(listingRepo, approvalRepo, auditRepo),
 		BOS24Integration:    handler.NewBOS24IntegrationHandler(bos24Repo, bos24Sync, cfg),
 		Offer:               handler.NewOfferHandler(offerRepo, contactRepo, leadRepo, dealRepo, hub),
-		LeadRotation:        handler.NewLeadRotationHandler(leadRotationRepo, leadRepo, userRepo, hub),
+		LeadRotation:        leadRotation,
 		Commission:          handler.NewCommissionHandler(commissionRepo),
 		Performance:         handler.NewPerformanceHandler(performanceRepo),
 		Viewing:             handler.NewViewingHandler(viewingRepo, notificationRepo, hub),
-		Marketing:           handler.NewMarketingHandler(listingRepo, contactRepo, companySettingsRepo, userRepo, emailSvc, cfg.AppURL),
-		ImportExport:        handler.NewImportExportHandler(contactRepo, leadRepo, listingRepo),
+		Marketing:           handler.NewMarketingHandler(listingRepo, contactRepo, companySettingsRepo, userRepo, emailSvc, cfg.AppURL).UsePrivacy(privacyRepo),
+		ImportExport:        handler.NewImportExportHandler(contactRepo, leadRepo, listingRepo).UsePrivacy(privacyRepo).UseProfiles(contactProfileRepo),
 		PipelineStage:       handler.NewPipelineStageHandler(pipelineStageRepo),
-		Approval:            handler.NewApprovalHandler(approvalRepo),
+		Approval:            handler.NewApprovalHandler(approvalRepo, listingRepo),
+		Job:                 handler.NewJobHandler(jobRepo),
+		Privacy:             handler.NewPrivacyHandler(privacyRepo, auditRepo, removeStored(mediaStore)),
+		Task:                handler.NewTaskHandler(taskRepo),
+		ContactProfile:      handler.NewContactProfileHandler(contactProfileRepo, auditRepo),
+		Rera:                handler.NewReraHandler(reraRepo, auditRepo),
+		Cheque: handler.NewChequeHandler(chequeRepo, auditRepo, notifier, complianceRepo.AdminIDs,
+			bankStatementStore, int64(cfg.BankStatementMaxMB)),
+		LeaseOps:  handler.NewLeaseOpsHandler(leaseOpsRepo, paymentRepo, auditRepo),
+		KYC:       handler.NewKYCHandler(kycRepo, auditRepo, mediaStore, 10),
+		Broadcast: handler.NewBroadcastHandler(broadcastRepo, auditRepo),
+		EInvoice:  handler.NewEInvoiceHandler(einvoiceRepo, invoiceRepo, auditRepo, notifier),
+		Portal: handler.NewPortalHandler(repo.NewPortalRepo(pool), contactRepo, leadRepo, listingRepo, userRepo, companySettingsRepo,
+			dispatcher, leadRotation.AssignNewLead, cfg.PublicAPIURL, cfg.AppURL),
 	}
 	if cfg.DocusignWebhookSecret != "" {
 		h.DocusignWebhook = handler.NewDocusignWebhookHandler(documentRepo, cfg.DocusignWebhookSecret)
 	}
-	_ = paymentReminderRepo // reserved for the scheduled reminder service (not part of Community Edition)
+	_ = paymentReminderRepo // rent reminders are sent by jobs.RentReminders
 
 	// ── HTTP server ──────────────────────────────────────────────────────────
 	app := fiber.New(fiber.Config{
@@ -284,6 +322,25 @@ func main() {
 
 	api.RegisterRoutes(app, h, hub, cfg, rdb, pool, apiKeyRepo, billingRepo, companyRepo)
 
+	// ── Background jobs ──────────────────────────────────────────────────────
+	var runner *jobs.Runner
+	if cfg.JobsEnabled {
+		runner = jobs.NewRunner(jobRepo, 30*time.Second,
+			jobs.ViewingReminders(viewingRepo, notifier),
+			jobs.OfferExpiry(offerRepo, notifier),
+			jobs.ExpiryAlerts(complianceRepo, notifier),
+			jobs.Retention(privacyRepo, removeStored(bankStatementStore)),
+			jobs.TaskReminders(taskRepo, notifier),
+			jobs.ChequeDeposits(chequeRepo, complianceRepo, notifier),
+			jobs.LeaseAlerts(leaseOpsRepo, complianceRepo, notifier),
+			jobs.RentReminders(leaseOpsRepo, privacyRepo, emailSvc, waSender),
+			jobs.BroadcastSender(broadcastRepo, waSender),
+			jobs.EInvoiceStatus(einvoiceRepo, notifier),
+			jobs.PruneRunLog(jobRepo),
+		)
+		runner.Start(ctx)
+	}
+
 	errCh := make(chan error, 1)
 	go func() { errCh <- app.Listen(":" + cfg.Port) }()
 	log.Printf("Masaar CRM listening on :%s (env=%s)", cfg.Port, cfg.AppEnv)
@@ -299,6 +356,9 @@ func main() {
 		defer cancel()
 		if err := app.ShutdownWithContext(shutdownCtx); err != nil {
 			log.Printf("shutdown: %v", err)
+		}
+		if runner != nil {
+			runner.Wait() // ctx is cancelled: finishes the run in progress, starts no more
 		}
 	}
 }
@@ -335,6 +395,14 @@ func whatsAppBaseURL(base, version string) string {
 		return base
 	}
 	return fmt.Sprintf("%s/%s", base, version)
+}
+
+// removeStored returns a deleter for files in st, or nil when storage is disabled.
+func removeStored(st *mediastore.Store) func(string) error {
+	if st == nil {
+		return nil
+	}
+	return st.Remove
 }
 
 func splitList(s string) []string {

@@ -4,6 +4,7 @@ import { Header } from '@/components/layout/Header'
 import { api } from '@/lib/api'
 import { useAuthStore } from '@/store/auth'
 import { useLang } from '@/context/LangContext'
+import TwoFactorSettings from '@/components/auth/TwoFactorSettings'
 
 export default function SettingsPage() {
   const { user, updateUser, company } = useAuthStore()
@@ -220,6 +221,8 @@ export default function SettingsPage() {
               </button>
             </form>
           </div>
+
+          <TwoFactorSettings disabled={isDemo} />
 
         </div>
       </main>

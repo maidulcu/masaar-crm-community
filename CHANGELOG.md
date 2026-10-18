@@ -7,6 +7,167 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [v0.4.0] - Unreleased
+
+### UAE e-invoicing and Saudi groundwork (#88) — migration `0078`
+
+**UAE e-invoicing (PINT AE)** — off by default; see [docs/einvoicing.md](docs/einvoicing.md)
+- Tax invoices and credit notes can be exported as **PINT AE** XML (UBL 2.1, the UAE Peppol specification), including mixed standard/exempt/out-of-scope lines and credit note reason codes. Missing data (TIN, legal registration, buyer address…) is listed instead of producing an invalid file.
+- The generated XML is checked in CI against the UBL 2.1 schema and the official PINT AE Schematron (`scripts/pint-ae/validate.sh`).
+- Submission through a provider **connector** interface, with a status job that records accepted and rejected e-invoices and notifies the issuer of a rejection. Only a **mock** provider ships; a real accredited service provider needs its own connector.
+- Settings → E-invoicing (provider, TIN, legal registration, exemption code); an E-invoice panel on each invoice for the buyer details, XML download and submission.
+- AED invoices only for now.
+
+**Saudi Arabia groundwork** — see [docs/adr/0001-ksa-groundwork.md](docs/adr/0001-ksa-groundwork.md)
+- Country **SA**: 15 % VAT, SAR, Asia/Riyadh, Friday–Saturday weekend, the 13 regions.
+- Listings in Saudi regions require a **REGA** advertising licence, enforced like Trakheesi/Madhmoun.
+- Optional **Hijri (Umm al-Qura)** dates next to Gregorian dates (Settings → Company).
+- Money defaults (new leads, deals, offers, expenses, listings, imports) follow the company currency instead of AED.
+- ZATCA e-invoicing, Ejar and Nafath are not part of the community edition.
+
+#### Upgrade notes
+- Nothing changes until an admin enables e-invoicing; existing invoices are unaffected.
+
+### KYC/AML, WhatsApp broadcasts and two-factor authentication (#87) — migrations `0075`–`0077`
+
+**Two-factor authentication**
+- Optional per user, with an authenticator app (TOTP, RFC 6238): turn on from Settings with a QR code; 8 single-use backup codes (stored hashed); turning it off needs the password and a code.
+- Every sign-in path (password, magic link, SMS code) answers with a short-lived pending token instead of a session when a second factor is needed; `POST /auth/verify-totp` exchanges it with a code or a backup code. A code cannot be used twice. Five wrong codes lock the account for 15 minutes (the same lock as wrong passwords).
+- Admins can require two-factor for the whole company (Settings → Security); users without it set it up at their next sign-in. Admins can reset a user's two-factor (lost phone).
+- Secrets are encrypted at rest with AES-GCM; set `TWO_FACTOR_KEY` (otherwise derived from `JWT_SECRET`).
+
+**KYC and AML (record keeping and workflow; no automatic compliance decisions)**
+- Identity documents per contact (Emirates ID, passport, residence visa, trade licence; number, issuing country, dates, a private copy), risk rating with reason, PEP flag, and screening result entered by hand. A screening-provider interface (`kyc.Screener`) is available; none is bundled.
+- Beneficial owners of corporate clients (organisations), with their KYC status.
+- Alerts before a client's identity document expires.
+- **A deal cannot be marked won** while the buyer has no valid Emirates ID or passport on file, unless an admin overrides it with a reason (audit-logged).
+- Deals record their payment method (cash, cheque, transfer, virtual assets, mixed) and cash part. Cash at or above the configured threshold (AED 55,000 by default) or payment in virtual assets sends the deal to the **AML review queue** (Compliance page), where the decision (no report / reported, with the goAML reference) is recorded. A CSV export gathers what a goAML report needs; it is not a goAML XML submission.
+- A **compliance** role: reads like a viewer, plus the KYC and AML screens. Viewing identity documents and the AML queue is audit-logged.
+
+**WhatsApp**
+- **Broadcasts** of an approved template to a segment (lead tag, stage, source, listing interest), only to contacts who granted WhatsApp consent; the others are recorded as skipped. Sent by a background job at a configurable rate per minute, with per-recipient delivery status from Meta's receipts. Consent is checked again just before each message.
+- Replying **STOP / إيقاف** (or UNSUBSCRIBE, إلغاء الاشتراك) records a WhatsApp opt-out and confirms it; **START / اشتراك** opts back in. Only whole-message replies count.
+- Inbox: the **24-hour customer-service window** is shown on each conversation, and free-form messages outside it are refused with a clear message (an approved template is needed); conversations can be **assigned** to an agent.
+- **Business-hours auto-reply**: weekly hours in the company timezone plus special periods (Ramadan hours, holidays); outside them a customer's message gets the auto-reply, at most once every 12 hours per conversation. Settings → WhatsApp Inbox.
+
+#### Upgrade notes
+- Set `TWO_FACTOR_KEY` to a long random value before anyone turns on two-factor, and keep it stable.
+- Existing deals have no payment method recorded and are not flagged until one is set.
+
+### Property management (#86) — migration `0074`
+
+**Post-dated cheque register**
+- Cheques per lease: number, bank, drawer, amount, date, and an optional scan (JPEG, PNG or PDF, kept in the bank statement store). Status: in hand (`received`) → `deposited` → `cleared`, or `bounced`; also `on_hold`, `returned` and `replaced`. Every change is audit-logged.
+- **Cheque schedule:** `POST /leases/:id/cheques/schedule` (or `cheque_schedule` in the lease-creation body) splits the rent for the lease term over N cheques at equal month intervals, numbered upwards from the first cheque number, and creates a pending payment for each. A 12-cheque lease gets 12 cheques and 12 payments; rounding goes to the last cheque.
+- A cleared cheque marks its payment received (with the clearing date); a bounced cheque marks it failed, notifies the lease's agent and the admins, and can add a returned-cheque charge as a new payment. A replacement cheque pays the same payment.
+- **Cheque register** (`/cheques`): cheques to deposit today, in the next 30 days, awaiting clearance, or bounced, with totals and bulk "mark deposited". A daily digest of the cheques to deposit goes to each lease's agent and the admins (`cheque_deposits` job).
+
+**Lease alerts and notices**
+- Leases have an **agent** (defaults to whoever created the lease) and an **Ejari expiry**.
+- Alerts to the agent and the admins, once per threshold: before a lease ends (by default 120, 90, 60 and 30 days, configurable), two weeks before the last day to serve a rent-change notice when none has been recorded (90 days before the end by default, configurable), and 30 and 7 days before (and once after) the Ejari registration expires (`lease_alerts` job). Clicking the notification opens the lease.
+- **Notices to the tenant** (rent change, renewal terms, non-renewal, other): drafted in English and Arabic from the lease, edited, saved, printed side by side, and recorded as served (when and how: email, WhatsApp, by hand, registered mail, notary). The drafts are a starting point, not legal advice.
+- "Start renewal" on the lease page opens the existing renewal workflow. Its renewal date is now the day after the lease ends (it was "today + 90 days").
+
+**Rent reminders**
+- When switched on (Settings → Property Management), tenants are reminded by email and WhatsApp a few days before rent is due (3 by default) and once when it is late, between 9:00 and 20:00 local time (`rent_reminders` job). WhatsApp uses an approved template with four parameters (tenant name, amount, due date, property).
+- Not sent for payments covered by a cheque in hand, to tenants switched off on the lease page, or on a channel the tenant opted out of as a contact (matched by phone or email). Skipped and failed reminders are recorded and shown on the lease page.
+- This replaces the no-op `PaymentReminderService` stub; the `payment_reminders` table it expected is created by this migration.
+
+**Other**
+- The lease page loads its own payments (`GET /leases/:id/payments`); it used to filter the first 100 payments of the company.
+- Notifications open the record they are about (lease, task, listing…).
+
+#### Upgrade notes
+- Existing leases get their creator as agent. Rent reminders are off until an admin switches them on.
+- Notice periods and alert days are defaults for Dubai: check the rules that apply to your emirate.
+
+### Brokerage workflow (#85) — migrations `0070`–`0073`
+
+**Tasks and follow-ups**
+- Tasks (call, meeting, viewing, to-do, follow-up) with a due date, priority and assignee, linked to a lead, contact, deal, listing, viewing or offer. A **Tasks** page (mine / all / overdue), task panels on contact, deal and listing pages, and an overdue widget on the dashboard.
+- The assignee is reminded (in-app, live, and by email when mail is configured) about 15 minutes before a task is due, once; moving the due date or the assignee re-arms the reminder (`task_reminders` job).
+
+**Contacts**
+- Contact profile: secondary phones, nationality (ISO country), source, preferred contact time, address, job title, notes, and an **organisation** (B2B companies with trade licence and TRN; `/organisations`).
+- **Custom fields** for contacts, leads, deals and listings (text, number, date, select, yes/no), managed under Settings → Custom Fields, validated on save, and included in CSV import/export as `cf_<name>` columns. The tables existed since `0030` but were never wired up.
+- **Duplicate detection and merge** (`GET /contacts/duplicates`; `POST /contacts/merge`, admin only): contacts sharing an email, a name, or a phone are grouped; merging moves leads, offers, viewings, conversations, consent history, tasks and custom values to the contact you keep.
+
+**RERA forms (Dubai)**
+- Pre-filled **Form A** (seller/landlord – broker), **Form B** (buyer/tenant – broker), **Form I** (broker – broker) and **Form F** (MOU between seller and buyer) from the company, listing, agent, contact and offer. Each form is stored as a document, printable in English and Arabic, and can be sent for e-signature through the existing signing link. Form F is offered on accepted offers.
+- These are agreement records with the forms' key fields, not the official DLD templates, and nothing is submitted to the DLD. Check the current official forms before relying on them.
+
+**Property portals**
+- **Lead webhook** per portal (Property Finder, Bayut, Dubizzle, or any other): `POST /webhooks/portals/:portal?token=…`. The contact is matched or created by phone, the lead gets the portal as its source, a listing reference is noted on the lead, lead rotation assigns it, and `lead.created` is delivered to webhook subscribers. A lead delivered twice is created once.
+- **Listing feed** per portal: `GET /api/public/feeds/:portal/listings.xml?token=…` lists published listings with photos, agent (with BRN) and company (with ORN). Listings whose advertising permit is missing or expired are left out.
+- Tokens are created, rotated, paused and revoked under **Settings → Property Portals** (admin); they are stored hashed and shown once.
+- The portals' own lead and feed formats are not public. The webhook recognises common field names, and the feed uses a documented, generic XML format (`masaar-listings/1`). Mapping to a portal's exact schema is left for contributors with access to its documentation.
+- **Lead-source report** (`GET /reports/lead-sources`, Reports → Lead Sources): leads, wins, conversion and won deal value by source for a date range.
+
+**Calculators**
+- Buyer's purchase costs (DLD transfer fee, admin and trustee fees, commission, mortgage registration and bank fees), mortgage repayment, rental yield (gross and net) and commission with VAT. The rates are editable and remembered in the browser. Results can be printed or shared on WhatsApp. Linked from listings and offers. The default rates are indicative and should be checked against current DLD fees and the bank's offer.
+
+#### Upgrade notes
+- Set `PUBLIC_API_URL` to the API's public address (for example `https://api.crm.example.ae`) so the portal URLs shown to admins are correct behind a proxy. When it is empty, the address of the incoming request is used.
+- Migration `0071` deletes custom field values whose definition no longer exists, and keeps one value per field and record.
+
+### UAE compliance core (#84) — migrations `0067`–`0069`
+
+**Tax invoices**
+- Invoices have **line items** with a VAT category each (standard, zero-rated, exempt, out of scope), VAT computed and rounded per line under the company's country rules, and stored totals (no longer generated columns).
+- The supplier (name, address, TRN) and customer (name, address, TRN for B2B) are **captured when the invoice is issued** and never change afterwards. The customer defaults to the deal's contact.
+- **Credit notes** (`CN-YYYY-NNNN`) against an invoice, in full or in part. An invoice can never be credited beyond its total, also under concurrent requests. Invoices show what has been credited and what is outstanding.
+- **Void** with a reason (not for paid documents, nor for invoices with credit notes). A void document never changes again.
+- **Gap-free numbering** per company, document kind and year, taken inside the issuing transaction (the previous `MAX()+1` could hand two requests the same number).
+- A company **without a TRN** can only issue invoices without VAT (out of scope), which are titled "Invoice" rather than "Tax Invoice".
+- A **printable bilingual (English | Arabic) invoice** page (`/invoices/<id>/print`, "Print / Save as PDF"), with a VAT summary per category. Server-side PDF generation remains a Pro feature.
+- The legacy `POST /invoices {deal_id, subtotal}` body still works (one standard-rated line).
+
+**RERA licences and advertising permits**
+- Company: RERA office number (ORN), trade licence number and expiry. Users: broker registration number (BRN) and expiry (`PATCH /users/:id/brn`).
+- Listings: advertising permit number, expiry and QR image. In Dubai (Trakheesi) and Abu Dhabi (Madhmoun) a listing needs a valid permit before it can be **published, shared on its public page, emailed in a campaign, or given a QR code**. An admin can allow it anyway with a reason (`POST /listings/:id/permit-override`, audit-logged).
+- The public listing page shows the permit number and QR; a listing whose permit has lapsed disappears from it.
+- **Expiry alerts** 30 and 7 days before (and once after) a listing permit, BRN or trade licence expires, to the person concerned and the company's admins.
+
+**PDPL**
+- **Consent per channel** (WhatsApp, email, SMS, phone) with full history: recorded from the contact page, when creating a contact, from the public lead form (`"consent": {"whatsapp": true}`) and from CSV imports (`consent_whatsapp`, `consent_email`, …).
+- **Opt-outs are enforced**: WhatsApp messages, templates and media, single emails and listing email campaigns are refused (or skipped) for contacts who opted out.
+- **Data-subject export** (`GET /contacts/:id/export`, admin): everything held about a contact as one JSON file.
+- **Erasure** (`POST /contacts/:id/erase`, admin, confirmation required): anonymises the contact and removes personal data from conversations, notes, emails and stored attachments; issued invoices are kept as tax records. Audit-logged.
+- **Retention**: a daily job deletes bank statements (and their files), documents and payment confirmations whose `retention_until` has passed.
+
+**Fixed**
+- Changing a listing's status (`PATCH /listings/:id/status`) and reviewing an approval request always answered 500: both read the user id with the wrong type.
+- Approving a listing approval request now publishes the listing (previously nothing did, so with listing approval switched on a listing could never be published). `published_at` is set when a listing is published.
+- `PATCH /listings/:id` could change the status directly, bypassing approval; status changes now only go through the status endpoint.
+- Creating a listing failed (NOT NULL violation) unless the client sent `portal_sync_status`, which the web form never does.
+
+#### Upgrade notes
+- Migration `0067` converts existing invoices: each gets one line for its deal, the deal's currency, the current company details as supplier and the deal's contact as customer. Numbering continues after the highest existing `INV-YYYY-NNNN`.
+- Dubai and Abu Dhabi listings that are already published keep their status but cannot be re-published, shared or campaigned until a permit is entered (or an admin overrides).
+
+### Foundations (#83)
+
+Foundations for the UAE-launch roadmap (#82, milestone #83). Includes migrations `0065` and `0066`.
+
+### Added
+- **Background jobs.** A scheduler runs inside the API (`internal/jobs`). Each job is claimed in the database before it runs, so with several replicas it still runs once per interval, and a lease stops a slow run from being started twice. Runs that handled something or failed are logged per company for 30 days and listed under **Settings → Background Jobs** (`GET /api/v1/admin/jobs/runs`). Set `JOBS_ENABLED=false` to keep a process from running jobs.
+  - **Viewing reminders:** the assigned agent is notified (in-app, live, and by email when mail is configured) up to an hour before a viewing, once. Rescheduling a viewing re-arms its reminder.
+  - **Offer expiry:** submitted or under-review offers past `valid_until` become `expired` and the agent is notified.
+- **Country rules** (`internal/jurisdiction`): VAT rates and categories, currency and its decimals, timezone, weekend days, regions (emirates) and tax-number format, per country. Only the UAE is defined so far.
+- **Company country, emirate, currency and timezone** (Settings → Company). `GET /api/v1/settings/locale` (every role) and `GET /api/v1/settings/jurisdictions`. The web app formats amounts in the company currency and dates in the company timezone instead of hard-coded AED/Asia/Dubai.
+
+### Changed
+- **Money columns hold 3 decimals** (`NUMERIC(p+1,3)`), so BHD, KWD and OMR amounts are stored exactly. Existing values are unchanged. Invoices keep 2 decimals until the invoice model is reworked (#84).
+- The company VAT number (TRN) is **optional** (businesses below the registration threshold have none); when given it must have 15 digits.
+
+### Fixed
+- **Settings → Company never loaded or saved.** The page used field names the API does not have (`company_name`, `address`, `iban`, …) and read a `data` wrapper the API never returns, so the form stayed empty and every save failed. It now uses the API's fields.
+- Notifications created without an id (e.g. "viewing scheduled") were all inserted with the nil UUID, so every one after the first failed silently.
+
+### Upgrade notes
+- Migration `0066` rewrites the tables that hold money columns (deals, leads, leases, payments, listings, offers, …). On a large database, run it in a maintenance window.
+- A company whose stored VAT number is not 15 digits must correct it the next time it saves company settings.
+
 ## [v0.3.4] - Unreleased
 
 ### Lead intake hardening (`POST /webhooks/leads`)

@@ -89,6 +89,11 @@ func (r *ListingRepo) Create(ctx context.Context, l *domain.Listing) error {
 		return err
 	}
 	l.ID = uuid.New()
+	if l.PortalSyncStatus == nil {
+		// The column is NOT NULL; a nil map would be written as NULL and fail every create
+		// that did not send portal_sync_status (the web form never does).
+		l.PortalSyncStatus = map[string]interface{}{}
+	}
 	_, err = r.db.Exec(ctx, `
 		INSERT INTO listings (
 			id, company_id, title, description, property_type, listing_type,
@@ -98,11 +103,12 @@ func (r *ListingRepo) Create(ctx context.Context, l *domain.Listing) error {
 			cover_image_url, image_urls, virtual_tour_url, video_url,
 			status, featured, reference_number, available_from,
 			assigned_to, owner_name, owner_phone, owner_email,
-			portal_sync_status, created_by, updated_by
+			portal_sync_status, created_by, updated_by,
+			permit_number, permit_expiry, permit_qr_url
 		) VALUES (
 			$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,
 			$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,
-			$33,$34,$35,$36,$37,$38,$39
+			$33,$34,$35,$36,$37,$38,$39,$40,$41,$42
 		)
 	`, l.ID, l.CompanyID, l.Title, l.Description, l.PropertyType, l.ListingType,
 		l.Price, l.Currency, l.RentPeriod,
@@ -112,6 +118,7 @@ func (r *ListingRepo) Create(ctx context.Context, l *domain.Listing) error {
 		l.Status, l.Featured, l.ReferenceNumber, l.AvailableFrom,
 		l.AssignedTo, l.OwnerName, l.OwnerPhone, l.OwnerEmail,
 		l.PortalSyncStatus, l.CreatedBy, l.UpdatedBy,
+		l.PermitNumber, l.PermitExpiry, l.PermitQRURL,
 	)
 	return err
 }
@@ -133,7 +140,8 @@ func (r *ListingRepo) Update(ctx context.Context, l *domain.Listing) error {
 			cover_image_url=$23, image_urls=$24, virtual_tour_url=$25, video_url=$26,
 			status=$27, featured=$28, reference_number=$29, available_from=$30,
 			assigned_to=$31, owner_name=$32, owner_phone=$33, owner_email=$34,
-			updated_by=$35, updated_at=NOW()
+			updated_by=$35, updated_at=NOW(),
+			permit_number=$38, permit_expiry=$39, permit_qr_url=$40
 		WHERE id=$36 AND company_id=$37
 	`, l.Title, l.Description, l.PropertyType, l.ListingType,
 		l.Price, l.Currency, l.RentPeriod,
@@ -143,6 +151,7 @@ func (r *ListingRepo) Update(ctx context.Context, l *domain.Listing) error {
 		l.Status, l.Featured, l.ReferenceNumber, l.AvailableFrom,
 		l.AssignedTo, l.OwnerName, l.OwnerPhone, l.OwnerEmail,
 		l.UpdatedBy, l.ID, cid,
+		l.PermitNumber, l.PermitExpiry, l.PermitQRURL,
 	)
 	return err
 }
@@ -152,8 +161,31 @@ func (r *ListingRepo) UpdateStatus(ctx context.Context, id uuid.UUID, status dom
 	if err != nil {
 		return err
 	}
-	_, err = r.db.Exec(ctx, `UPDATE listings SET status=$1, updated_at=NOW() WHERE id=$2 AND company_id=$3`, status, id, cid)
+	_, err = r.db.Exec(ctx, `UPDATE listings SET status=$1::text, updated_at=NOW(),
+		published_at = CASE WHEN $1::text = 'published' THEN COALESCE(published_at, NOW()) ELSE published_at END
+		WHERE id=$2 AND company_id=$3`, string(status), id, cid)
 	return err
+}
+
+// SetPermitOverride lets an admin advertise a listing whose permit is missing or expired
+// (reason required), or clears the override when userID is nil.
+func (r *ListingRepo) SetPermitOverride(ctx context.Context, id uuid.UUID, userID *uuid.UUID, reason string) error {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return err
+	}
+	tag, err := r.db.Exec(ctx, `
+		UPDATE listings SET permit_override_by = $1,
+		       permit_override_at = CASE WHEN $1::uuid IS NULL THEN NULL ELSE NOW() END,
+		       permit_override_reason = $2, updated_at = NOW()
+		 WHERE id = $3 AND company_id = $4`, userID, reason, id, cid)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return pgx.ErrNoRows
+	}
+	return nil
 }
 
 func (r *ListingRepo) Delete(ctx context.Context, id uuid.UUID) error {
@@ -191,6 +223,9 @@ const listSelect = `
 	       l.status, l.featured, l.reference_number, l.available_from,
 	       l.assigned_to, l.owner_name, l.owner_phone, l.owner_email,
 	       l.portal_sync_status,
+	       l.permit_number, l.permit_expiry, l.permit_qr_url,
+	       l.permit_override_by, l.permit_override_at, l.permit_override_reason,
+	       COALESCE((SELECT s.country FROM company_settings s WHERE s.company_id = l.company_id), 'AE'),
 	       l.published_at, l.created_at, l.updated_at, l.created_by, l.updated_by
 	FROM listings l
 `
@@ -215,6 +250,9 @@ func scanListings(rows pgx.Rows) ([]domain.Listing, error) {
 			&l.Status, &l.Featured, &l.ReferenceNumber, &l.AvailableFrom,
 			&l.AssignedTo, &l.OwnerName, &l.OwnerPhone, &l.OwnerEmail,
 			&l.PortalSyncStatus,
+			&l.PermitNumber, &l.PermitExpiry, &l.PermitQRURL,
+			&l.PermitOverrideBy, &l.PermitOverrideAt, &l.PermitOverrideReason,
+			&l.Country,
 			&l.PublishedAt, &l.CreatedAt, &l.UpdatedAt, &l.CreatedBy, &l.UpdatedBy,
 		); err != nil {
 			return nil, fmt.Errorf("scan listing: %w", err)
@@ -222,4 +260,20 @@ func scanListings(rows pgx.Rows) ([]domain.Listing, error) {
 		listings = append(listings, l)
 	}
 	return listings, nil
+}
+
+// ListPublished returns the company's published listings (up to 5,000), newest first,
+// for the portal feed.
+func (r *ListingRepo) ListPublished(ctx context.Context) ([]domain.Listing, error) {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := r.db.Query(ctx, listSelect+` WHERE l.company_id = $1 AND l.status = 'published'
+		ORDER BY l.updated_at DESC LIMIT 5000`, cid)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanListings(rows)
 }

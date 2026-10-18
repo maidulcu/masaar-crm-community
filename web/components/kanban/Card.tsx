@@ -5,12 +5,16 @@ import { CSS } from '@dnd-kit/utilities'
 import type { Lead } from '@/types'
 import { useLang } from '@/context/LangContext'
 import clsx from 'clsx'
+import { leadSourceLabel } from '@/lib/leadSource'
 
 const sourceColors: Record<string, string> = {
   whatsapp: 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100',
   web:      'bg-sky-50 text-sky-700 ring-1 ring-sky-100',
   referral: 'bg-violet-50 text-violet-700 ring-1 ring-violet-100',
   event:    'bg-gold-50 text-gold-700 ring-1 ring-gold-100',
+  property_finder: 'bg-rose-50 text-rose-700 ring-1 ring-rose-100',
+  bayut:    'bg-teal-50 text-teal-700 ring-1 ring-teal-100',
+  dubizzle: 'bg-red-50 text-red-700 ring-1 ring-red-100',
 }
 
 interface Props {
@@ -69,8 +73,8 @@ export const KanbanCard = memo(function KanbanCard({ lead, onOpen }: Props) {
             {lead.currency} {lead.deal_value.toLocaleString()}
           </span>
           {lead.source && (
-            <span className={clsx('text-[10px] font-semibold px-2 py-0.5 rounded-full capitalize', sourceColors[lead.source] ?? 'bg-surface-100 text-surface-600 ring-1 ring-surface-200')}>
-              {lead.source}
+            <span className={clsx('text-[10px] font-semibold px-2 py-0.5 rounded-full', sourceColors[lead.source] ?? 'bg-surface-100 text-surface-600 ring-1 ring-surface-200')}>
+              {leadSourceLabel(lead.source, t)}
             </span>
           )}
         </div>

@@ -28,6 +28,13 @@ type PublicLeadHandler struct {
 	leads      *repo.LeadRepo
 	audit      *repo.AuditLogRepo
 	dispatcher *webhook.Dispatcher
+	privacy    consentStore
+}
+
+// UsePrivacy records the consent submitted with each lead.
+func (h *PublicLeadHandler) UsePrivacy(p consentStore) *PublicLeadHandler {
+	h.privacy = p
+	return h
 }
 
 func NewPublicLeadHandler(contacts *repo.ContactRepo, leads *repo.LeadRepo, audit *repo.AuditLogRepo, dispatcher *webhook.Dispatcher) *PublicLeadHandler {
@@ -116,7 +123,7 @@ func (h *PublicLeadHandler) SubmitLead(c *fiber.Ctx) error {
 		req.Source = "web"
 	}
 	if req.Currency == "" {
-		req.Currency = "AED"
+		req.Currency = defaultCurrency(c.Context())
 	}
 
 	if !publicLeadSources[req.Source] {
@@ -187,6 +194,14 @@ func (h *PublicLeadHandler) SubmitLead(c *fiber.Ctx) error {
 			contact.Language = req.Language
 		}
 		_ = h.contacts.Update(ctx, contact)
+	}
+
+	if len(req.Consent) > 0 {
+		var keyID *uuid.UUID
+		if id, ok := c.Locals("api_key_id").(uuid.UUID); ok {
+			keyID = &id
+		}
+		recordConsentChoices(ctx, h.privacy, contact.ID, req.Consent, "public_form", nil, keyID)
 	}
 
 	// Create lead
