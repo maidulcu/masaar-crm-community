@@ -83,6 +83,24 @@ func TestRequireAPIKeyScope(t *testing.T) {
 			requiredScope:  "lead:create",
 			expectedStatus: http.StatusForbidden,
 		},
+		{
+			name:           "non-string scopes local safe failure",
+			scopesLocal:    12345,
+			requiredScope:  "lead:create",
+			expectedStatus: http.StatusForbidden,
+		},
+		{
+			name:           "full wildcard scope",
+			scopesLocal:    "*",
+			requiredScope:  "lead:create",
+			expectedStatus: http.StatusOK,
+		},
+		{
+			name:           "category wildcard scope",
+			scopesLocal:    "lead:*",
+			requiredScope:  "lead:create",
+			expectedStatus: http.StatusOK,
+		},
 	}
 
 	for _, tt := range tests {
