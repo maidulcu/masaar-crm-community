@@ -445,7 +445,7 @@ Authorization: Bearer <jwt>
                     ['OLLAMA_BASE_URL', 'Ollama', 'http://ollama:11434', 'Ollama server endpoint'],
                     ['GEMINI_API_KEY', 'Gemini', '—', 'Google AI API key'],
                     ['GEMINI_MODEL', '—', 'gemini-2.0-flash', 'Google Gemini model name'],
-                    ['BOS24_API_TOKEN', 'Real estate', '—', 'BuyOrSell24 data API token'],
+                    ['BOS24_API_TOKEN', 'Real estate', '—', 'Waqov data API token'],
                     ['SMTP_HOST', 'Email', '—', 'SMTP server hostname'],
                     ['SMTP_USER', 'Email', '—', 'SMTP username'],
                     ['SMTP_PASSWORD', 'Email', '—', 'SMTP password'],
