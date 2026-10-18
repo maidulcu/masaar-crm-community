@@ -1207,15 +1207,6 @@ export const api = {
       update: (data: { mode?: string; enabled: boolean; max_per_agent?: number }) =>
         request('/api/v1/settings/lead-rotation', { method: 'PATCH', body: JSON.stringify(data) }),
     },
-    bos24Integration: {
-      get: () => request('/api/v1/settings/bos24-integration'),
-      update: (data: { api_key: string }) =>
-        request('/api/v1/settings/bos24-integration', { method: 'PATCH', body: JSON.stringify(data) }),
-      registerWebhook: () =>
-        request('/api/v1/settings/bos24-integration/register', { method: 'POST' }),
-      syncNow: () =>
-        request('/api/v1/settings/bos24-integration/sync', { method: 'POST' }),
-    },
   },
 
   // ─── WhatsApp Outbound ─────────────────────────────────────────────────────────

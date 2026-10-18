@@ -8,7 +8,7 @@ Close deals over WhatsApp · AI thread summaries · Full RTL Arabic UI · PDPL-c
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Version](https://img.shields.io/github/v/release/maidulcu/masaar-crm-community)](https://github.com/maidulcu/masaar-crm-community/releases)
-[![Go](https://img.shields.io/badge/Go-1.22+-00ADD8?logo=go)](https://go.dev)
+[![Go](https://img.shields.io/badge/Go-1.26+-00ADD8?logo=go)](https://go.dev)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16+-336791?logo=postgresql)](https://postgresql.org)
 
 **Live Demo:** [masaar.dynamicweblab.com](https://masaar.dynamicweblab.com) &nbsp;·&nbsp; Built by [Dynamic Web Lab FZE LLC](https://dynamicweblab.com)
@@ -64,56 +64,18 @@ Masaar is a **free, open-source CRM designed specifically for UAE businesses**. 
 | **Country Settings** | Per-company country, emirate, currency and timezone; amounts in 3-decimal currencies (BHD, KWD, OMR) are stored exactly |
 | **Full RTL Support** | Complete Arabic interface — layout, typography, and date direction |
 | **PDPL Tools** | Consent per channel with history, opt-out enforcement, data-subject export and erasure, retention clean-up |
-| **Audit Log** | Immutable activity log for UAE PDPL compliance |
-| **Self-Hosted** | Single Docker binary — deploy to Moro Hub, G42, or any UAE cloud |
+| **Audit Log** | Who created, changed or deleted contacts, leads, deals and documents, for UAE PDPL compliance |
+| **Self-Hosted** | Docker Compose (API, web app, PostgreSQL, Redis) — deploy to Moro Hub, G42, or any UAE cloud |
 
-> **Community and Pro.** Features marked *(Pro)* — AI, PDF generation and BOS24/Waqov market data — are stubs in this repository: the endpoints exist but answer with an upgrade message. Everything else is fully implemented here. See [CONTRIBUTING.md](CONTRIBUTING.md#whats-in-scope).
+> **Community and Pro.** Features marked *(Pro)* — AI and PDF generation — are stubs in this repository: the endpoints exist but answer with an upgrade message. Market data is also a stub for now (see below). Everything else is fully implemented here. See [CONTRIBUTING.md](CONTRIBUTING.md#whats-in-scope).
 
 ---
 
-## 🏢 Real Estate Market Data Integration
+## Real Estate Market Data
 
-**Masaar CRM integrates with [Waqov](https://dldapi.waqov.com/#api)** — the UAE's real estate data API — to add market intelligence directly into your CRM workflow.
+The Properties and Map pages and the property report are built for UAE market data — DLD transactions, Ejari rents, buildings, projects and valuations — from Waqov's [DLD data API](https://dldapi.waqov.com/#api).
 
-### What You Get
-- **Property Search** — Natural language queries: "2BR apartments in Marina" returns recent transactions, comparable prices, and market trends
-- **Transaction History** — Filter by area, property type, price range — see all recent sales/rentals in one click
-- **Building Directory** — Quick autocomplete for projects, buildings, and nearby amenities (schools, gyms, metro stations)
-- **Yield Analysis** — Investors get rental vs. sales comparison for ROI calculations
-- **Market Intelligence** — Price trends, transaction volume, per-sqm analytics
-
-### How to Enable
-
-**Step 1: Get Your API Key**
-1. Visit [https://dynamicweblab.com/products/real-estate-data-api/](https://dynamicweblab.com/products/real-estate-data-api/)
-2. View pricing tiers and features
-3. **Contact us** to set up your account (integration form on landing page)
-4. We'll send your API key via Manukaub Bank payment & setup
-
-**Step 2: Configure in Masaar**
-```bash
-# In your .env file:
-BOS24_API_TOKEN=your-api-token-received-from-setup
-```
-
-**Step 3: Start Using**
-- Agents search properties directly in leads: "Market data for 2BR Dubai Marina"
-- Auto-enriched lead cards show comparable sales and price insights
-- Investors analyze rental yields in seconds
-- All data stays in your self-hosted Masaar instance
-
-**Full API Documentation:** [https://dldapi.waqov.com/#api](https://dldapi.waqov.com/#api)
-
-### Pricing & Plans
-- **Masaar Pro users** — Waqov API credits included in your subscription
-- **Open-source users** — Optional integration; contact Dynamic Web Lab for pricing:
-  - **Starter** — Limited monthly queries, great for testing
-  - **Growth** — 5,000+ monthly credits (perfect for 10-50 agents)
-  - **Enterprise** — Custom unlimited credits with dedicated support
-  
-👉 **[Contact Dynamic Web Lab](https://dynamicweblab.com/products/real-estate-data-api/)** to discuss your requirements and get a quote
-
-> 💡 **For Masaar Pro Users:** Your CRM subscription includes API credits for unlimited property searches. Market intelligence without additional cost!
+**In this edition the market-data client is a stub:** those endpoints answer `503` until a dldapi client is added. The rest of the CRM does not depend on it.
 
 ---
 
@@ -121,7 +83,7 @@ BOS24_API_TOKEN=your-api-token-received-from-setup
 
 Try it at **[masaar.dynamicweblab.com](https://masaar.dynamicweblab.com)**
 
-> Resets every 24 hours. Do not enter real customer data.
+> A shared demo: do not enter real customer data.
 
 ---
 
@@ -171,12 +133,12 @@ docker compose up
 │                 │  WS Hub  │◀── Real-time Notifications  │
 │                 └──────────┘                            │
 └─────────────────────────────────────────────────────────┘
-         ↑ Single Docker binary — no external dependencies
+         ↑ Docker Compose: API, web app, PostgreSQL, Redis
 ```
 
 | Layer | Technology |
 |-------|-----------|
-| Backend | Go 1.22 + [Fiber](https://gofiber.io) |
+| Backend | Go 1.26 + [Fiber](https://gofiber.io) |
 | Frontend | Next.js 14 + Tailwind CSS |
 | Database | PostgreSQL 16 + pgvector |
 | AI | [Ollama](https://ollama.ai) (llama3 / mistral) |

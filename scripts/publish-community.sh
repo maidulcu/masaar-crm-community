@@ -79,9 +79,8 @@ cp "$PRIVATE/scripts/community-stubs/pdf/property_report.go" "$PUBLIC/internal/p
 # Billing — remove Stripe
 cp "$PRIVATE/scripts/community-stubs/billing/stripe.go" "$PUBLIC/internal/billing/stripe.go"
 
-# Handlers — AI and BOS24 return 402
+# Handlers — AI returns 402 (the BOS24 marketplace integration was removed from the community edition)
 cp "$PRIVATE/scripts/community-stubs/handler/ai.go"                "$PUBLIC/internal/api/handler/ai.go"
-cp "$PRIVATE/scripts/community-stubs/handler/bos24_integration.go" "$PUBLIC/internal/api/handler/bos24_integration.go"
 
 # Remove BOS24 package entirely (handler nil-checks handle the rest)
 rm -rf "$PUBLIC/internal/bos24/"

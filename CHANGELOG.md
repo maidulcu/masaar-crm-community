@@ -170,6 +170,13 @@ Foundations for the UAE-launch roadmap (#82, milestone #83). Includes migrations
 
 ## [v0.3.4] - Unreleased
 
+### BOS24 marketplace integration retired
+- **Removed** the BOS24 (BuyOrSell24) marketplace sync, which was a stub in this edition: `POST /webhooks/bos24`, `GET|PATCH /api/v1/settings/bos24-integration`, `POST /api/v1/settings/bos24-integration/register|sync`, the "BOS24 Sync" settings page and the `bos24_integration_settings` table.
+- **Imported ids kept, under the generic names.** Migration `0082` moves `leads.bos24_inquiry_id` to `external_source = 'bos24'` + `external_ref`, and `listings.bos24_listing_uuid` to the same new pair on listings (unique per company; portal publishing will use it). Its down migration restores the old columns.
+- New leads can no longer be created with source `bos24` (existing ones keep it).
+- **Not changed yet:** the market-data endpoints (`/api/v1/properties/*`, Properties and Map pages) still run on the stub client and answer `503`; a dldapi client will replace it.
+- **README** corrected: Go 1.26, Docker Compose instead of "single binary", the market-data section describes the stub, no "resets every 24 hours" or "immutable" claims.
+
 ### Lead intake hardening (`POST /webhooks/leads`)
 - **Idempotent pushes.** Optional `external_source` + `external_ref` identify a lead in the system that sends it. The same pair again returns the existing lead (`200`, `"duplicate": true`) instead of creating a second one, so a sender can retry safely. Unique per company. Adds migration `0079`.
 - **New source `portal`** for leads from listing portals and marketplaces; it requires `external_source`.

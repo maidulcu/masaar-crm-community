@@ -22,7 +22,7 @@ var externalSourceRe = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,31}$`)
 // externalRefRe is the pushing system's own id for the lead, e.g. "enquiry:48213".
 var externalRefRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$`)
 
-// publicLeadSources are the sources an API client may set. bos24 is internal only.
+// publicLeadSources are the sources an API client may set.
 var publicLeadSources = map[string]bool{"web": true, "referral": true, "event": true, "whatsapp": true,
 	"property_finder": true, "bayut": true, "dubizzle": true, "portal": true}
 
