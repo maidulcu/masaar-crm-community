@@ -154,7 +154,7 @@ export default function LeadRotationPage() {
           {/* How it works info */}
           <div className="bg-white rounded-xl border border-gray-200 p-5 text-xs text-gray-500 space-y-2">
             <p className="font-semibold text-gray-700 text-sm">{t('كيف يعمل؟', 'How it works')}</p>
-            <p>When a new lead arrives (via WhatsApp, BOS24 webhook, or the public form), the system automatically assigns it to the next eligible agent. Agents can still manually re-assign leads at any time.</p>
+            <p>When a new lead arrives (via WhatsApp, a portal, or the public form), the system automatically assigns it to the next eligible agent. Agents can still manually re-assign leads at any time.</p>
             <p className="pt-1"><strong className="text-gray-700">Round Robin:</strong> Agent A → B → C → A → B → ...</p>
             <p><strong className="text-gray-700">Capacity:</strong> Always picks the agent with the fewest active leads. Stops assigning to agents at their max limit.</p>
           </div>

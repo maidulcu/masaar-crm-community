@@ -18,11 +18,18 @@ import (
 const maxWhatsAppText = 4096
 
 type WhatsAppOutboundHandler struct {
+	privacy      consentStore // nil: no consent checks
 	sender       *whatsapp.Sender
 	outboundRepo *repo.WhatsAppOutboundRepo
 	threadRepo   *repo.WhatsAppRepo
 	comms        *repo.CommunicationHistoryRepo
 	media        *WAMediaService
+}
+
+// UsePrivacy makes the handler refuse to message contacts who opted out of WhatsApp.
+func (h *WhatsAppOutboundHandler) UsePrivacy(p consentStore) *WhatsAppOutboundHandler {
+	h.privacy = p
+	return h
 }
 
 func NewWhatsAppOutboundHandler(sender *whatsapp.Sender, outboundRepo *repo.WhatsAppOutboundRepo, threadRepo *repo.WhatsAppRepo, comms *repo.CommunicationHistoryRepo, media *WAMediaService) *WhatsAppOutboundHandler {
@@ -139,6 +146,12 @@ func (h *WhatsAppOutboundHandler) SendMessage(c *fiber.Ctx) error {
 	if err != nil {
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "thread not found"})
 	}
+	if blocked, err := optedOut(c, h.privacy, thread.ContactID, "whatsapp"); blocked {
+		return err
+	}
+	if !thread.WindowOpen {
+		return windowClosed(c)
+	}
 
 	// Create outbound record
 	userID := c.Locals("user_id").(uuid.UUID)
@@ -215,6 +228,9 @@ func (h *WhatsAppOutboundHandler) SendTemplate(c *fiber.Ctx) error {
 	thread, err := h.threadRepo.GetThread(c.Context(), threadID)
 	if err != nil {
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "thread not found"})
+	}
+	if blocked, err := optedOut(c, h.privacy, thread.ContactID, "whatsapp"); blocked {
+		return err
 	}
 
 	// Create outbound record
@@ -337,6 +353,12 @@ func (h *WhatsAppOutboundHandler) SendMedia(c *fiber.Ctx) error {
 	if err != nil {
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "thread not found"})
 	}
+	if blocked, err := optedOut(c, h.privacy, thread.ContactID, "whatsapp"); blocked {
+		return err
+	}
+	if !thread.WindowOpen {
+		return windowClosed(c)
+	}
 
 	userID := c.Locals("user_id").(uuid.UUID)
 	outbound := &domain.WhatsAppOutbound{
@@ -395,6 +417,15 @@ func (h *WhatsAppOutboundHandler) SendMedia(c *fiber.Ctx) error {
 }
 
 // mediaLabel is the text stored for a media message, mirroring how inbound media is shown.
+// windowClosed answers a free-form send outside the 24-hour customer service window, which
+// WhatsApp only allows for approved templates.
+func windowClosed(c *fiber.Ctx) error {
+	return c.Status(fiber.StatusConflict).JSON(fiber.Map{
+		"error": "the customer has not written in the last 24 hours: send an approved template instead",
+		"code":  "window_closed",
+	})
+}
+
 func mediaLabel(mediaType, filename, caption string) string {
 	label := map[string]string{"image": "[Image]", "video": "[Video]", "audio": "[Audio]", "document": "[Document]"}[mediaType]
 	if mediaType == "document" && filename != "" {

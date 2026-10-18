@@ -5,12 +5,15 @@ import { useNotifications } from '@/hooks/useNotifications'
 import { useAuthStore } from '@/store/auth'
 import { useLang } from '@/context/LangContext'
 import clsx from 'clsx'
+import { useRouter } from 'next/navigation'
+import { notificationHref } from '@/lib/notificationLink'
 
 export function NotificationBell() {
   const user = useAuthStore((s) => s.user)
   const { notifications, unread, markRead, markAllRead } = useNotifications(user?.id ?? null)
   const [open, setOpen] = useState(false)
   const { t, isRtl } = useLang()
+  const router = useRouter()
 
   useEffect(() => {
     if (!open) return
@@ -76,7 +79,7 @@ export function NotificationBell() {
                 notifications.slice(0, 15).map((n) => (
                   <button
                     key={n.id}
-                    onClick={() => markRead(n.id)}
+                    onClick={() => { markRead(n.id); const href = notificationHref(n.data); if (href) { setOpen(false); router.push(href) } }}
                     className={clsx(
                       "w-full text-start px-4 py-3 text-sm hover:bg-surface-50 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500",
                       !n.read && "bg-primary-50/60"

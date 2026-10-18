@@ -5,6 +5,7 @@ import { Header } from '@/components/layout/Header'
 import { api } from '@/lib/api'
 import { useLang } from '@/context/LangContext'
 import { useAuthStore } from '@/store/auth'
+import { companyCurrency } from '@/lib/money'
 
 interface AgentKPIs {
   agent_id: string
@@ -105,7 +106,7 @@ export default function LeaderboardPage() {
                 </div>
                 <div className="text-xs font-bold text-gray-400 mb-0.5">🥈 2nd</div>
                 <p className="text-sm font-semibold text-gray-800 truncate">{board[1].agent_name}</p>
-                <p className="text-xs text-gray-500 mt-1">{metric === 'revenue' ? `AED ${fmtK(board[1].revenue)}` : metricDisplay(board[1], metric)}</p>
+                <p className="text-xs text-gray-500 mt-1">{metric === 'revenue' ? `${companyCurrency()} ${fmtK(board[1].revenue)}` : metricDisplay(board[1], metric)}</p>
               </div>
               {/* 1st */}
               <div className="bg-gradient-to-b from-amber-50 to-white rounded-xl border-2 border-amber-300 p-4 text-center -mt-2 shadow-sm">
@@ -115,7 +116,7 @@ export default function LeaderboardPage() {
                 </div>
                 <div className="text-xs font-bold text-amber-500 mb-0.5">🥇 1st</div>
                 <p className="text-sm font-semibold text-gray-800 truncate">{board[0].agent_name}</p>
-                <p className="text-xs font-bold text-amber-600 mt-1">{metric === 'revenue' ? `AED ${fmtK(board[0].revenue)}` : metricDisplay(board[0], metric)}</p>
+                <p className="text-xs font-bold text-amber-600 mt-1">{metric === 'revenue' ? `${companyCurrency()} ${fmtK(board[0].revenue)}` : metricDisplay(board[0], metric)}</p>
                 <div className="flex flex-wrap justify-center gap-1 mt-2">
                   {board[0].badges.slice(0,3).map(b => (
                     <span key={b.key} title={b.label} className="text-sm">{b.icon}</span>
@@ -129,7 +130,7 @@ export default function LeaderboardPage() {
                 </div>
                 <div className="text-xs font-bold text-orange-400 mb-0.5">🥉 3rd</div>
                 <p className="text-sm font-semibold text-gray-800 truncate">{board[2].agent_name}</p>
-                <p className="text-xs text-gray-500 mt-1">{metric === 'revenue' ? `AED ${fmtK(board[2].revenue)}` : metricDisplay(board[2], metric)}</p>
+                <p className="text-xs text-gray-500 mt-1">{metric === 'revenue' ? `${companyCurrency()} ${fmtK(board[2].revenue)}` : metricDisplay(board[2], metric)}</p>
               </div>
             </div>
           )}
@@ -170,7 +171,7 @@ export default function LeaderboardPage() {
                         </div>
                       </div>
                     </div>
-                    <div className="text-right text-sm font-semibold text-gray-700">AED {fmtK(agent.revenue)}</div>
+                    <div className="text-right text-sm font-semibold text-gray-700">{companyCurrency()} {fmtK(agent.revenue)}</div>
                     <div className="text-right text-sm text-gray-600">{agent.deals_won}</div>
                     <div className="text-right text-sm text-gray-600">{agent.listings_added}</div>
                     <div className="text-right text-sm text-gray-600">{agent.leads_converted}</div>
@@ -190,6 +191,6 @@ function metricDisplay(a: AgentKPIs, metric: string): string {
     case 'deals_won': return `${a.deals_won} deals`
     case 'listings_added': return `${a.listings_added} listings`
     case 'leads_converted': return `${a.leads_converted} leads`
-    default: return `AED ${fmtK(a.revenue)}`
+    default: return `${companyCurrency()} ${fmtK(a.revenue)}`
   }
 }

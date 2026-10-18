@@ -30,6 +30,7 @@ type WhatsAppHandler struct {
 	taggingService *ai.TaggingService
 	hub            *ws.Hub
 	config         *config.Config
+	inbox          *inboxDeps // optional: opt-out by reply, service window, auto-reply
 }
 
 func NewWhatsAppHandler(wa *repo.WhatsAppRepo, contacts *repo.ContactRepo, outbound *repo.WhatsAppOutboundRepo, comms *repo.CommunicationHistoryRepo, media *WAMediaService, taggingService *ai.TaggingService, hub *ws.Hub, cfg *config.Config) *WhatsAppHandler {
@@ -288,6 +289,7 @@ func (h *WhatsAppHandler) handleInbound(ctx context.Context, companyID uuid.UUID
 	if err := h.wa.UpdateThreadMeta(ctx, thread.ID); err != nil {
 		log.Printf("whatsapp: thread meta for %s: %v", thread.ID, err)
 	}
+	h.afterInbound(ctx, thread, contact, content.Body, msg.Type == "text")
 	if content.MediaID != "" {
 		h.media.Prefetch(companyID, thread.ID, waMsg.ID)
 	}
@@ -338,6 +340,9 @@ func (h *WhatsAppHandler) handleStatus(ctx context.Context, st waStatus) error {
 	updated, err := h.outbound.ApplyStatus(ctx, st.ID, domain.OutboundStatus(status), errMsg)
 	if err != nil {
 		return err
+	}
+	if !updated {
+		h.applyBroadcastStatus(ctx, st.ID, status, errMsg)
 	}
 	if updated {
 		if err := h.comms.UpdateStatusByExternalID(ctx, st.ID, status); err != nil {

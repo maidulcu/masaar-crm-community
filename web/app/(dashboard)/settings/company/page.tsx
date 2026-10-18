@@ -2,39 +2,53 @@
 import { safeUrl } from '@/lib/safeUrl'
 import { useState, useEffect } from 'react'
 import { Header } from '@/components/layout/Header'
-import { api } from '@/lib/api'
+import { api, type JurisdictionRules } from '@/lib/api'
+import { CURRENCIES } from '@/lib/money'
 import { useAuthStore } from '@/store/auth'
+import { useLocaleStore } from '@/store/locale'
 import { useLang } from '@/context/LangContext'
 import { useRouter } from 'next/navigation'
 
+// Field names match the API (domain.CompanySettings).
 interface CompanyData {
-  company_name: string
-  address: string
-  phone: string
-  email: string
+  name: string
+  business_address: string
+  business_phone: string
+  business_email: string
   vat_number: string
-  trn: string
   bank_name: string
   bank_account: string
-  iban: string
-  invoice_footer: string
+  bank_iban: string
   logo_url: string
   disclaimer: string
   primary_color: string
+  country: string
+  region: string
+  currency: string
+  timezone: string
+  show_hijri?: boolean
+  orn: string
+  trade_license_no: string
+  trade_license_expiry: string | null
+}
+
+const EMPTY: CompanyData = {
+  name: '', business_address: '', business_phone: '', business_email: '',
+  vat_number: '', bank_name: '', bank_account: '', bank_iban: '',
+  logo_url: '', disclaimer: '', primary_color: '#1a3a5c',
+  country: 'AE', region: '', currency: 'AED', timezone: 'Asia/Dubai',
+  orn: '', trade_license_no: '', trade_license_expiry: null,
 }
 
 export default function CompanySettingsPage() {
   const { user, company } = useAuthStore()
-  const { t } = useLang()
+  const loadLocale = useLocaleStore((s) => s.load)
+  const { t, lang } = useLang()
   const router = useRouter()
   const isDemo = !!company?.is_demo
 
-  const [form, setForm] = useState<CompanyData>({
-    company_name: '', address: '', phone: '', email: '',
-    vat_number: '', trn: '', bank_name: '', bank_account: '',
-    iban: '', invoice_footer: '', logo_url: '',
-    disclaimer: '', primary_color: '#1a3a5c',
-  })
+  const [form, setForm] = useState<CompanyData>(EMPTY)
+  const [countries, setCountries] = useState<JurisdictionRules[]>([])
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
@@ -42,16 +56,26 @@ export default function CompanySettingsPage() {
 
   useEffect(() => {
     if (user && user.role !== 'admin') { router.push('/dashboard'); return }
-    api.settings.getCompany().then((r: any) => {
-      if (r?.data) setForm(r.data)
-    }).catch(() => {}).finally(() => setLoading(false))
+    Promise.all([
+      api.settings.getCompany().then((r) => setForm({ ...EMPTY, ...(r as Partial<CompanyData>) })),
+      api.settings.jurisdictions().then(setCountries),
+    ]).catch((err: unknown) => setError(err instanceof Error ? err.message : 'Failed to load'))
+      .finally(() => setLoading(false))
   }, [user, router])
+
+  const rules = countries.find((c) => c.country === form.country)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError(''); setSuccess(false); setSubmitting(true)
     try {
-      await api.settings.updateCompany(form)
+      const saved = await api.settings.updateCompany({
+        ...form,
+        // The API takes a full timestamp; the form edits a date.
+        trade_license_expiry: form.trade_license_expiry ? `${form.trade_license_expiry.slice(0, 10)}T00:00:00Z` : null,
+      })
+      setForm({ ...EMPTY, ...(saved as Partial<CompanyData>) })
+      await loadLocale() // currency and timezone are used across the app
       setSuccess(true)
       setTimeout(() => setSuccess(false), 3000)
     } catch (err: unknown) {
@@ -59,8 +83,19 @@ export default function CompanySettingsPage() {
     } finally { setSubmitting(false) }
   }
 
-  const update = (k: keyof CompanyData) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
+  const update = (k: keyof CompanyData) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) =>
     setForm(p => ({ ...p, [k]: e.target.value }))
+
+  const changeCountry = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const next = countries.find((c) => c.country === e.target.value)
+    setForm(p => ({
+      ...p,
+      country: e.target.value,
+      region: '',
+      currency: next?.currency ?? p.currency,
+      timezone: next?.timezone ?? p.timezone,
+    }))
+  }
 
   if (user?.role !== 'admin') return null
 
@@ -90,84 +125,133 @@ export default function CompanySettingsPage() {
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div className="col-span-2">
-                  <label className={labelCls}>{t('اسم الشركة', 'Company Name')}</label>
-                  <input className={inputCls} value={form.company_name} onChange={update('company_name')} />
+                  <label htmlFor="cs-name" className={labelCls}>{t('اسم الشركة', 'Company Name')} *</label>
+                  <input id="cs-name" required className={inputCls} value={form.name} onChange={update('name')} />
                 </div>
                 <div className="col-span-2">
-                  <label className={labelCls}>{t('العنوان', 'Address')}</label>
-                  <textarea className={inputCls + ' resize-none'} rows={2} value={form.address} onChange={update('address')} />
+                  <label htmlFor="cs-address" className={labelCls}>{t('العنوان', 'Address')} *</label>
+                  <textarea id="cs-address" required className={inputCls + ' resize-none'} rows={2} value={form.business_address} onChange={update('business_address')} />
                 </div>
                 <div>
-                  <label className={labelCls}>{t('الهاتف', 'Phone')}</label>
-                  <input className={inputCls} value={form.phone} onChange={update('phone')} />
+                  <label htmlFor="cs-phone" className={labelCls}>{t('الهاتف', 'Phone')}</label>
+                  <input id="cs-phone" dir="ltr" className={inputCls} value={form.business_phone} onChange={update('business_phone')} />
                 </div>
                 <div>
-                  <label className={labelCls}>{t('البريد الإلكتروني', 'Email')}</label>
-                  <input className={inputCls} value={form.email} onChange={update('email')} />
+                  <label htmlFor="cs-email" className={labelCls}>{t('البريد الإلكتروني', 'Email')}</label>
+                  <input id="cs-email" type="email" dir="ltr" className={inputCls} value={form.business_email} onChange={update('business_email')} />
                 </div>
               </div>
 
               <hr className="border-gray-100" />
-              <h3 className="text-sm font-semibold text-gray-700">{t('الضرائب والفواتير', 'Tax & Invoicing')}</h3>
+              <h3 className="text-sm font-semibold text-gray-700">{t('الدولة والعملة', 'Country & Currency')}</h3>
+              <p className="text-xs text-gray-500">
+                {t('تحدد الدولة نسب ضريبة القيمة المضافة وأيام العطلة. تُعرض المبالغ والتواريخ بالعملة والمنطقة الزمنية المختارة.',
+                  'The country sets VAT rates and weekend days. Amounts and dates are shown in the currency and timezone chosen here.')}
+              </p>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className={labelCls}>{t('الرقم الضريبي (VAT)', 'VAT Number')}</label>
-                  <input className={inputCls} value={form.vat_number} onChange={update('vat_number')} />
+                  <label htmlFor="cs-country" className={labelCls}>{t('الدولة', 'Country')}</label>
+                  <select id="cs-country" className={inputCls} value={form.country} onChange={changeCountry}>
+                    {countries.map((c) => (
+                      <option key={c.country} value={c.country}>{lang === 'ar' ? c.name_ar : c.name_en}</option>
+                    ))}
+                  </select>
                 </div>
                 <div>
-                  <label className={labelCls}>{t('TRN', 'TRN')}</label>
-                  <input className={inputCls} value={form.trn} onChange={update('trn')} />
+                  <label htmlFor="cs-region" className={labelCls}>{t('الإمارة / المنطقة', 'Emirate / Region')}</label>
+                  <select id="cs-region" className={inputCls} value={form.region} onChange={update('region')}>
+                    <option value="">{t('— غير محدد —', '— Not set —')}</option>
+                    {rules?.regions.map((r) => (
+                      <option key={r.code} value={r.code}>{lang === 'ar' ? r.name_ar : r.name_en}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label htmlFor="cs-currency" className={labelCls}>{t('العملة الافتراضية', 'Default Currency')}</label>
+                  <select id="cs-currency" className={inputCls} value={form.currency} onChange={update('currency')}>
+                    {[...new Set([form.currency, ...CURRENCIES])].map((c) => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label htmlFor="cs-tz" className={labelCls}>{t('المنطقة الزمنية', 'Timezone')}</label>
+                  <input id="cs-tz" dir="ltr" className={inputCls} value={form.timezone} onChange={update('timezone')} placeholder="Asia/Dubai" />
                 </div>
               </div>
+              <label className="flex items-center gap-2 text-sm text-gray-700">
+                <input type="checkbox" checked={!!form.show_hijri}
+                  onChange={(e) => setForm(p => ({ ...p, show_hijri: e.target.checked }))} />
+                {t('إظهار التاريخ الهجري (أم القرى) بجانب التواريخ', 'Also show dates in the Hijri (Umm al-Qura) calendar')}
+              </label>
+
+              <hr className="border-gray-100" />
+              <h3 className="text-sm font-semibold text-gray-700">{t('الضرائب والفواتير', 'Tax & Invoicing')}</h3>
+              <div>
+                <label htmlFor="cs-trn" className={labelCls}>{t('رقم التسجيل الضريبي (TRN)', 'Tax Registration Number (TRN)')}</label>
+                <input id="cs-trn" dir="ltr" className={inputCls} value={form.vat_number} onChange={update('vat_number')}
+                  placeholder={t('اتركه فارغاً إذا لم تكن مسجلاً لضريبة القيمة المضافة', 'Leave empty if not VAT-registered')} />
+              </div>
+
+              <hr className="border-gray-100" />
+              <h3 className="text-sm font-semibold text-gray-700">{t('التراخيص', 'Licences')}</h3>
+              <div className="grid grid-cols-3 gap-4">
+                <div>
+                  <label htmlFor="cs-orn" className={labelCls}>{t('رقم تسجيل المكتب (ORN)', 'RERA office no. (ORN)')}</label>
+                  <input id="cs-orn" dir="ltr" className={inputCls} value={form.orn} onChange={update('orn')} />
+                </div>
+                <div>
+                  <label htmlFor="cs-tl" className={labelCls}>{t('رقم الرخصة التجارية', 'Trade licence no.')}</label>
+                  <input id="cs-tl" dir="ltr" className={inputCls} value={form.trade_license_no} onChange={update('trade_license_no')} />
+                </div>
+                <div>
+                  <label htmlFor="cs-tl-exp" className={labelCls}>{t('انتهاء الرخصة', 'Licence expiry')}</label>
+                  <input id="cs-tl-exp" type="date" className={inputCls} value={form.trade_license_expiry?.slice(0, 10) ?? ''}
+                    onChange={(e) => setForm(p => ({ ...p, trade_license_expiry: e.target.value || null }))} />
+                </div>
+              </div>
+              <p className="text-xs text-gray-500">{t('ستصلك تنبيهات قبل انتهاء الرخصة بـ 30 و7 أيام.', 'You will be alerted 30 and 7 days before the licence expires.')}</p>
 
               <hr className="border-gray-100" />
               <h3 className="text-sm font-semibold text-gray-700">{t('معلومات البنك', 'Bank Information')}</h3>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className={labelCls}>{t('اسم البنك', 'Bank Name')}</label>
-                  <input className={inputCls} value={form.bank_name} onChange={update('bank_name')} />
+                  <label htmlFor="cs-bank" className={labelCls}>{t('اسم البنك', 'Bank Name')}</label>
+                  <input id="cs-bank" className={inputCls} value={form.bank_name} onChange={update('bank_name')} />
                 </div>
                 <div>
-                  <label className={labelCls}>{t('رقم الحساب', 'Account Number')}</label>
-                  <input className={inputCls} value={form.bank_account} onChange={update('bank_account')} />
+                  <label htmlFor="cs-account" className={labelCls}>{t('رقم الحساب', 'Account Number')}</label>
+                  <input id="cs-account" dir="ltr" className={inputCls} value={form.bank_account} onChange={update('bank_account')} />
                 </div>
                 <div className="col-span-2">
-                  <label className={labelCls}>{t('IBAN', 'IBAN')}</label>
-                  <input className={inputCls} value={form.iban} onChange={update('iban')} />
+                  <label htmlFor="cs-iban" className={labelCls}>{t('IBAN', 'IBAN')}</label>
+                  <input id="cs-iban" dir="ltr" className={inputCls} value={form.bank_iban} onChange={update('bank_iban')} />
                 </div>
-              </div>
-
-              <hr className="border-gray-100" />
-              <div>
-                <label className={labelCls}>{t('تذييل الفاتورة', 'Invoice Footer')}</label>
-                <textarea className={inputCls + ' resize-none'} rows={2} value={form.invoice_footer} onChange={update('invoice_footer')} />
               </div>
 
               <hr className="border-gray-100" />
               <h3 className="text-sm font-semibold text-gray-700">{t('العلامة التجارية', 'Branding')}</h3>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className={labelCls}>{t('رابط الشعار', 'Logo URL')}</label>
-                  <input className={inputCls} value={form.logo_url} onChange={update('logo_url')} placeholder="https://..." />
-                  {form.logo_url && <img src={safeUrl(form.logo_url)} alt="logo preview" className="mt-2 h-10 object-contain rounded border border-gray-100" />}
+                  <label htmlFor="cs-logo" className={labelCls}>{t('رابط الشعار', 'Logo URL')}</label>
+                  <input id="cs-logo" dir="ltr" className={inputCls} value={form.logo_url} onChange={update('logo_url')} placeholder="https://..." />
+                  {form.logo_url && <img src={safeUrl(form.logo_url)} alt="" className="mt-2 h-10 object-contain rounded border border-gray-100" />}
                 </div>
                 <div>
-                  <label className={labelCls}>{t('اللون الأساسي', 'Primary Color')}</label>
+                  <label htmlFor="cs-color" className={labelCls}>{t('اللون الأساسي', 'Primary Color')}</label>
                   <div className="flex gap-2 items-center">
-                    <input type="color" value={form.primary_color} onChange={update('primary_color')}
+                    <input type="color" aria-label={t('اختيار اللون', 'Pick colour')} value={form.primary_color} onChange={update('primary_color')}
                       className="w-10 h-10 rounded border border-gray-200 cursor-pointer p-0.5" />
-                    <input className={inputCls} value={form.primary_color} onChange={update('primary_color')} placeholder="#1a3a5c" />
+                    <input id="cs-color" dir="ltr" className={inputCls} value={form.primary_color} onChange={update('primary_color')} placeholder="#1a3a5c" />
                   </div>
                 </div>
               </div>
               <div>
-                <label className={labelCls}>{t('إخلاء المسؤولية', 'Disclaimer (on brochures)')}</label>
-                <textarea className={inputCls + ' resize-none'} rows={2} value={form.disclaimer} onChange={update('disclaimer')}
+                <label htmlFor="cs-disclaimer" className={labelCls}>{t('إخلاء المسؤولية', 'Disclaimer (on brochures)')}</label>
+                <textarea id="cs-disclaimer" className={inputCls + ' resize-none'} rows={2} value={form.disclaimer} onChange={update('disclaimer')}
                   placeholder="All information subject to change. Contact agent for verification." />
               </div>
 
-              {error && <p className="text-xs text-red-500 bg-red-50 p-2 rounded">{error}</p>}
-              {success && <p className="text-xs text-green-600 bg-green-50 p-2 rounded">{t('تم الحفظ', 'Saved successfully')}</p>}
+              {error && <p role="alert" className="text-xs text-red-500 bg-red-50 p-2 rounded">{error}</p>}
+              {success && <p role="status" className="text-xs text-green-600 bg-green-50 p-2 rounded">{t('تم الحفظ', 'Saved successfully')}</p>}
 
               <button type="submit" disabled={submitting || loading || isDemo}
                 className="w-full py-2.5 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700 disabled:opacity-50 transition-colors">

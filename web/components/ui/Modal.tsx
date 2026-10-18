@@ -1,5 +1,6 @@
 'use client'
 import { useEffect, useRef, useId } from 'react'
+import { useLang } from '@/context/LangContext'
 import clsx from 'clsx'
 import { useLang } from '@/context/LangContext'
 
@@ -53,7 +54,7 @@ export function Modal({ open, onClose, title, children }: ModalProps) {
           <h2 id={titleId} className="text-lg font-semibold text-surface-900 tracking-tight">{title}</h2>
           <button
             onClick={onClose}
-            aria-label={t('إغلاق', 'Close')}
+            aria-label={t('إغلاق النافذة', 'Close modal')}
             className="inline-flex items-center justify-center w-8 h-8 rounded-lg text-surface-400 hover:text-surface-900 hover:bg-surface-100 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500"
           >
             <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">

@@ -7,6 +7,7 @@ import { Header } from '@/components/layout/Header'
 import { api } from '@/lib/api'
 import { useLang } from '@/context/LangContext'
 import type { MapArea, OwnListing } from '@/components/map/PropertyMap'
+import { companyCurrency } from '@/lib/money'
 
 // Leaflet must not be SSR'd (it uses window)
 const PropertyMap = dynamic(() => import('@/components/map/PropertyMap'), {
@@ -228,7 +229,7 @@ export default function MapPage() {
                   <p className="text-[10px] text-gray-400 uppercase tracking-wide">Avg Price</p>
                   <p className="text-sm font-bold text-gray-800">
                     {selectedArea.avg_price > 0
-                      ? `AED ${(selectedArea.avg_price / 1000).toFixed(0)}K`
+                      ? `${companyCurrency()} ${(selectedArea.avg_price / 1000).toFixed(0)}K`
                       : '—'}
                   </p>
                 </div>
@@ -236,7 +237,7 @@ export default function MapPage() {
                   <div className="bg-gray-50 rounded-lg p-2.5 col-span-2">
                     <p className="text-[10px] text-gray-400 uppercase tracking-wide">Avg per sqft</p>
                     <p className="text-sm font-bold text-gray-800">
-                      AED {selectedArea.avg_price_per_sqft.toLocaleString()}
+                      {companyCurrency()} {selectedArea.avg_price_per_sqft.toLocaleString()}
                     </p>
                   </div>
                 )}
@@ -257,7 +258,7 @@ export default function MapPage() {
               )}
               <div className="space-y-1 text-xs text-gray-600">
                 <p><span className="text-gray-400">Type:</span> {selectedListing.property_type} · {selectedListing.listing_type}</p>
-                <p><span className="text-gray-400">Price:</span> <strong>AED {selectedListing.price.toLocaleString()}</strong></p>
+                <p><span className="text-gray-400">Price:</span> <strong>{companyCurrency()} {selectedListing.price.toLocaleString()}</strong></p>
                 {selectedListing.area && <p><span className="text-gray-400">Area:</span> {selectedListing.area}</p>}
               </div>
               <a href={`/listings/${selectedListing.id}`}

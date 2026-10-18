@@ -4,6 +4,8 @@ import { safeUrl } from '@/lib/safeUrl'
 import { useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
 import { api } from '@/lib/api'
+import ReraFormView from '@/components/rera/ReraFormView'
+import type { ReraDefinition } from '@/lib/api'
 
 interface Signature {
   id: string
@@ -24,6 +26,7 @@ interface Document {
 interface SignatureData {
   signature: Signature
   document: Document
+  rera_form?: { definition: ReraDefinition; data: Record<string, string> }
 }
 
 type PageState = 'loading' | 'ready' | 'signing' | 'already_signed' | 'signed' | 'error'
@@ -128,7 +131,7 @@ export default function PublicSignPage() {
   // ready or signing state
   return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center p-6">
-      <div className="max-w-lg w-full">
+      <div className={data?.rera_form ? 'max-w-3xl w-full' : 'max-w-lg w-full'}>
         {/* Header */}
         <div className="text-center mb-8">
           <div className="w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center mx-auto mb-3">
@@ -155,6 +158,12 @@ export default function PublicSignPage() {
             <p className="font-medium text-gray-900">{data?.signature.signer_name}</p>
             <p className="text-sm text-gray-500">{data?.signature.signer_email}</p>
           </div>
+
+          {data?.rera_form && (
+            <div className="border-t border-gray-100 pt-4 mt-4">
+              <ReraFormView definition={data.rera_form.definition} data={data.rera_form.data} />
+            </div>
+          )}
 
           {data?.document.file_url && (
             <div className="border-t border-gray-100 pt-4 mt-4">
