@@ -147,6 +147,11 @@ export default function ListingsPage() {
                     <span className={`px-2 py-0.5 rounded text-[11px] font-medium ${STATUS_COLORS[l.status] || 'bg-gray-100 text-gray-600'}`}>
                       {l.status}
                     </span>
+                    {l.permit?.required && !l.permit.valid && !l.permit.overridden && (
+                      <span className="px-2 py-0.5 rounded text-[11px] font-medium bg-red-100 text-red-700">
+                        {l.permit.problem === 'expired' ? t('التصريح منتهي', 'Permit expired') : t('بدون تصريح', 'No permit')}
+                      </span>
+                    )}
                     {l.featured && (
                       <span className="px-2 py-0.5 rounded text-[11px] font-medium bg-gold-100 text-gold-700">
                         {t('مميز', 'Featured')}

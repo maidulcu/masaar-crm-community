@@ -7,9 +7,15 @@ import { useLang } from '@/context/LangContext'
 import { useAuthStore } from '@/store/auth'
 import { api } from '@/lib/api'
 import EmailComposeModal from '@/components/communication/EmailComposeModal'
+import PrivacyPanel from '@/components/contact/PrivacyPanel'
+import KYCPanel from '@/components/kyc/KYCPanel'
+import ProfilePanel from '@/components/contact/ProfilePanel'
+import CustomFieldsPanel from '@/components/contact/CustomFieldsPanel'
 import type { Contact, Lead, WhatsAppThread, User } from '@/types'
 import clsx from 'clsx'
 import { companyCurrency } from '@/lib/money'
+import TaskList from '@/components/task/TaskList'
+import ReraPanel from '@/components/rera/ReraPanel'
 
 const stageLabels: Record<string, { en: string; ar: string }> = {
   new: { en: 'New', ar: 'جديد' },
@@ -205,6 +211,31 @@ export default function ContactDetailPage() {
             <p className="text-xs text-surface-400 mb-1">{t('آخر تحديث', 'Updated')}</p>
             <p className="font-medium text-surface-700 text-sm">{fmtDateTime(contact.updated_at)}</p>
           </div>
+        </div>
+
+        <ProfilePanel contactId={contact.id} profile={contact.profile} canEdit={isAgent && !contact.erased_at} onSaved={load} />
+        <CustomFieldsPanel entityType="contact" entityId={contact.id} canEdit={isAgent && !contact.erased_at} />
+
+        <div className="bg-white rounded-2xl border border-surface-200/70 p-5">
+          <h3 className="text-sm font-semibold text-surface-900 mb-3">{t('نماذج ريرا', 'RERA forms')}</h3>
+          <ReraPanel contactId={contact.id} types={['B']} canEdit={isAgent && !contact.erased_at} />
+        </div>
+
+        {(isAgent || user?.role === 'compliance') && !contact.erased_at && (
+          <KYCPanel contactId={contact.id} canAdd={isAgent || user?.role === 'compliance'} canReview={isAdmin || user?.role === 'compliance'} />
+        )}
+
+        <PrivacyPanel
+          contactId={contact.id}
+          canEdit={isAgent}
+          isAdmin={isAdmin}
+          erased={!!contact.erased_at}
+          onErased={load}
+        />
+
+        <div className="bg-white rounded-2xl border border-surface-200/70 p-5">
+          <h3 className="text-sm font-semibold text-surface-900 mb-3">{t('المهام', 'Tasks')}</h3>
+          <TaskList filter={{ related_type: 'contact', related_id: contact.id }} link={{ related_type: 'contact', related_id: contact.id }} canEdit={isAgent} />
         </div>
 
         {/* Leads */}

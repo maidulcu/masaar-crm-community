@@ -10,6 +10,8 @@ import { api } from '@/lib/api'
 import type { Listing } from '@/types'
 import clsx from 'clsx'
 import { companyCurrency, currencyChoices } from '@/lib/money'
+import TaskList from '@/components/task/TaskList'
+import ReraPanel from '@/components/rera/ReraPanel'
 
 // ── Offer types (local) ────────────────────────────────────────────────────
 interface Offer {
@@ -73,7 +75,9 @@ export default function ListingDetailPage() {
     cover_image_url: '', virtual_tour_url: '', video_url: '',
     reference_number: '', available_from: '',
     owner_name: '', owner_phone: '', owner_email: '',
+    permit_number: '', permit_expiry: '', permit_qr_url: '',
   })
+  const [overrideReason, setOverrideReason] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
@@ -112,6 +116,7 @@ export default function ListingDetailPage() {
         cover_image_url: l.cover_image_url, virtual_tour_url: l.virtual_tour_url, video_url: l.video_url,
         reference_number: l.reference_number, available_from: l.available_from || '',
         owner_name: l.owner_name, owner_phone: l.owner_phone, owner_email: l.owner_email,
+        permit_number: l.permit_number ?? '', permit_expiry: l.permit_expiry?.slice(0, 10) ?? '', permit_qr_url: l.permit_qr_url ?? '',
       })
     } catch {} finally { setLoading(false) }
   }
@@ -121,7 +126,10 @@ export default function ListingDetailPage() {
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault(); setError(''); setSuccess(''); setSaving(true)
     try {
-      await api.listings.update(id, form)
+      await api.listings.update(id, {
+        ...form,
+        permit_expiry: form.permit_expiry ? `${form.permit_expiry}T00:00:00Z` : null,
+      })
       setSuccess(t('تم الحفظ', 'Saved'))
       setEditOpen(false)
       load()
@@ -137,7 +145,17 @@ export default function ListingDetailPage() {
       setSuccess(t('تم تحديث الحالة', 'Status updated'))
       load()
       setTimeout(() => setSuccess(''), 3000)
-    } catch { setError(t('حدث خطأ', 'Error')) }
+    } catch (err: unknown) { setError(err instanceof Error ? err.message : t('حدث خطأ', 'Error')) }
+  }
+
+  const handleOverride = async (on: boolean) => {
+    setError('')
+    try {
+      if (on) await api.listings.setPermitOverride(id, overrideReason)
+      else await api.listings.clearPermitOverride(id)
+      setOverrideReason('')
+      load()
+    } catch (err: unknown) { setError(err instanceof Error ? err.message : t('حدث خطأ', 'Error')) }
   }
 
   const handleDelete = async () => {
@@ -208,11 +226,78 @@ export default function ListingDetailPage() {
           )}
         </div>
 
+        <div className="bg-white rounded-xl border border-gray-100 p-5">
+          <h2 className="font-semibold text-gray-900 text-sm mb-3">{t('المهام', 'Tasks')}</h2>
+          <TaskList filter={{ related_type: 'listing', related_id: id }} link={{ related_type: 'listing', related_id: id }} canEdit={isAgent} />
+        </div>
+
+        <div className="bg-white rounded-xl border border-gray-100 p-5">
+          <h2 className="font-semibold text-gray-900 text-sm mb-3">{t('نماذج ريرا', 'RERA forms')}</h2>
+          <ReraPanel listingId={id} types={['A', 'I']} canEdit={isAgent} />
+        </div>
+
+        {/* Advertising permit */}
+        {listing.permit?.required && (
+          <div className={clsx('rounded-xl border p-4 flex flex-wrap items-start gap-4',
+            listing.permit.valid ? 'bg-white border-gray-100' : listing.permit.overridden ? 'bg-amber-50 border-amber-200' : 'bg-red-50 border-red-200')}>
+            <div className="flex-1 min-w-[200px]">
+              <p className="text-xs text-gray-500">
+                {listing.permit.system === 'trakheesi'
+                  ? t('تصريح الإعلان (تراخيصي)', 'Advertising permit (Trakheesi)')
+                  : listing.permit.system === 'rega'
+                    ? t('ترخيص الإعلان العقاري (الهيئة العامة للعقار)', 'Advertising licence (REGA)')
+                    : t('رقم الإعلان الموثق (مضمون)', 'Verified listing number (Madhmoun)')}
+              </p>
+              <p className="font-mono font-semibold text-gray-900" dir="ltr">{listing.permit_number || '—'}</p>
+              {listing.permit_expiry && <p className="text-xs text-gray-500">{t('ينتهي', 'Expires')} {listing.permit_expiry.slice(0, 10)}</p>}
+              {!listing.permit.valid && (
+                <p className="text-sm mt-1 text-red-700">
+                  {listing.permit.problem === 'expired'
+                    ? t('انتهت صلاحية التصريح — لا يمكن نشر الإعلان أو مشاركته.', 'The permit has expired — the listing cannot be published or shared.')
+                    : t('لا يوجد تصريح — لا يمكن نشر الإعلان أو مشاركته.', 'No permit — the listing cannot be published or shared.')}
+                </p>
+              )}
+              {listing.permit.overridden && (
+                <p className="text-xs mt-1 text-amber-800">{t('تجاوز من المسؤول:', 'Admin override:')} {listing.permit_override_reason}</p>
+              )}
+            </div>
+            {listing.permit_qr_url && <img src={safeUrl(listing.permit_qr_url)} alt={t('رمز QR للتصريح', 'Permit QR code')} className="w-20 h-20 object-contain" />}
+            {isAdmin && !listing.permit.valid && (
+              listing.permit.overridden ? (
+                <button onClick={() => handleOverride(false)} className="text-xs font-medium text-amber-800 underline">
+                  {t('إلغاء التجاوز', 'Remove override')}
+                </button>
+              ) : (
+                <div className="flex gap-2 items-center w-full md:w-auto">
+                  <input aria-label={t('سبب التجاوز', 'Override reason')} placeholder={t('سبب التجاوز', 'Reason for override')}
+                    className={inputCls + ' md:w-56'} value={overrideReason} onChange={e => setOverrideReason(e.target.value)} />
+                  <button disabled={!overrideReason.trim()} onClick={() => handleOverride(true)}
+                    className="px-3 py-2 text-xs font-medium bg-amber-600 text-white rounded-lg disabled:opacity-50 whitespace-nowrap">
+                    {t('السماح رغم ذلك', 'Allow anyway')}
+                  </button>
+                </div>
+              )
+            )}
+          </div>
+        )}
+
         {/* Key details */}
         <div className="bg-white rounded-xl border border-gray-100 p-5 grid grid-cols-2 md:grid-cols-4 gap-5">
           <div>
             <p className="text-xs text-gray-400 mb-1">{t('السعر', 'Price')}</p>
             <p className="font-bold text-brand-700 text-lg">{formatPrice(listing.price, listing.currency, listing.listing_type)}</p>
+            <Link
+              href={`/calculators?${new URLSearchParams({
+                // Rents are compared per year; a monthly rent is annualised.
+                [listing.listing_type === 'rent' ? 'rent' : 'price']: String(listing.listing_type === 'rent' && /month/i.test(listing.rent_period || '') ? listing.price * 12 : listing.price),
+                type: listing.listing_type === 'rent' ? 'rent' : 'sale',
+                currency: listing.currency || '',
+                title: listing.title,
+              })}`}
+              className="text-[11px] text-brand-600 hover:underline"
+            >
+              {t('الحاسبات', 'Calculators')} →
+            </Link>
           </div>
           <div>
             <p className="text-xs text-gray-400 mb-1">{t('النوع', 'Type')}</p>
@@ -388,8 +473,27 @@ export default function ListingDetailPage() {
                       {offer.valid_until && ` · valid until ${new Date(offer.valid_until).toLocaleDateString()}`}
                     </p>
                   </div>
+                  <Link
+                    href={`/calculators?${new URLSearchParams({ price: String(offer.offer_amount), amount: String(offer.offer_amount), currency: offer.currency, title: listing.title })}`}
+                    className="text-[11px] text-gray-500 hover:underline shrink-0"
+                  >
+                    {t('التكاليف', 'Costs')}
+                  </Link>
                   {offer.deal_id && (
                     <Link href="/deals" className="text-xs text-green-600 hover:underline shrink-0">Deal →</Link>
+                  )}
+                  {isAgent && offer.status === 'accepted' && (
+                    <button
+                      onClick={async () => {
+                        try {
+                          const f = await api.rera.create({ form_type: 'F', offer_id: offer.id })
+                          window.open(`/rera-forms/${f.document_id}/print`, '_blank', 'noopener')
+                        } catch (e: unknown) { setError(e instanceof Error ? e.message : 'Failed') }
+                      }}
+                      className="text-[11px] font-medium text-brand-600 hover:underline shrink-0"
+                    >
+                      {t('إنشاء مذكرة التفاهم (النموذج و)', 'Generate MOU (Form F)')}
+                    </button>
                   )}
                   {isAgent && !['accepted','rejected','expired'].includes(offer.status) && (
                     <div className="flex items-center gap-1 shrink-0">
@@ -489,6 +593,21 @@ export default function ListingDetailPage() {
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1">{t('المنطقة', 'Area')}</label>
                   <input className={inputCls} value={form.area} onChange={e => set('area', e.target.value)} />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label htmlFor="permit-no" className="block text-xs font-medium text-gray-600 mb-1">{t('رقم تصريح الإعلان', 'Advertising permit no.')}</label>
+                  <input id="permit-no" dir="ltr" className={inputCls} value={form.permit_number} onChange={e => set('permit_number', e.target.value)} />
+                </div>
+                <div>
+                  <label htmlFor="permit-exp" className="block text-xs font-medium text-gray-600 mb-1">{t('انتهاء التصريح', 'Permit expiry')}</label>
+                  <input id="permit-exp" type="date" className={inputCls} value={form.permit_expiry} onChange={e => set('permit_expiry', e.target.value)} />
+                </div>
+                <div>
+                  <label htmlFor="permit-qr" className="block text-xs font-medium text-gray-600 mb-1">{t('رابط صورة QR للتصريح', 'Permit QR image URL')}</label>
+                  <input id="permit-qr" dir="ltr" className={inputCls} value={form.permit_qr_url} onChange={e => set('permit_qr_url', e.target.value)} placeholder="https://..." />
                 </div>
               </div>
 

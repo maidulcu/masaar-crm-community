@@ -215,7 +215,7 @@ func (h *MessageHandler) AutoCreateLead(c *fiber.Ctx) error {
 		ContactID: thread.ContactID,
 		Stage:     domain.StageNew,
 		Source:    domain.SourceWhatsApp,
-		Currency:  "AED",
+		Currency:  defaultCurrency(c.Context()),
 	}
 
 	// Extract deal value if available

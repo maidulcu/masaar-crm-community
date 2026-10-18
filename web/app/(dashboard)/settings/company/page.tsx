@@ -26,6 +26,10 @@ interface CompanyData {
   region: string
   currency: string
   timezone: string
+  show_hijri?: boolean
+  orn: string
+  trade_license_no: string
+  trade_license_expiry: string | null
 }
 
 const EMPTY: CompanyData = {
@@ -33,6 +37,7 @@ const EMPTY: CompanyData = {
   vat_number: '', bank_name: '', bank_account: '', bank_iban: '',
   logo_url: '', disclaimer: '', primary_color: '#1a3a5c',
   country: 'AE', region: '', currency: 'AED', timezone: 'Asia/Dubai',
+  orn: '', trade_license_no: '', trade_license_expiry: null,
 }
 
 export default function CompanySettingsPage() {
@@ -64,7 +69,11 @@ export default function CompanySettingsPage() {
     e.preventDefault()
     setError(''); setSuccess(false); setSubmitting(true)
     try {
-      const saved = await api.settings.updateCompany(form)
+      const saved = await api.settings.updateCompany({
+        ...form,
+        // The API takes a full timestamp; the form edits a date.
+        trade_license_expiry: form.trade_license_expiry ? `${form.trade_license_expiry.slice(0, 10)}T00:00:00Z` : null,
+      })
       setForm({ ...EMPTY, ...(saved as Partial<CompanyData>) })
       await loadLocale() // currency and timezone are used across the app
       setSuccess(true)
@@ -168,6 +177,11 @@ export default function CompanySettingsPage() {
                   <input id="cs-tz" dir="ltr" className={inputCls} value={form.timezone} onChange={update('timezone')} placeholder="Asia/Dubai" />
                 </div>
               </div>
+              <label className="flex items-center gap-2 text-sm text-gray-700">
+                <input type="checkbox" checked={!!form.show_hijri}
+                  onChange={(e) => setForm(p => ({ ...p, show_hijri: e.target.checked }))} />
+                {t('إظهار التاريخ الهجري (أم القرى) بجانب التواريخ', 'Also show dates in the Hijri (Umm al-Qura) calendar')}
+              </label>
 
               <hr className="border-gray-100" />
               <h3 className="text-sm font-semibold text-gray-700">{t('الضرائب والفواتير', 'Tax & Invoicing')}</h3>
@@ -176,6 +190,25 @@ export default function CompanySettingsPage() {
                 <input id="cs-trn" dir="ltr" className={inputCls} value={form.vat_number} onChange={update('vat_number')}
                   placeholder={t('اتركه فارغاً إذا لم تكن مسجلاً لضريبة القيمة المضافة', 'Leave empty if not VAT-registered')} />
               </div>
+
+              <hr className="border-gray-100" />
+              <h3 className="text-sm font-semibold text-gray-700">{t('التراخيص', 'Licences')}</h3>
+              <div className="grid grid-cols-3 gap-4">
+                <div>
+                  <label htmlFor="cs-orn" className={labelCls}>{t('رقم تسجيل المكتب (ORN)', 'RERA office no. (ORN)')}</label>
+                  <input id="cs-orn" dir="ltr" className={inputCls} value={form.orn} onChange={update('orn')} />
+                </div>
+                <div>
+                  <label htmlFor="cs-tl" className={labelCls}>{t('رقم الرخصة التجارية', 'Trade licence no.')}</label>
+                  <input id="cs-tl" dir="ltr" className={inputCls} value={form.trade_license_no} onChange={update('trade_license_no')} />
+                </div>
+                <div>
+                  <label htmlFor="cs-tl-exp" className={labelCls}>{t('انتهاء الرخصة', 'Licence expiry')}</label>
+                  <input id="cs-tl-exp" type="date" className={inputCls} value={form.trade_license_expiry?.slice(0, 10) ?? ''}
+                    onChange={(e) => setForm(p => ({ ...p, trade_license_expiry: e.target.value || null }))} />
+                </div>
+              </div>
+              <p className="text-xs text-gray-500">{t('ستصلك تنبيهات قبل انتهاء الرخصة بـ 30 و7 أيام.', 'You will be alerted 30 and 7 days before the licence expires.')}</p>
 
               <hr className="border-gray-100" />
               <h3 className="text-sm font-semibold text-gray-700">{t('معلومات البنك', 'Bank Information')}</h3>

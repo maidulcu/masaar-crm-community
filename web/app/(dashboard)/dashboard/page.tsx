@@ -5,6 +5,7 @@ import { Header } from '@/components/layout/Header'
 import { api } from '@/lib/api'
 import { useLang } from '@/context/LangContext'
 import { companyCurrency } from '@/lib/money'
+import TaskList from '@/components/task/TaskList'
 
 interface Stats {
   total_contacts: number
@@ -71,6 +72,15 @@ export default function DashboardPage() {
 
       <main className="flex-1 overflow-y-auto px-6 py-8 bg-surface-50">
         <div className="max-w-5xl space-y-8">
+
+          <section className="bg-white rounded-2xl border border-surface-200/70 p-5" aria-labelledby="overdue-tasks">
+            <div className="flex items-center justify-between mb-2">
+              <h2 id="overdue-tasks" className="text-sm font-semibold text-surface-900">{t('مهامي المتأخرة', 'My overdue tasks')}</h2>
+              <a href="/tasks" className="text-xs text-primary-600 hover:underline">{t('كل المهام', 'All tasks')}</a>
+            </div>
+            <TaskList filter={{ mine: true, overdue: true }} canEdit compact
+              emptyText={{ en: 'Nothing overdue — well done.', ar: 'لا توجد مهام متأخرة.' }} />
+          </section>
 
           {/* Top row */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">

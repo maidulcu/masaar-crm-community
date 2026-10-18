@@ -29,9 +29,9 @@ func (r *PaymentRepo) List(ctx context.Context, companyID uuid.UUID, page, limit
 	}
 
 	const q = `
-		SELECT id, company_id, lease_id, amount, currency, due_date, paid_date, payment_method,
-		       payment_reference, status, bank_transaction_id, reconciled_at, reconciled_by,
-		       notes, receipt_url, late_fee_applied, late_fee_amount,
+		SELECT id, company_id, lease_id, amount, COALESCE(currency, 'AED'), due_date, paid_date, payment_method,
+		       COALESCE(payment_reference, ''), COALESCE(status, 'pending'), bank_transaction_id, reconciled_at, reconciled_by,
+		       COALESCE(notes, ''), COALESCE(receipt_url, ''), COALESCE(late_fee_applied, FALSE), COALESCE(late_fee_amount, 0),
 		       created_at, updated_at, created_by, updated_by
 		FROM payments
 		WHERE company_id = $1
@@ -72,9 +72,9 @@ func (r *PaymentRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.Paymen
 		return nil, err
 	}
 	const q = `
-		SELECT id, company_id, lease_id, amount, currency, due_date, paid_date, payment_method,
-		       payment_reference, status, bank_transaction_id, reconciled_at, reconciled_by,
-		       notes, receipt_url, late_fee_applied, late_fee_amount,
+		SELECT id, company_id, lease_id, amount, COALESCE(currency, 'AED'), due_date, paid_date, payment_method,
+		       COALESCE(payment_reference, ''), COALESCE(status, 'pending'), bank_transaction_id, reconciled_at, reconciled_by,
+		       COALESCE(notes, ''), COALESCE(receipt_url, ''), COALESCE(late_fee_applied, FALSE), COALESCE(late_fee_amount, 0),
 		       created_at, updated_at, created_by, updated_by
 		FROM payments WHERE id = $1 AND company_id = $2
 	`
@@ -157,9 +157,9 @@ func (r *PaymentRepo) GetByLeaseID(ctx context.Context, leaseID uuid.UUID) ([]do
 		return nil, err
 	}
 	const q = `
-		SELECT id, company_id, lease_id, amount, currency, due_date, paid_date, payment_method,
-		       payment_reference, status, bank_transaction_id, reconciled_at, reconciled_by,
-		       notes, receipt_url, late_fee_applied, late_fee_amount,
+		SELECT id, company_id, lease_id, amount, COALESCE(currency, 'AED'), due_date, paid_date, payment_method,
+		       COALESCE(payment_reference, ''), COALESCE(status, 'pending'), bank_transaction_id, reconciled_at, reconciled_by,
+		       COALESCE(notes, ''), COALESCE(receipt_url, ''), COALESCE(late_fee_applied, FALSE), COALESCE(late_fee_amount, 0),
 		       created_at, updated_at, created_by, updated_by
 		FROM payments WHERE lease_id = $1 AND company_id = $2
 		ORDER BY due_date ASC
@@ -188,9 +188,9 @@ func (r *PaymentRepo) GetByLeaseID(ctx context.Context, leaseID uuid.UUID) ([]do
 
 func (r *PaymentRepo) GetPendingByDueDate(ctx context.Context, companyID uuid.UUID, beforeDate time.Time) ([]domain.Payment, error) {
 	const q = `
-		SELECT id, company_id, lease_id, amount, currency, due_date, paid_date, payment_method,
-		       payment_reference, status, bank_transaction_id, reconciled_at, reconciled_by,
-		       notes, receipt_url, late_fee_applied, late_fee_amount,
+		SELECT id, company_id, lease_id, amount, COALESCE(currency, 'AED'), due_date, paid_date, payment_method,
+		       COALESCE(payment_reference, ''), COALESCE(status, 'pending'), bank_transaction_id, reconciled_at, reconciled_by,
+		       COALESCE(notes, ''), COALESCE(receipt_url, ''), COALESCE(late_fee_applied, FALSE), COALESCE(late_fee_amount, 0),
 		       created_at, updated_at, created_by, updated_by
 		FROM payments
 		WHERE company_id = $1 AND status = 'pending' AND due_date <= $2
@@ -220,9 +220,9 @@ func (r *PaymentRepo) GetPendingByDueDate(ctx context.Context, companyID uuid.UU
 
 func (r *PaymentRepo) GetByStatus(ctx context.Context, companyID uuid.UUID, status domain.PaymentStatus) ([]domain.Payment, error) {
 	const q = `
-		SELECT id, company_id, lease_id, amount, currency, due_date, paid_date, payment_method,
-		       payment_reference, status, bank_transaction_id, reconciled_at, reconciled_by,
-		       notes, receipt_url, late_fee_applied, late_fee_amount,
+		SELECT id, company_id, lease_id, amount, COALESCE(currency, 'AED'), due_date, paid_date, payment_method,
+		       COALESCE(payment_reference, ''), COALESCE(status, 'pending'), bank_transaction_id, reconciled_at, reconciled_by,
+		       COALESCE(notes, ''), COALESCE(receipt_url, ''), COALESCE(late_fee_applied, FALSE), COALESCE(late_fee_amount, 0),
 		       created_at, updated_at, created_by, updated_by
 		FROM payments WHERE company_id = $1 AND status = $2
 		ORDER BY due_date DESC
@@ -251,9 +251,9 @@ func (r *PaymentRepo) GetByStatus(ctx context.Context, companyID uuid.UUID, stat
 
 func (r *PaymentRepo) GetByDueDate(ctx context.Context, companyID uuid.UUID, dueDate time.Time) ([]domain.Payment, error) {
 	const q = `
-		SELECT id, company_id, lease_id, amount, currency, due_date, paid_date, payment_method,
-		       payment_reference, status, bank_transaction_id, reconciled_at, reconciled_by,
-		       notes, receipt_url, late_fee_applied, late_fee_amount,
+		SELECT id, company_id, lease_id, amount, COALESCE(currency, 'AED'), due_date, paid_date, payment_method,
+		       COALESCE(payment_reference, ''), COALESCE(status, 'pending'), bank_transaction_id, reconciled_at, reconciled_by,
+		       COALESCE(notes, ''), COALESCE(receipt_url, ''), COALESCE(late_fee_applied, FALSE), COALESCE(late_fee_amount, 0),
 		       created_at, updated_at, created_by, updated_by
 		FROM payments
 		WHERE company_id = $1 AND DATE(due_date) = $2 AND status IN ('pending', 'overdue')
@@ -283,9 +283,9 @@ func (r *PaymentRepo) GetByDueDate(ctx context.Context, companyID uuid.UUID, due
 
 func (r *PaymentRepo) GetOverdueByDate(ctx context.Context, companyID uuid.UUID, sinceDateInclusive time.Time) ([]domain.Payment, error) {
 	const q = `
-		SELECT id, company_id, lease_id, amount, currency, due_date, paid_date, payment_method,
-		       payment_reference, status, bank_transaction_id, reconciled_at, reconciled_by,
-		       notes, receipt_url, late_fee_applied, late_fee_amount,
+		SELECT id, company_id, lease_id, amount, COALESCE(currency, 'AED'), due_date, paid_date, payment_method,
+		       COALESCE(payment_reference, ''), COALESCE(status, 'pending'), bank_transaction_id, reconciled_at, reconciled_by,
+		       COALESCE(notes, ''), COALESCE(receipt_url, ''), COALESCE(late_fee_applied, FALSE), COALESCE(late_fee_amount, 0),
 		       created_at, updated_at, created_by, updated_by
 		FROM payments
 		WHERE company_id = $1 AND status IN ('pending', 'overdue') AND due_date <= $2

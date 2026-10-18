@@ -100,3 +100,42 @@ func TestValidTaxID(t *testing.T) {
 		}
 	}
 }
+
+func TestFindRegion(t *testing.T) {
+	ae := MustFor("AE")
+	for _, text := range []string{"AE-DU", "dubai", "Dubai", "دبي"} {
+		reg, ok := ae.FindRegion(text)
+		if !ok || reg.Code != "AE-DU" || reg.ListingPermit != PermitTrakheesi {
+			t.Errorf("FindRegion(%q) = %+v, %v", text, reg, ok)
+		}
+	}
+	if reg, ok := ae.FindRegion("Sharjah"); !ok || reg.ListingPermit != "" {
+		t.Errorf("Sharjah = %+v, %v", reg, ok)
+	}
+	if _, ok := ae.FindRegion("Narnia"); ok {
+		t.Error("unknown region resolved")
+	}
+}
+
+// Saudi Arabia is configuration only: 15% VAT, SAR, a Friday–Saturday weekend, the
+// Riyadh timezone and a REGA advertising licence in every province.
+func TestSaudiArabia(t *testing.T) {
+	r, ok := For("sa")
+	if !ok {
+		t.Fatal("SA not registered")
+	}
+	if rate, _ := r.VATRate(VATStandard); rate != 0.15 || r.Currency != "SAR" || r.Location().String() != "Asia/Riyadh" {
+		t.Fatalf("SA rules %+v", r)
+	}
+	riyadh := time.Date(2026, 10, 16, 12, 0, 0, 0, r.Location()) // a Friday
+	if !r.IsWeekend(riyadh) || !r.IsWeekend(riyadh.AddDate(0, 0, 1)) || r.IsWeekend(riyadh.AddDate(0, 0, 2)) {
+		t.Fatal("SA weekend is not Friday–Saturday")
+	}
+	reg, ok := r.FindRegion("Riyadh")
+	if !ok || reg.Code != "SA-01" || reg.ListingPermit != PermitREGA {
+		t.Fatalf("Riyadh = %+v", reg)
+	}
+	if got := RoundMoney(10.005, "SAR"); got != 10.01 {
+		t.Errorf("SAR rounding %v", got)
+	}
+}

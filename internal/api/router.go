@@ -35,6 +35,12 @@ type Handlers struct {
 	Invoice             *handler.InvoiceHandler
 	Property            *handler.PropertyHandler
 	Settings            *handler.SettingsHandler
+	Portal              *handler.PortalHandler
+	Cheque              *handler.ChequeHandler
+	LeaseOps            *handler.LeaseOpsHandler
+	KYC                 *handler.KYCHandler
+	Broadcast           *handler.BroadcastHandler
+	EInvoice            *handler.EInvoiceHandler
 	Email               *handler.EmailHandler
 	RentalProperty      *handler.RentalPropertyHandler
 	Tenant              *handler.TenantHandler
@@ -69,6 +75,10 @@ type Handlers struct {
 	Approval            *handler.ApprovalHandler
 	DocusignWebhook     *handler.DocusignWebhookHandler
 	Job                 *handler.JobHandler
+	Privacy             *handler.PrivacyHandler
+	Task                *handler.TaskHandler
+	ContactProfile      *handler.ContactProfileHandler
+	Rera                *handler.ReraHandler
 }
 
 // authLimiters holds the per-route rate limiters. Counters live in Redis when
@@ -126,6 +136,9 @@ func RegisterRoutes(app *fiber.App, h *Handlers, hub *ws.Hub, cfg *config.Config
 	app.Post("/api/v1/auth/refresh", lim.refresh, h.Auth.Refresh)
 	app.Post("/api/v1/auth/forgot-password", lim.login, h.Auth.ForgotPassword)
 	app.Post("/api/v1/auth/reset-password", lim.authVerify, h.Auth.ResetPassword)
+	app.Post("/api/v1/auth/verify-totp", lim.authVerify, h.Auth.VerifyTOTP)
+	app.Post("/api/v1/auth/totp/enroll", lim.authVerify, h.Auth.EnrollPending)
+	app.Post("/api/v1/auth/totp/enroll/confirm", lim.authVerify, h.Auth.ConfirmEnrollPending)
 
 	// WhatsApp webhook — Meta calls this publicly
 	app.Get("/webhooks/whatsapp", h.WhatsApp.Verify)
@@ -149,6 +162,10 @@ func RegisterRoutes(app *fiber.App, h *Handlers, hub *ws.Hub, cfg *config.Config
 	// Public document signing — signature UUID is the access token
 	app.Get("/api/public/sign/:id", lim.api, h.Document.PublicGetSignature)
 	app.Post("/api/public/sign/:id", lim.api, h.Document.PublicSign)
+
+	// Property portals — token in the query string (Settings → Portals)
+	app.Post("/webhooks/portals/:portal", lim.webhook, h.Portal.ReceiveLead)
+	app.Get("/api/public/feeds/:portal/listings.xml", lim.api, h.Portal.Feed)
 
 	// Public lead intake — API key auth (scope: lead:create)
 	apiKeyLimiter := makeAPIKeyLimiter(rdb)
@@ -191,6 +208,16 @@ func RegisterRoutes(app *fiber.App, h *Handlers, hub *ws.Hub, cfg *config.Config
 
 	v1.Delete("/auth/logout", h.Auth.Logout)
 
+	// Two-factor authentication (#87)
+	v1.Get("/users/me/2fa", h.Auth.TwoFactorStatus)
+	v1.Post("/users/me/2fa/setup", h.Auth.TwoFactorSetup)
+	v1.Post("/users/me/2fa/enable", h.Auth.TwoFactorEnable)
+	v1.Post("/users/me/2fa/disable", h.Auth.TwoFactorDisable)
+	v1.Post("/users/me/2fa/backup-codes", h.Auth.TwoFactorBackupCodes)
+	v1.Post("/users/:id/2fa/reset", middleware.RequireRole(domain.RoleAdmin), h.Auth.ResetUserTwoFactor)
+	v1.Get("/settings/security", middleware.RequireRole(domain.RoleAdmin), h.Auth.GetSecuritySettings)
+	v1.Put("/settings/security", middleware.RequireRole(domain.RoleAdmin), h.Auth.UpdateSecuritySettings)
+
 	// Dashboard stats — all authenticated users
 	v1.Get("/stats", h.Stats.Overview)
 
@@ -203,6 +230,7 @@ func RegisterRoutes(app *fiber.App, h *Handlers, hub *ws.Hub, cfg *config.Config
 	v1.Patch("/users/me/lang", h.User.UpdateLang)
 	v1.Patch("/users/:id", middleware.RequireRole(domain.RoleAdmin), h.User.UpdateUser)
 	v1.Patch("/users/:id/active", middleware.RequireRole(domain.RoleAdmin), h.User.SetActive)
+	v1.Patch("/users/:id/brn", middleware.RequireRole(domain.RoleAdmin), h.User.SetBRN)
 	v1.Delete("/users/:id", middleware.RequireRole(domain.RoleAdmin), h.User.DeleteUser)
 
 	// API Settings — admin only (integrations, API keys)
@@ -445,6 +473,9 @@ func RegisterRoutes(app *fiber.App, h *Handlers, hub *ws.Hub, cfg *config.Config
 
 	// Contacts — viewers: read-only; agents: create+update; admin: delete
 	v1.Get("/contacts", h.Contact.List)
+	// Static paths before /contacts/:id.
+	v1.Get("/contacts/duplicates", middleware.RequireRole(domain.RoleAdmin, domain.RoleAgent), h.ContactProfile.Duplicates)
+	v1.Post("/contacts/merge", middleware.RequireRole(domain.RoleAdmin), h.ContactProfile.Merge)
 	v1.Get("/contacts/:id", h.Contact.Get)
 	v1.Post("/contacts",
 		middleware.RequireRole(domain.RoleAdmin, domain.RoleAgent),
@@ -714,6 +745,11 @@ func RegisterRoutes(app *fiber.App, h *Handlers, hub *ws.Hub, cfg *config.Config
 		middleware.RequireRole(domain.RoleAdmin),
 		h.Invoice.UpdateStatus,
 	)
+	v1.Get("/invoices/:id/credit-notes", h.Invoice.ListCreditNotes)
+	v1.Post("/invoices/:id/credit-notes",
+		middleware.RequireRole(domain.RoleAdmin),
+		h.Invoice.CreateCreditNote,
+	)
 
 	// Email — agents and admin only
 	v1.Get("/emails",
@@ -759,6 +795,14 @@ func RegisterRoutes(app *fiber.App, h *Handlers, hub *ws.Hub, cfg *config.Config
 	v1.Patch("/listings/:id/status",
 		middleware.RequireRole(domain.RoleAdmin, domain.RoleAgent),
 		h.Listing.UpdateStatus,
+	)
+	v1.Post("/listings/:id/permit-override",
+		middleware.RequireRole(domain.RoleAdmin),
+		h.Listing.SetPermitOverride,
+	)
+	v1.Delete("/listings/:id/permit-override",
+		middleware.RequireRole(domain.RoleAdmin),
+		h.Listing.ClearPermitOverride,
 	)
 	v1.Delete("/listings/:id",
 		middleware.RequireRole(domain.RoleAdmin),
@@ -850,6 +894,71 @@ func RegisterRoutes(app *fiber.App, h *Handlers, hub *ws.Hub, cfg *config.Config
 	)
 
 	// Leases — agents: create+view+update; admin: all; viewers: read-only
+	// UAE e-invoicing (#88)
+	v1.Get("/invoices/:id/einvoice", h.EInvoice.Status)
+	v1.Get("/invoices/:id/einvoice.xml", h.EInvoice.StoredXML)
+	v1.Post("/invoices/:id/einvoice/xml", middleware.RequireRole(domain.RoleAdmin, domain.RoleAgent), h.EInvoice.ExportXML)
+	v1.Post("/invoices/:id/einvoice", middleware.RequireRole(domain.RoleAdmin), h.EInvoice.Submit)
+	v1.Get("/settings/einvoicing", middleware.RequireRole(domain.RoleAdmin), h.EInvoice.GetSettings)
+	v1.Put("/settings/einvoicing", middleware.RequireRole(domain.RoleAdmin), h.EInvoice.UpdateSettings)
+
+	// WhatsApp broadcasts and inbox (#87)
+	v1.Post("/broadcasts/preview", middleware.RequireRole(domain.RoleAdmin), h.Broadcast.Preview)
+	v1.Get("/broadcasts", middleware.RequireRole(domain.RoleAdmin), h.Broadcast.List)
+	v1.Post("/broadcasts", middleware.RequireRole(domain.RoleAdmin), h.Broadcast.Create)
+	v1.Get("/broadcasts/:id", middleware.RequireRole(domain.RoleAdmin), h.Broadcast.Get)
+	v1.Get("/broadcasts/:id/recipients", middleware.RequireRole(domain.RoleAdmin), h.Broadcast.Recipients)
+	v1.Post("/broadcasts/:id/start", middleware.RequireRole(domain.RoleAdmin), h.Broadcast.Start)
+	v1.Post("/broadcasts/:id/cancel", middleware.RequireRole(domain.RoleAdmin), h.Broadcast.Cancel)
+	v1.Patch("/threads/:id/assign", middleware.RequireRole(domain.RoleAdmin, domain.RoleAgent), h.Broadcast.AssignThread)
+	v1.Get("/settings/inbox", middleware.RequireRole(domain.RoleAdmin), h.Broadcast.GetInboxSettings)
+	v1.Put("/settings/inbox", middleware.RequireRole(domain.RoleAdmin), h.Broadcast.UpdateInboxSettings)
+
+	// KYC and AML (#87). Identity data: admins, agents and compliance officers; risk,
+	// screening and the AML queue: admins and compliance officers.
+	kycStaff := middleware.RequireRole(domain.RoleAdmin, domain.RoleAgent, domain.RoleCompliance)
+	compliance := middleware.RequireRole(domain.RoleAdmin, domain.RoleCompliance)
+	v1.Get("/contacts/:id/kyc", kycStaff, h.KYC.Profile)
+	v1.Put("/contacts/:id/kyc", compliance, h.KYC.UpdateProfile)
+	v1.Post("/contacts/:id/kyc/screen", compliance, h.KYC.Screen)
+	v1.Post("/contacts/:id/kyc/documents", kycStaff, h.KYC.AddDocument)
+	v1.Get("/kyc-documents/:id/file", kycStaff, h.KYC.DocumentFile)
+	v1.Delete("/kyc-documents/:id", compliance, h.KYC.DeleteDocument)
+	v1.Get("/organisations/:id/owners", kycStaff, h.KYC.Owners)
+	v1.Post("/organisations/:id/owners", kycStaff, h.KYC.SetOwner)
+	v1.Delete("/organisations/:id/owners/:contact_id", kycStaff, h.KYC.RemoveOwner)
+	v1.Get("/deals/:id/kyc", kycStaff, h.KYC.DealKYC)
+	v1.Post("/deals/:id/kyc-override", middleware.RequireRole(domain.RoleAdmin), h.KYC.OverrideDealKYC)
+	v1.Put("/deals/:id/payment", middleware.RequireRole(domain.RoleAdmin, domain.RoleAgent), h.KYC.SetDealPayment)
+	v1.Get("/compliance/aml", compliance, h.KYC.AMLQueue)
+	v1.Get("/compliance/aml/export.csv", compliance, h.KYC.AMLExport)
+	v1.Post("/compliance/aml/:id/review", compliance, h.KYC.ReviewAML)
+	v1.Get("/settings/aml", compliance, h.KYC.GetAMLSettings)
+	v1.Put("/settings/aml", middleware.RequireRole(domain.RoleAdmin), h.KYC.UpdateAMLSettings)
+
+	// Post-dated cheques and lease operations (#86)
+	agentOrAdmin := middleware.RequireRole(domain.RoleAdmin, domain.RoleAgent)
+	v1.Get("/cheques", h.Cheque.List)
+	v1.Patch("/cheques/:id", agentOrAdmin, h.Cheque.Update)
+	v1.Post("/cheques/:id/status", agentOrAdmin, h.Cheque.SetStatus)
+	v1.Post("/cheques/:id/replace", agentOrAdmin, h.Cheque.Replace)
+	v1.Get("/cheques/:id/scan", h.Cheque.Scan)
+	v1.Post("/cheques/:id/scan", agentOrAdmin, h.Cheque.UploadScan)
+	v1.Get("/leases/:id/cheques", h.Cheque.ForLease)
+	v1.Post("/leases/:id/cheques", agentOrAdmin, h.Cheque.Create)
+	v1.Post("/leases/:id/cheques/schedule", agentOrAdmin, h.Cheque.Schedule)
+	v1.Get("/leases/:id/extras", h.LeaseOps.Extras)
+	v1.Patch("/leases/:id/extras", agentOrAdmin, h.LeaseOps.SetExtras)
+	v1.Get("/leases/:id/payments", h.LeaseOps.Payments)
+	v1.Get("/leases/:id/reminders", h.LeaseOps.Reminders)
+	v1.Get("/leases/:id/notices", h.LeaseOps.ListNotices)
+	v1.Post("/leases/:id/notices/draft", agentOrAdmin, h.LeaseOps.DraftNotice)
+	v1.Post("/leases/:id/notices", agentOrAdmin, h.LeaseOps.CreateNotice)
+	v1.Get("/lease-notices/:id", h.LeaseOps.GetNotice)
+	v1.Post("/lease-notices/:id/sent", agentOrAdmin, h.LeaseOps.MarkNoticeSent)
+	v1.Get("/settings/property", middleware.RequireRole(domain.RoleAdmin), h.LeaseOps.GetSettings)
+	v1.Put("/settings/property", middleware.RequireRole(domain.RoleAdmin), h.LeaseOps.UpdateSettings)
+
 	v1.Get("/leases", h.Lease.List)
 	v1.Get("/leases/:id", h.Lease.Get)
 	v1.Post("/leases",
@@ -1096,6 +1205,56 @@ func RegisterRoutes(app *fiber.App, h *Handlers, hub *ws.Hub, cfg *config.Config
 	v1.Get("/audit-logs",
 		middleware.RequireRole(domain.RoleAdmin),
 		h.AuditLog.List,
+	)
+
+	// Organisations (B2B accounts)
+	v1.Get("/organisations", h.ContactProfile.ListOrganisations)
+	v1.Get("/organisations/:id", h.ContactProfile.GetOrganisation)
+	v1.Post("/organisations", middleware.RequireRole(domain.RoleAdmin, domain.RoleAgent), h.ContactProfile.SaveOrganisation)
+	v1.Patch("/organisations/:id", middleware.RequireRole(domain.RoleAdmin, domain.RoleAgent), h.ContactProfile.SaveOrganisation)
+	v1.Delete("/organisations/:id", middleware.RequireRole(domain.RoleAdmin), h.ContactProfile.DeleteOrganisation)
+
+	// Custom fields: admins define them, agents fill them in
+	v1.Get("/custom-fields", h.ContactProfile.ListCustomFields)
+	v1.Post("/custom-fields", middleware.RequireRole(domain.RoleAdmin), h.ContactProfile.SaveCustomField)
+	v1.Get("/custom-fields/values/:entity_type/:id", h.ContactProfile.GetCustomValues)
+	v1.Put("/custom-fields/values/:entity_type/:id", middleware.RequireRole(domain.RoleAdmin, domain.RoleAgent), h.ContactProfile.SetCustomValues)
+	v1.Patch("/custom-fields/:id", middleware.RequireRole(domain.RoleAdmin), h.ContactProfile.SaveCustomField)
+	v1.Delete("/custom-fields/:id", middleware.RequireRole(domain.RoleAdmin), h.ContactProfile.DeleteCustomField)
+
+	// RERA brokerage forms (pre-filled; signed through /documents/:id/request-signature)
+	// Property portals and lead sources
+	v1.Get("/settings/portals", middleware.RequireRole(domain.RoleAdmin), h.Portal.ListConnections)
+	v1.Post("/settings/portals/:portal", middleware.RequireRole(domain.RoleAdmin), h.Portal.Connect)
+	v1.Patch("/settings/portals/:portal", middleware.RequireRole(domain.RoleAdmin), h.Portal.SetEnabled)
+	v1.Delete("/settings/portals/:portal", middleware.RequireRole(domain.RoleAdmin), h.Portal.Disconnect)
+	v1.Get("/reports/lead-sources", middleware.RequireRole(domain.RoleAdmin), h.Portal.LeadSources)
+
+	v1.Get("/rera-forms/definitions", h.Rera.Definitions)
+	v1.Get("/rera-forms", h.Rera.List)
+	v1.Get("/rera-forms/:id", h.Rera.Get)
+	v1.Post("/rera-forms", middleware.RequireRole(domain.RoleAdmin, domain.RoleAgent), h.Rera.Create)
+
+	// Tasks and follow-ups
+	v1.Get("/tasks", h.Task.List)
+	v1.Post("/tasks", middleware.RequireRole(domain.RoleAdmin, domain.RoleAgent), h.Task.Create)
+	v1.Patch("/tasks/:id", middleware.RequireRole(domain.RoleAdmin, domain.RoleAgent), h.Task.Update)
+	v1.Patch("/tasks/:id/status", middleware.RequireRole(domain.RoleAdmin, domain.RoleAgent), h.Task.SetStatus)
+	v1.Delete("/tasks/:id", middleware.RequireRole(domain.RoleAdmin, domain.RoleAgent), h.Task.Delete)
+
+	// Privacy (PDPL): consent, data-subject export and erasure
+	v1.Get("/contacts/:id/consents", h.Privacy.ListConsents)
+	v1.Post("/contacts/:id/consents",
+		middleware.RequireRole(domain.RoleAdmin, domain.RoleAgent),
+		h.Privacy.RecordConsent,
+	)
+	v1.Get("/contacts/:id/export",
+		middleware.RequireRole(domain.RoleAdmin),
+		h.Privacy.Export,
+	)
+	v1.Post("/contacts/:id/erase",
+		middleware.RequireRole(domain.RoleAdmin),
+		h.Privacy.Erase,
 	)
 
 	// Background job run log — admin only

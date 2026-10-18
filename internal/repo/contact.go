@@ -77,14 +77,14 @@ func (r *ContactRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.Contac
 		return nil, err
 	}
 	const q = `
-		SELECT id, phone_wa, full_name, COALESCE(email,''), language, lead_score, assigned_to, created_at, updated_at
+		SELECT id, phone_wa, full_name, COALESCE(email,''), language, lead_score, assigned_to, created_at, updated_at, erased_at
 		FROM contacts WHERE id = $1 AND company_id = $2
 	`
 	c := &domain.Contact{}
 	err = r.db.QueryRow(ctx, q, id, cid).Scan(
 		&c.ID, &c.PhoneWA, &c.FullName, &c.Email,
 		&c.Language, &c.LeadScore, &c.AssignedTo,
-		&c.CreatedAt, &c.UpdatedAt,
+		&c.CreatedAt, &c.UpdatedAt, &c.ErasedAt,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("get contact by id: %w", err)

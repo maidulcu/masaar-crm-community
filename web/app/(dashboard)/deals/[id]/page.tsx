@@ -8,27 +8,20 @@ import type { Deal, VATInvoice } from '@/types'
 import clsx from 'clsx'
 import DocumentAttachmentSection from '@/components/DocumentAttachmentSection'
 import EmailComposeModal from '@/components/communication/EmailComposeModal'
-import { companyCurrency } from '@/lib/money'
-
-const invoiceStatusColor: Record<string, string> = {
-  draft: 'bg-gray-100 text-gray-600',
-  sent:  'bg-blue-100 text-blue-700',
-  paid:  'bg-green-100 text-green-700',
-}
-
-const invoiceStatusLabel: Record<string, { en: string; ar: string }> = {
-  draft: { en: 'Draft', ar: 'مسودة' },
-  sent:  { en: 'Sent',  ar: 'مرسلة' },
-  paid:  { en: 'Paid',  ar: 'مدفوعة' },
-}
+import { companyCurrency, formatMoney } from '@/lib/money'
+import { INVOICE_STATUS_COLORS, INVOICE_STATUS_LABELS } from '@/lib/invoice'
+import InvoiceForm from '@/components/invoice/InvoiceForm'
+import Link from 'next/link'
+import TaskList from '@/components/task/TaskList'
+import DealCompliancePanel from '@/components/kyc/DealCompliancePanel'
+import { useAuthStore } from '@/store/auth'
 
 export default function DealDetailPage() {
+  const { user } = useAuthStore()
   const { id } = useParams<{ id: string }>()
   const [deal, setDeal] = useState<Deal | null>(null)
   const [invoices, setInvoices] = useState<VATInvoice[]>([])
   const [loading, setLoading] = useState(true)
-  const [creating, setCreating] = useState(false)
-  const [subtotal, setSubtotal] = useState('')
   const [showForm, setShowForm] = useState(false)
   const [showEditForm, setShowEditForm] = useState(false)
   const [editAmount, setEditAmount] = useState('')
@@ -63,20 +56,6 @@ export default function DealDetailPage() {
   }
 
   useEffect(() => { load() }, [id])
-
-  const handleCreateInvoice = async () => {
-    const amount = parseFloat(subtotal)
-    if (!amount || amount <= 0) return
-    setCreating(true)
-    try {
-      await api.invoices.create({ deal_id: id, subtotal: amount })
-      setSubtotal('')
-      setShowForm(false)
-      load()
-    } finally {
-      setCreating(false)
-    }
-  }
 
   const handleSaveEdit = async () => {
     if (!deal) return
@@ -137,8 +116,11 @@ export default function DealDetailPage() {
     )
   }
 
-  const vatAmount = invoices.reduce((s, i) => s + i.vat_amount, 0)
-  const total = invoices.reduce((s, i) => s + i.total, 0)
+  // Net of credit notes; void documents do not count.
+  const live = invoices.filter((i) => i.status !== 'void')
+  const sign = (i: VATInvoice) => (i.kind === 'credit_note' ? -1 : 1)
+  const vatAmount = live.reduce((s, i) => s + sign(i) * i.vat_amount, 0)
+  const total = live.reduce((s, i) => s + sign(i) * i.total, 0)
 
   return (
     <div className="flex flex-col flex-1 overflow-hidden">
@@ -270,39 +252,16 @@ export default function DealDetailPage() {
             </button>
           </div>
 
-          {/* Create invoice form */}
           {showForm && (
-            <div className="px-5 py-4 bg-gray-50 border-b border-gray-100 flex items-end gap-3">
-              <div className="flex-1">
-                <label className="text-xs text-gray-500 mb-1 block">{t('المبلغ (بدون ضريبة)', 'Subtotal (excl. VAT)')}</label>
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={subtotal}
-                  onChange={(e) => setSubtotal(e.target.value)}
-                  placeholder="e.g. 10000"
-                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-300"
-                />
-              </div>
-              <div className="text-xs text-gray-400 pb-2">
-                <p>{t('ضريبة القيمة المضافة 5%', 'VAT 5%')}</p>
-                {subtotal && <p className="font-medium text-gray-600">{t('الإجمالي:', 'Total:')} {formatAmount(parseFloat(subtotal) * 1.05)}</p>}
-              </div>
-              <button
-                onClick={handleCreateInvoice}
-                disabled={creating || !subtotal}
-                className="px-4 py-2 text-sm font-medium bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:opacity-50 transition-colors"
-              >
-                {creating ? t('جاري الإنشاء...', 'Creating...') : t('إنشاء', 'Create')}
-              </button>
-              <button
-                onClick={() => setShowForm(false)}
-                className="px-4 py-2 text-sm text-gray-500 hover:text-gray-700"
-              >
-                {t('إلغاء', 'Cancel')}
-              </button>
-            </div>
+            <InvoiceForm
+              dealId={id}
+              currency={deal.currency || companyCurrency()}
+              defaultDescription={deal.title}
+              defaultAmount={deal.amount || undefined}
+              defaultCustomerName={contactName}
+              onCreated={() => { setShowForm(false); load() }}
+              onCancel={() => setShowForm(false)}
+            />
           )}
 
           {/* Invoice list */}
@@ -325,27 +284,27 @@ export default function DealDetailPage() {
               <tbody className="divide-y divide-gray-50">
                 {invoices.map((inv) => (
                   <tr key={inv.id} className="hover:bg-gray-50 transition-colors">
-                    <td className="px-5 py-3.5 font-mono text-xs text-gray-700">{inv.invoice_no}</td>
-                    <td className="px-5 py-3.5 text-gray-700">{formatAmount(inv.subtotal)}</td>
-                    <td className="px-5 py-3.5 text-gray-500">{formatAmount(inv.vat_amount)}</td>
-                    <td className="px-5 py-3.5 font-semibold text-gray-900">{formatAmount(inv.total)}</td>
+                    <td className="px-5 py-3.5 font-mono text-xs text-gray-700">
+                      <Link href={`/invoices/${inv.id}`} className="hover:text-brand-600 hover:underline">{inv.invoice_no}</Link>
+                      {inv.kind === 'credit_note' && <span className="ms-1 font-sans text-[10px] text-amber-700">{t('إشعار دائن', 'CN')}</span>}
+                    </td>
+                    <td className="px-5 py-3.5 text-gray-700">{formatMoney(inv.subtotal, inv.currency)}</td>
+                    <td className="px-5 py-3.5 text-gray-500">{formatMoney(inv.vat_amount, inv.currency)}</td>
+                    <td className="px-5 py-3.5 font-semibold text-gray-900">{formatMoney(inv.total, inv.currency)}</td>
                     <td className="px-5 py-3.5">
-                      <span className={clsx('text-xs font-medium px-2 py-0.5 rounded-full', invoiceStatusColor[inv.status])}>
-                        {lang === 'ar' ? invoiceStatusLabel[inv.status]?.ar : invoiceStatusLabel[inv.status]?.en}
+                      <span className={clsx('text-xs font-medium px-2 py-0.5 rounded-full', INVOICE_STATUS_COLORS[inv.status])}>
+                        {lang === 'ar' ? INVOICE_STATUS_LABELS[inv.status]?.ar : INVOICE_STATUS_LABELS[inv.status]?.en}
                       </span>
                     </td>
                     <td className="px-5 py-3.5">
                       <div className="flex items-center gap-2 justify-end">
                         <a
-                          href={api.invoices.getPDF(inv.id)}
+                          href={`/invoices/${inv.id}/print`}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="text-xs text-gray-500 hover:text-gray-700 font-medium flex items-center gap-1"
+                          className="text-xs text-gray-500 hover:text-gray-700 font-medium"
                         >
-                          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                          </svg>
-                          {t('تحميل', 'PDF')}
+                          {t('طباعة', 'Print')}
                         </a>
                         {inv.status === 'draft' && (
                           <button
@@ -355,7 +314,7 @@ export default function DealDetailPage() {
                             {t('إرسال', 'Send')}
                           </button>
                         )}
-                        {inv.status === 'sent' && (
+                        {inv.status === 'sent' && inv.kind === 'invoice' && (
                           <button
                             onClick={() => handleMarkPaid(inv.id)}
                             className="text-xs text-green-600 hover:underline font-medium"
@@ -381,6 +340,15 @@ export default function DealDetailPage() {
           )}
         </div>
 
+        {user && user.role !== 'viewer' && (
+          <DealCompliancePanel dealId={id} isAdmin={user.role === 'admin'} canEdit={user.role === 'admin' || user.role === 'agent'} />
+        )}
+
+        <div className="bg-white rounded-xl border border-gray-100 p-5">
+          <h2 className="font-semibold text-gray-900 text-sm mb-3">{t('المهام', 'Tasks')}</h2>
+          <TaskList filter={{ related_type: 'deal', related_id: id }} link={{ related_type: 'deal', related_id: id }} canEdit />
+        </div>
+
         {/* Documents section */}
         <div className="bg-white rounded-xl border border-gray-100 p-5">
           <DocumentAttachmentSection entityType="deal" entityId={id} canEdit />
@@ -398,7 +366,7 @@ export default function DealDetailPage() {
                 <p className="font-semibold text-indigo-900">{formatAmount(total - vatAmount)}</p>
               </div>
               <div>
-                <p className="text-xs text-indigo-400">{t('ضريبة القيمة المضافة (5%)', 'VAT (5%)')}</p>
+                <p className="text-xs text-indigo-400">{t('ضريبة القيمة المضافة', 'VAT')}</p>
                 <p className="font-semibold text-indigo-900">{formatAmount(vatAmount)}</p>
               </div>
               <div>
