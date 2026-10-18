@@ -366,23 +366,30 @@ Content-Type: application/json
   "phone": "+971501234567",          // required, E.164
   "email": "ahmed@example.com",      // optional
   "language": "ar",                  // optional (ar|en, default: ar)
-  "source": "web",                   // optional (web|referral|event, default: web)
+  "source": "web",                   // optional (web|referral|event|whatsapp|portal, default: web)
   "notes": "Interested in Marina",   // optional
   "deal_value": 500000,              // optional
   "property_type": "2BR",            // optional metadata
-  "area": "Marina"                   // optional metadata
+  "area": "Marina",                  // optional metadata
+  "external_source": "myportal",     // optional, with external_ref
+  "external_ref": "enquiry:48213"    // optional, your id for this lead
 }
 
-// Response 201
+// Response 201 (or 200 with "duplicate": true for a repeated external_ref)
 {
   "lead_id": "uuid",
   "contact_id": "uuid",
   "stage": "new",
   "source": "web",
+  "external_source": "myportal",
+  "external_ref": "enquiry:48213",
+  "duplicate": false,
   "message": "Lead created successfully"
 }`}</Pre>
                 <p className="text-sm text-gray-600 mt-2">
                   Contact is automatically created or matched by phone number.
+                  Send <Code>external_source</Code> and <Code>external_ref</Code> to make retries safe:
+                  the same pair returns the existing lead instead of a new one.
                   Rate limited at 300 req/min.
                 </p>
               </div>

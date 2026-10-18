@@ -170,6 +170,13 @@ Foundations for the UAE-launch roadmap (#82, milestone #83). Includes migrations
 
 ## [v0.3.4] - Unreleased
 
+### Lead intake hardening (`POST /webhooks/leads`)
+- **Idempotent pushes.** Optional `external_source` + `external_ref` identify a lead in the system that sends it. The same pair again returns the existing lead (`200`, `"duplicate": true`) instead of creating a second one, so a sender can retry safely. Unique per company. Adds migration `0065`.
+- **New source `portal`** for leads from listing portals and marketplaces; it requires `external_source`.
+- **Breaking:** an unknown `source` is now rejected with `422` instead of silently stored as `web`.
+- **Suspended companies.** An API key whose company is suspended now gets `403 account_suspended` (previously the key kept working).
+- **Audit log.** Leads created by API key are now audited, with the key recorded in the new `audit_logs.api_key_id` (previously API-key actions wrote no audit entry at all).
+
 ### Security / bug / performance audit
 - **Security — email header injection and sender spoofing.** `to_email`/`subject` were written straight into the SMTP headers, so a CR/LF could smuggle `Bcc:` headers or body content, and `POST /emails/send` accepted a client-chosen `from_email`. Recipients are now validated, header values containing CR/LF are refused, the sender is always the configured account, and subjects are RFC 2047-encoded (Arabic subjects no longer arrive garbled).
 - **Security — HTML injection in listing email campaigns.** Listing title, area, reference, company name and the free-text message were interpolated unescaped into an email sent to third parties; they are now escaped (cover images must be http(s)).

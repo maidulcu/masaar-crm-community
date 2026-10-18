@@ -95,7 +95,7 @@ func setup(t *testing.T) *testEnv {
 				`DELETE FROM listings WHERE company_id = $1`,
 				`DELETE FROM audit_logs WHERE company_id = $1`,
 				`DELETE FROM api_settings WHERE company_id = $1`,
-				`DELETE FROM organisations WHERE company_id = $1`,
+				`DELETE FROM api_keys WHERE company_id = $1`,
 				`DELETE FROM company_settings WHERE company_id = $1`,
 				`DELETE FROM users WHERE company_id = $1`,
 				`DELETE FROM companies WHERE id = $1`,
