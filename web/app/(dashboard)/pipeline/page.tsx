@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import {
   DndContext, DragEndEvent, DragOverlay, DragStartEvent,
   PointerSensor, useSensor, useSensors, closestCorners,
@@ -19,6 +19,7 @@ import type { KanbanBoard, KanbanBoardResponse, KanbanTotals, Lead, LeadStage, C
 // Cards fetched per column on load, and per "load more" click.
 const BOARD_PER_STAGE = 50
 const BOARD_PAGE = 50
+const EMPTY_LEADS: Lead[] = []
 
 export default function PipelinePage() {
   const { user } = useAuthStore()
@@ -254,19 +255,24 @@ export default function PipelinePage() {
 
   useEffect(() => { load() }, [load])
 
-  const findCard = (id: string): Lead | null => {
-    for (const leads of Object.values(board)) {
-      const found = leads?.find((l) => l.id === id)
-      if (found) return found
+  // Memoized O(1) lookup map for leads and their stage, avoiding linear full-board scans on drag operations
+  const leadMap = useMemo(() => {
+    const map = new Map<string, { lead: Lead; stage: string }>()
+    for (const [stage, leads] of Object.entries(board)) {
+      if (!leads) continue
+      for (const lead of leads) {
+        map.set(lead.id, { lead, stage })
+      }
     }
-    return null
+    return map
+  }, [board])
+
+  const findCard = (id: string): Lead | null => {
+    return leadMap.get(id)?.lead ?? null
   }
 
   const findStage = (id: string): string | null => {
-    for (const [stage, leads] of Object.entries(board)) {
-      if (leads?.some((l) => l.id === id)) return stage
-    }
-    return null
+    return leadMap.get(id)?.stage ?? null
   }
 
   const handleDragStart = (e: DragStartEvent) => {
@@ -357,7 +363,7 @@ export default function PipelinePage() {
                 stage={s.name}
                 stageName={s.name}
                 stageColor={s.color}
-                leads={board[s.name] ?? []}
+                leads={board[s.name] ?? EMPTY_LEADS}
                 total={totals[s.name]?.count}
                 totalValue={totals[s.name]?.value}
                 hasMore={!!cursors[s.name] && !exhausted[s.name]}
