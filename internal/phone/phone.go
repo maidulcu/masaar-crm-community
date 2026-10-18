@@ -43,8 +43,11 @@ func Normalize(raw string) (string, bool) {
 
 	// E.164 allows at most 15 digits. Raw inputs starting with "00" prefix
 	// can have up to 17 digits total before "00" prefix stripping.
+	// Store '+' in buf[0] to construct "+"+digits directly in the stack buffer,
+	// avoiding heap allocation for slice creation.
 	var buf [20]byte
-	n := 0
+	buf[0] = '+'
+	n := 1
 
 	for i := 0; i < len(trimmed); {
 		c := trimmed[i]
@@ -57,21 +60,24 @@ func Normalize(raw string) (string, bool) {
 			i++
 		} else if c == '+' || c == ' ' || c == '-' || c == '(' || c == ')' || c == '.' {
 			i++
-		} else if c >= 0x80 {
+		} else if c < 0x80 {
+			return "", false
+		} else {
 			r, w := utf8.DecodeRuneInString(trimmed[i:])
 			if r == ' ' { // Non-breaking space U+00A0
 				i += w
 			} else {
 				return "", false
 			}
-		} else {
-			return "", false
 		}
 	}
 
-	digits := buf[:n]
-	if n >= 2 && digits[0] == '0' && digits[1] == '0' {
+	digits := buf[1:n]
+	outStart := 0
+	if len(digits) >= 2 && digits[0] == '0' && digits[1] == '0' {
 		digits = digits[2:]
+		outStart = 2
+		buf[outStart] = '+'
 	}
 
 	if len(digits) < 7 || len(digits) > 15 || digits[0] == '0' {
