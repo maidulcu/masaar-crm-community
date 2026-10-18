@@ -1,10 +1,14 @@
 package handler
 
 import (
+	"encoding/json"
+	"errors"
 	"strconv"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/maidulcu/masaar-crm/internal/domain"
 	"github.com/maidulcu/masaar-crm/internal/repo"
 )
@@ -85,13 +89,15 @@ func (h *RentalPropertyHandler) Get(c *fiber.Ctx) error {
 // @Security     BearerAuth
 // @Router       /rental-properties [post]
 func (h *RentalPropertyHandler) Create(c *fiber.Ctx) error {
-	var p domain.RentalProperty
-	if err := c.BodyParser(&p); err != nil {
+	var in domain.RentalProperty
+	if err := json.Unmarshal(normalizeDateFields(c.Body(), "purchase_date"), &in); err != nil {
 		return badRequest(c, err)
 	}
-
-	if p.Name == "" || p.PropertyType == "" {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "name and property_type are required"})
+	// Server-owned fields are never taken from the client.
+	p := in
+	p.ID, p.CreatedAt, p.UpdatedAt = uuid.Nil, time.Time{}, time.Time{}
+	if err := validateRentalProperty(&p); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 	}
 
 	userID := c.Locals("user_id").(uuid.UUID)
@@ -134,8 +140,15 @@ func (h *RentalPropertyHandler) Update(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "property not found"})
 	}
 
-	if err := c.BodyParser(p); err != nil {
+	// The id in the body must not redirect the update to another property, and the record's
+	// identity and audit fields are not the client's to edit.
+	keep := *p
+	if err := json.Unmarshal(normalizeDateFields(c.Body(), "purchase_date"), p); err != nil {
 		return badRequest(c, err)
+	}
+	p.ID, p.CompanyID, p.CreatedAt, p.CreatedBy = keep.ID, keep.CompanyID, keep.CreatedAt, keep.CreatedBy
+	if err := validateRentalProperty(p); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 	}
 
 	userID := c.Locals("user_id").(uuid.UUID)
@@ -164,6 +177,14 @@ func (h *RentalPropertyHandler) Delete(c *fiber.Ctx) error {
 	}
 
 	if err := h.properties.Delete(c.Context(), id); err != nil {
+		if errors.Is(err, repo.ErrPropertyHasWork) {
+			return c.Status(fiber.StatusConflict).JSON(fiber.Map{"error": "this property has maintenance tasks or inspections and cannot be deleted; mark it inactive instead"})
+		}
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23503" {
+			// leases (RESTRICT) and expenses reference the property: they are financial records.
+			return c.Status(fiber.StatusConflict).JSON(fiber.Map{"error": "this property has leases or expenses and cannot be deleted; mark it inactive instead"})
+		}
 		return serverError(c, err)
 	}
 	return c.SendStatus(fiber.StatusNoContent)

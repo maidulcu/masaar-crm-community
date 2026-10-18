@@ -29,6 +29,7 @@ type ImportExportHandler struct {
 	leadRepo    *repo.LeadRepo
 	listingRepo *repo.ListingRepo
 	privacy     consentStore
+	assigner    NewLeadAssigner
 	profiles    *repo.ContactProfileRepo
 }
 
@@ -70,6 +71,9 @@ func consentColumns(m map[string]string) map[string]bool {
 	}
 	return out
 }
+
+// SetAssigner enables automatic assignment of imported leads (see NewLeadAssigner).
+func (h *ImportExportHandler) SetAssigner(a NewLeadAssigner) { h.assigner = a }
 
 func NewImportExportHandler(
 	contactRepo *repo.ContactRepo,
@@ -214,6 +218,7 @@ func (h *ImportExportHandler) ImportLeads(c *fiber.Ctx) error {
 
 	var imported, skipped int
 	var errors []map[string]interface{}
+	companyID, companyErr := uuid.Parse(localsCompanyID(c))
 
 	for i, row := range records[1:] {
 		rowNum := i + 2
@@ -226,14 +231,8 @@ func (h *ImportExportHandler) ImportLeads(c *fiber.Ctx) error {
 			continue
 		}
 
-		// Upsert contact
-		contact, err := h.contactRepo.Upsert(c.Context(), phone, phone) // name = phone as fallback
-		if err != nil {
-			errors = append(errors, fiber.Map{"row": rowNum, "error": safeMsg("contact lookup failed", err)})
-			skipped++
-			continue
-		}
-
+		// Validate the whole row before touching the database: a row that is going to be rejected
+		// must not leave a contact behind.
 		stage := strings.ToLower(strings.TrimSpace(m["stage"]))
 		if stage == "" {
 			stage = "new"
@@ -251,25 +250,41 @@ func (h *ImportExportHandler) ImportLeads(c *fiber.Ctx) error {
 
 		var dealValue float64
 		if v := strings.TrimSpace(m["deal_value"]); v != "" {
-			dealValue, _ = strconv.ParseFloat(v, 64)
+			parsed, perr := strconv.ParseFloat(v, 64)
+			if perr != nil {
+				errors = append(errors, fiber.Map{"row": rowNum, "error": "deal_value is not a number: " + v})
+				skipped++
+				continue
+			}
+			dealValue = parsed
 		}
 		currency := strings.TrimSpace(m["currency"])
 		if currency == "" {
 			currency = defaultCurrency(c.Context())
 		}
 
-		lead := &domain.Lead{
-			ContactID: contact.ID,
-			Stage:     domain.LeadStage(stage),
-			Source:    domain.LeadSource(source),
-			DealValue: dealValue,
-			Currency:  currency,
-			Notes:     strings.TrimSpace(m["notes"]),
+		lead := &domain.Lead{}
+		if msg := applyLeadInput(lead, stage, source, currency, dealValue, strings.TrimSpace(m["notes"])); msg != "" {
+			errors = append(errors, fiber.Map{"row": rowNum, "error": msg})
+			skipped++
+			continue
 		}
+
+		// Upsert contact
+		contact, err := h.contactRepo.Upsert(c.Context(), phone, phone) // name = phone as fallback
+		if err != nil {
+			errors = append(errors, fiber.Map{"row": rowNum, "error": rowError(err)})
+			skipped++
+			continue
+		}
+		lead.ContactID = contact.ID
 		if err := h.leadRepo.Create(c.Context(), lead); err != nil {
 			errors = append(errors, fiber.Map{"row": rowNum, "error": rowError(err)})
 			skipped++
 			continue
+		}
+		if h.assigner != nil && companyErr == nil {
+			h.assigner.AssignNewLead(companyID, lead.ID)
 		}
 		imported++
 	}

@@ -29,14 +29,14 @@ type PortalHandler struct {
 	users    *repo.UserRepo
 	company  *repo.CompanySettingsRepo
 	dispatch *webhook.Dispatcher
-	assign   func(companyID, leadID uuid.UUID) // lead rotation (may be nil)
-	apiURL   string                            // public API origin, for the URLs shown to admins
-	appURL   string                            // public web origin, for listing links in the feed
+	assign   func(companyID, leadID uuid.UUID) *uuid.UUID // lead rotation (may be nil)
+	apiURL   string                                       // public API origin, for the URLs shown to admins
+	appURL   string                                       // public web origin, for listing links in the feed
 }
 
 func NewPortalHandler(portals *repo.PortalRepo, contacts *repo.ContactRepo, leads *repo.LeadRepo, listings *repo.ListingRepo,
 	users *repo.UserRepo, company *repo.CompanySettingsRepo, dispatch *webhook.Dispatcher,
-	assign func(companyID, leadID uuid.UUID), apiURL, appURL string) *PortalHandler {
+	assign func(companyID, leadID uuid.UUID) *uuid.UUID, apiURL, appURL string) *PortalHandler {
 	return &PortalHandler{portals: portals, contacts: contacts, leads: leads, listings: listings, users: users,
 		company: company, dispatch: dispatch, assign: assign, apiURL: strings.TrimRight(apiURL, "/"), appURL: strings.TrimRight(appURL, "/")}
 }
@@ -221,7 +221,7 @@ func (h *PortalHandler) createLead(ctx context.Context, cid uuid.UUID, p string,
 		log.Printf("portal lead: last_lead_at for %s: %v", p, err)
 	}
 	if h.assign != nil {
-		h.assign(cid, lead.ID)
+		lead.AssignedTo = h.assign(cid, lead.ID)
 	}
 	if h.dispatch != nil {
 		h.dispatch.Dispatch(cid, webhook.EventLeadCreated, fiber.Map{

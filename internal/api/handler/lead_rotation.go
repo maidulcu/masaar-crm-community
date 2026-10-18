@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"errors"
 	"log"
 
 	"github.com/gofiber/fiber/v2"
@@ -69,10 +70,12 @@ func (h *LeadRotationHandler) UpdateSettings(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid company_id"})
 	}
 
+	// Pointers: this is a PATCH, so a field that is absent must keep its current value. Plain
+	// values turned `{"mode":"capacity"}` into "disabled, max 0".
 	var body struct {
 		Mode        string `json:"mode"`
-		Enabled     bool   `json:"enabled"`
-		MaxPerAgent int    `json:"max_per_agent"`
+		Enabled     *bool  `json:"enabled"`
+		MaxPerAgent *int   `json:"max_per_agent"`
 	}
 	if err := c.BodyParser(&body); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid body"})
@@ -84,6 +87,10 @@ func (h *LeadRotationHandler) UpdateSettings(c *fiber.Ctx) error {
 		})
 	}
 
+	if body.MaxPerAgent != nil && (*body.MaxPerAgent < 0 || *body.MaxPerAgent > 100000) {
+		return c.Status(fiber.StatusUnprocessableEntity).JSON(fiber.Map{"error": "max_per_agent must be between 0 and 100000"})
+	}
+
 	existing, _ := h.rotationRepo.GetSettings(c.Context(), companyID)
 	if existing == nil {
 		existing = &domain.LeadRotationSettings{CompanyID: companyID}
@@ -91,8 +98,12 @@ func (h *LeadRotationHandler) UpdateSettings(c *fiber.Ctx) error {
 	if body.Mode != "" {
 		existing.Mode = body.Mode
 	}
-	existing.Enabled = body.Enabled
-	existing.MaxPerAgent = body.MaxPerAgent
+	if body.Enabled != nil {
+		existing.Enabled = *body.Enabled
+	}
+	if body.MaxPerAgent != nil {
+		existing.MaxPerAgent = *body.MaxPerAgent
+	}
 
 	if err := h.rotationRepo.SaveSettings(c.Context(), existing); err != nil {
 		return serverError(c, err)
@@ -112,9 +123,19 @@ func (h *LeadRotationHandler) AutoAssign(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid company_id"})
 	}
 
-	agentID, err := h.pickAgent(c, companyID)
+	// Check the lead first: picking advances the round-robin counter, so a request for a lead
+	// that does not exist would otherwise burn an agent's turn.
+	if _, err := h.leadRepo.GetByID(c.Context(), leadID); err != nil {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "lead not found"})
+	}
+
+	agentID, err := h.pickAgent(c.Context(), companyID)
 	if err != nil {
-		return upstreamError(c, err)
+		var fe *fiber.Error
+		if errors.As(err, &fe) { // "rotation not enabled", "no active agents": the caller's to see
+			return c.Status(fe.Code).JSON(fiber.Map{"error": fe.Message})
+		}
+		return serverError(c, err)
 	}
 	if agentID == nil {
 		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"error": "no available agents"})
@@ -132,63 +153,30 @@ func (h *LeadRotationHandler) AutoAssign(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{"ok": true, "lead_id": leadID, "assigned_to": agentID})
 }
 
-// AssignNewLead is called internally (e.g. from webhook/public lead intake) to auto-assign
-// a freshly created lead when rotation is enabled. Safe to call from goroutines.
-func (h *LeadRotationHandler) AssignNewLead(companyID, leadID uuid.UUID) {
+// AssignNewLead auto-assigns a freshly created lead when rotation is enabled and returns the
+// chosen agent (nil when rotation is off, nobody is available, or the assignment failed).
+// Called when leads are created from the API, the public intake endpoint, imports, etc.
+func (h *LeadRotationHandler) AssignNewLead(companyID, leadID uuid.UUID) *uuid.UUID {
 	ctx := tenant.With(context.Background(), companyID)
-	settings, err := h.rotationRepo.GetSettings(ctx, companyID)
-	if err != nil || !settings.Enabled || settings.Mode == "manual" {
-		return
+	agentID, err := h.pickAgent(ctx, companyID)
+	if err != nil || agentID == nil {
+		return nil
 	}
-
-	agents, err := h.rotationRepo.ListActiveAgents(ctx, companyID)
-	if err != nil || len(agents) == 0 {
-		return
+	if err := h.leadRepo.Assign(ctx, leadID, agentID); err != nil {
+		log.Printf("[LeadRotation] company %s: assign lead %s: %v", companyID, leadID, err)
+		return nil
 	}
-
-	var agentID *uuid.UUID
-	switch settings.Mode {
-	case "round_robin":
-		newIdx, err := h.rotationRepo.AdvanceRotationIndex(ctx, companyID)
-		if err != nil {
-			return
-		}
-		idx := (newIdx - 1) % len(agents)
-		if idx < 0 {
-			idx = 0
-		}
-		id := agents[idx].ID
-		agentID = &id
-
-	case "capacity":
-		ids := make([]uuid.UUID, len(agents))
-		for i, a := range agents {
-			ids[i] = a.ID
-		}
-		counts, _ := h.rotationRepo.LeadCountByAgent(ctx, ids)
-		minCount := -1
-		for _, a := range agents {
-			cnt := counts[a.ID]
-			if settings.MaxPerAgent > 0 && cnt >= settings.MaxPerAgent {
-				continue
-			}
-			if minCount < 0 || cnt < minCount {
-				minCount = cnt
-				id := a.ID
-				agentID = &id
-			}
-		}
-	}
-
-	if agentID != nil {
-		_ = h.leadRepo.Assign(ctx, leadID, agentID)
-		log.Printf("[LeadRotation] company %s: lead %s → agent %s", companyID, leadID, *agentID)
-	}
+	h.hub.BroadcastToCompany(companyID.String(), ws.Event{
+		Type:    "lead.assigned",
+		Payload: fiber.Map{"lead_id": leadID, "agent_id": agentID},
+	})
+	log.Printf("[LeadRotation] company %s: lead %s → agent %s", companyID, leadID, *agentID)
+	return agentID
 }
 
 // pickAgent selects the next agent for the given company using the configured mode.
-func (h *LeadRotationHandler) pickAgent(c *fiber.Ctx, companyID uuid.UUID) (*uuid.UUID, error) {
-	settings, err := h.rotationRepo.GetSettings(c.Context(), companyID)
+func (h *LeadRotationHandler) pickAgent(ctx context.Context, companyID uuid.UUID) (*uuid.UUID, error) {
+	settings, err := h.rotationRepo.GetSettings(ctx, companyID)
 	if err != nil {
 		return nil, err
 	}
@@ -196,7 +184,7 @@ func (h *LeadRotationHandler) pickAgent(c *fiber.Ctx, companyID uuid.UUID) (*uui
 		return nil, fiber.NewError(fiber.StatusBadRequest, "lead rotation is not enabled")
 	}
 
-	agents, err := h.rotationRepo.ListActiveAgents(c.Context(), companyID)
+	agents, err := h.rotationRepo.ListActiveAgents(ctx, companyID)
 	if err != nil || len(agents) == 0 {
 		return nil, fiber.NewError(fiber.StatusServiceUnavailable, "no active agents found")
 	}
@@ -205,7 +193,7 @@ func (h *LeadRotationHandler) pickAgent(c *fiber.Ctx, companyID uuid.UUID) (*uui
 
 	switch settings.Mode {
 	case "round_robin":
-		newIdx, err := h.rotationRepo.AdvanceRotationIndex(c.Context(), companyID)
+		newIdx, err := h.rotationRepo.AdvanceRotationIndex(ctx, companyID)
 		if err != nil {
 			return nil, err
 		}
@@ -221,7 +209,7 @@ func (h *LeadRotationHandler) pickAgent(c *fiber.Ctx, companyID uuid.UUID) (*uui
 		for i, a := range agents {
 			ids[i] = a.ID
 		}
-		counts, err := h.rotationRepo.LeadCountByAgent(c.Context(), ids)
+		counts, err := h.rotationRepo.LeadCountByAgent(ctx, ids)
 		if err != nil {
 			return nil, err
 		}

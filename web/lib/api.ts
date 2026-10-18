@@ -1,5 +1,5 @@
-import { getToken, saveSession, getUser, clearSession } from './auth'
-import type { AuthUser, LoginResponse, Payment } from '@/types'
+import { getToken, saveSession, getUser, clearSession, saveCompany } from './auth'
+import type { AuthUser, Company, LoginResponse, Payment } from '@/types'
 
 const BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080'
 
@@ -30,6 +30,8 @@ async function doRefresh(): Promise<string | null> {
     const user = (data.user as AuthUser | undefined) ?? getUser()
     if (!user) return null
     saveSession(data.access_token, user)
+    // Keeps plan / trial state current across reloads instead of frozen at the last login.
+    if (data.company) saveCompany(data.company as Company)
     return data.access_token as string
   } catch {
     return null
@@ -467,7 +469,8 @@ async function request<T>(path: string, init: RequestInit = {}, _retry = true): 
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }))
-    throw new Error(err.error || 'Request failed')
+    // `details` keeps the whole error body (e.g. the `linked` counts on a refused contact delete).
+    throw Object.assign(new Error(err.error || 'Request failed'), { status: res.status, details: err })
   }
 
   if (res.status === 204) return undefined as T
@@ -565,7 +568,8 @@ export const api = {
     resetPassword: (token: string, password: string) =>
       request('/api/v1/auth/reset-password', {
         method: 'POST',
-        body: JSON.stringify({ token, password }),
+        // The API field is new_password; sending `password` made every reset/invite fail validation.
+        body: JSON.stringify({ token, new_password: password }),
       }),
     verifyTOTP: (pending_token: string, code: string) =>
       request<LoginResponse>('/api/v1/auth/verify-totp', { method: 'POST', body: JSON.stringify({ pending_token, code }) }),
@@ -656,8 +660,9 @@ export const api = {
       request('/api/v1/contacts', { method: 'POST', body: JSON.stringify(data) }),
     update: (id: string, data: unknown) =>
       request(`/api/v1/contacts/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
-    delete: (id: string) =>
-      request(`/api/v1/contacts/${id}`, { method: 'DELETE' }),
+    // force: also delete the contact's leads, deals, offers, viewings and WhatsApp threads
+    delete: (id: string, force = false) =>
+      request(`/api/v1/contacts/${id}${force ? '?force=true' : ''}`, { method: 'DELETE' }),
   },
 
   // ─── Leads ──────────────────────────────────────────────────────────────────
@@ -784,8 +789,8 @@ export const api = {
   // ─── Invoices ────────────────────────────────────────────────────────────────
 
   invoices: {
-    list: (page = 1, limit = 50) =>
-      request(`/api/v1/invoices?page=${page}&limit=${limit}`),
+    list: (page = 1, limit = 50, status = '') =>
+      request(`/api/v1/invoices?page=${page}&limit=${limit}${status ? `&status=${status}` : ''}`),
     create: (data: unknown) =>
       request('/api/v1/invoices', { method: 'POST', body: JSON.stringify(data) }),
     get: (id: string) => request(`/api/v1/invoices/${id}`),
@@ -906,8 +911,9 @@ export const api = {
       request(`/api/v1/listings/${id}/permit-override`, { method: 'POST', body: JSON.stringify({ reason }) }),
     clearPermitOverride: (id: string) =>
       request(`/api/v1/listings/${id}/permit-override`, { method: 'DELETE' }),
-    delete: (id: string) =>
-      request(`/api/v1/listings/${id}`, { method: 'DELETE' }),
+    // force: also delete the offers on the listing
+    delete: (id: string, force = false) =>
+      request(`/api/v1/listings/${id}${force ? '?force=true' : ''}`, { method: 'DELETE' }),
   },
 
   // ─── Tenants ──────────────────────────────────────────────────────────────────
@@ -983,10 +989,11 @@ export const api = {
   // ─── Payments ─────────────────────────────────────────────────────────────────
 
   payments: {
-    list: (params: { page?: number; limit?: number } = {}) => {
+    list: (params: { page?: number; limit?: number; lease_id?: string } = {}) => {
       const q = new URLSearchParams()
       if (params.page) q.set('page', String(params.page))
       if (params.limit) q.set('limit', String(params.limit))
+      if (params.lease_id) q.set('lease_id', params.lease_id)
       return request(`/api/v1/payments?${q}`)
     },
     get: (id: string) => request(`/api/v1/payments/${id}`),

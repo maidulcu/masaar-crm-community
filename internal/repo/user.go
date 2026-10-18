@@ -53,14 +53,14 @@ func (r *UserRepo) FindByEmail(ctx context.Context, email string) (*domain.User,
 
 func (r *UserRepo) FindByID(ctx context.Context, id uuid.UUID) (*domain.User, error) {
 	const q = `
-		SELECT id, company_id, name, email, password_hash, role, lang_pref, COALESCE(wa_number, ''), is_active, created_at
+		SELECT id, company_id, name, email, password_hash, role, lang_pref, COALESCE(wa_number, ''), COALESCE(phone, ''), is_active, created_at
 		FROM users
 		WHERE id = $1
 	`
 	u := &domain.User{}
 	err := r.db.QueryRow(ctx, q, id).Scan(
 		&u.ID, &u.CompanyID, &u.Name, &u.Email, &u.PasswordHash,
-		&u.Role, &u.LangPref, &u.WANumber, &u.IsActive, &u.CreatedAt,
+		&u.Role, &u.LangPref, &u.WANumber, &u.Phone, &u.IsActive, &u.CreatedAt,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("find user by id: %w", err)

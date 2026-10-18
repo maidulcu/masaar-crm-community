@@ -232,7 +232,9 @@ func (r *InvoiceRepo) ListCreditNotes(ctx context.Context, invoiceID uuid.UUID) 
 }
 
 // ListAll pages through the company's documents, newest first (without lines).
-func (r *InvoiceRepo) ListAll(ctx context.Context, page, limit int) ([]domain.VATInvoice, int, error) {
+// ListAll returns the company's invoices and credit notes, newest first; a non-empty status
+// filters on the server (filtering one fetched page hid matches on the other pages).
+func (r *InvoiceRepo) ListAll(ctx context.Context, page, limit int, status domain.InvoiceStatus) ([]domain.VATInvoice, int, error) {
 	if page < 1 {
 		page = 1
 	}
@@ -244,11 +246,12 @@ func (r *InvoiceRepo) ListAll(ctx context.Context, page, limit int) ([]domain.VA
 		return nil, 0, err
 	}
 	var total int
-	if err := r.db.QueryRow(ctx, `SELECT COUNT(*) FROM vat_invoices WHERE company_id = $1`, cid).Scan(&total); err != nil {
+	if err := r.db.QueryRow(ctx, `SELECT COUNT(*) FROM vat_invoices WHERE company_id = $1 AND ($2 = '' OR status = $2)`,
+		cid, string(status)).Scan(&total); err != nil {
 		return nil, 0, fmt.Errorf("count invoices: %w", err)
 	}
-	out, err := r.list(ctx, `v.company_id = $1 ORDER BY v.issued_at DESC, v.invoice_no DESC LIMIT $2 OFFSET $3`,
-		cid, limit, (page-1)*limit)
+	out, err := r.list(ctx, `v.company_id = $1 AND ($4 = '' OR v.status = $4) ORDER BY v.issued_at DESC, v.invoice_no DESC LIMIT $2 OFFSET $3`,
+		cid, limit, (page-1)*limit, string(status))
 	return out, total, err
 }
 
