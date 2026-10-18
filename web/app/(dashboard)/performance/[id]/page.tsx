@@ -6,6 +6,7 @@ import { Header } from '@/components/layout/Header'
 import { api } from '@/lib/api'
 import { useLang } from '@/context/LangContext'
 import { useAuthStore } from '@/store/auth'
+import { companyCurrency } from '@/lib/money'
 
 interface KPIs {
   agent_id: string; agent_name: string; period: string
@@ -23,13 +24,14 @@ interface Target {
   current_value: number; progress_pct: number
 }
 
-const METRIC_LABELS: Record<string, string> = {
-  deals_won: 'Deals Won', revenue: 'Revenue (AED)',
+// A getter, not a constant: the company currency is only known after the locale loads.
+const metricLabels = (): Record<string, string> => ({
+  deals_won: 'Deals Won', revenue: `Revenue (${companyCurrency()})`,
   listings_added: 'Listings', leads_converted: 'Leads Converted', leads_assigned: 'Leads Assigned',
-}
+})
 
 const fmt = (n: number, isRevenue = false) =>
-  isRevenue ? `AED ${n.toLocaleString('en-AE', { maximumFractionDigits: 0 })}` : String(Math.round(n))
+  isRevenue ? `${companyCurrency()} ${n.toLocaleString('en-AE', { maximumFractionDigits: 0 })}` : String(Math.round(n))
 
 function periodOptions() {
   const opts = []
@@ -174,7 +176,7 @@ export default function AgentPerformancePage() {
           {/* KPI cards */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             {[
-              { label: 'Revenue', val: `AED ${kpis.revenue.toLocaleString('en-AE', {maximumFractionDigits:0})}`, sub: `${kpis.deals_won} deals won`, color: 'text-green-600' },
+              { label: 'Revenue', val: `${companyCurrency()} ${kpis.revenue.toLocaleString('en-AE', {maximumFractionDigits:0})}`, sub: `${kpis.deals_won} deals won`, color: 'text-green-600' },
               { label: 'Listings Added', val: String(kpis.listings_added), sub: 'this period', color: 'text-brand-600' },
               { label: 'Leads Converted', val: String(kpis.leads_converted), sub: `of ${kpis.leads_assigned} assigned`, color: 'text-purple-600' },
               { label: 'Conversion Rate', val: kpis.leads_assigned > 0 ? `${Math.round((kpis.leads_converted/kpis.leads_assigned)*100)}%` : '—', sub: 'leads won/assigned', color: 'text-amber-600' },
@@ -204,9 +206,9 @@ export default function AgentPerformancePage() {
                   <tbody className="divide-y divide-gray-100">
                     {trends.map(tr => (
                       <tr key={tr.metric}>
-                        <td className="py-2.5 text-gray-700 font-medium">{METRIC_LABELS[tr.metric] ?? tr.metric}</td>
+                        <td className="py-2.5 text-gray-700 font-medium">{metricLabels()[tr.metric] ?? tr.metric}</td>
                         <td className="py-2.5 text-right font-semibold text-gray-800">
-                          {tr.metric === 'revenue' ? `AED ${Math.round(tr.current).toLocaleString()}` : Math.round(tr.current)}
+                          {tr.metric === 'revenue' ? `${companyCurrency()} ${Math.round(tr.current).toLocaleString()}` : Math.round(tr.current)}
                         </td>
                         <td className="py-2.5 text-right"><TrendArrow pct={tr.change_month_pct} /></td>
                         <td className="py-2.5 text-right"><TrendArrow pct={tr.change_year_pct} /></td>
@@ -235,7 +237,7 @@ export default function AgentPerformancePage() {
               <div className="mb-4 p-3 bg-gray-50 rounded-lg flex items-center gap-2 flex-wrap">
                 <select value={editTarget.metric} onChange={e => setEditTarget(p => p ? { ...p, metric: e.target.value } : null)}
                   className="text-sm border border-gray-200 rounded-lg px-2 py-1.5 bg-white">
-                  {Object.entries(METRIC_LABELS).map(([k,v]) => <option key={k} value={k}>{v}</option>)}
+                  {Object.entries(metricLabels()).map(([k,v]) => <option key={k} value={k}>{v}</option>)}
                 </select>
                 <input type="number" min={0} placeholder="Target value" value={editTarget.value}
                   onChange={e => setEditTarget(p => p ? { ...p, value: e.target.value } : null)}
@@ -255,10 +257,10 @@ export default function AgentPerformancePage() {
                 {targets.map(target => (
                   <div key={target.id}>
                     <div className="flex items-center justify-between mb-1">
-                      <span className="text-xs font-medium text-gray-700">{METRIC_LABELS[target.metric] ?? target.metric}</span>
+                      <span className="text-xs font-medium text-gray-700">{metricLabels()[target.metric] ?? target.metric}</span>
                       <span className="text-xs text-gray-500">
                         {target.metric === 'revenue'
-                          ? `AED ${Math.round(target.current_value).toLocaleString()} / AED ${Math.round(target.target_value).toLocaleString()}`
+                          ? `${companyCurrency()} ${Math.round(target.current_value).toLocaleString()} / ${companyCurrency()} ${Math.round(target.target_value).toLocaleString()}`
                           : `${Math.round(target.current_value)} / ${Math.round(target.target_value)}`}
                         <span className={`ml-2 font-semibold ${target.progress_pct >= 100 ? 'text-green-600' : target.progress_pct >= 70 ? 'text-amber-600' : 'text-red-500'}`}>
                           {Math.round(target.progress_pct)}%

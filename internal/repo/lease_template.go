@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/maidulcu/masaar-crm/internal/domain"
 	"github.com/maidulcu/masaar-crm/internal/tenant"
@@ -113,14 +114,32 @@ func (r *LeaseTemplateRepo) Create(ctx context.Context, t *domain.LeaseTemplate)
 		RETURNING created_at, updated_at
 	`
 	t.ID = uuid.New()
-	return r.db.QueryRow(ctx, q,
+	err = r.db.QueryRow(ctx, q,
 		t.ID, t.CompanyID, t.Name, t.Description, t.IsDefault, t.PaymentFrequency, t.PaymentDayOfMonth,
 		t.AutoGeneratePayments, t.DefaultSecurityDepositPct, t.DefaultUtilityCharges,
 		t.DefaultLateFeePercent, t.DefaultLeaseDurationMonths, t.DefaultNoticePeriodDays,
 		t.DefaultRenewalDurationMonths, t.TemplateDocumentURL, t.TermsConditions, t.Status,
 		t.CreatedBy, t.UpdatedBy,
 	).Scan(&t.CreatedAt, &t.UpdatedAt)
+	if err != nil {
+		return err
+	}
+	return r.makeOnlyDefault(ctx, cid, t)
 }
+
+// makeOnlyDefault clears is_default on the company's other templates when t is the default.
+// Nothing enforced a single default, so several could be set and GetDefault returned an arbitrary one.
+func (r *LeaseTemplateRepo) makeOnlyDefault(ctx context.Context, cid uuid.UUID, t *domain.LeaseTemplate) error {
+	if !t.IsDefault {
+		return nil
+	}
+	_, err := r.db.Exec(ctx, `UPDATE lease_templates SET is_default = FALSE WHERE company_id = $1 AND id <> $2 AND is_default`, cid, t.ID)
+	return err
+}
+
+// ErrLeaseTemplateNotFound is returned when a template does not exist in the caller's company; it
+// wraps pgx.ErrNoRows so handlers answer 404.
+var ErrLeaseTemplateNotFound = fmt.Errorf("lease template not found: %w", pgx.ErrNoRows)
 
 func (r *LeaseTemplateRepo) Update(ctx context.Context, t *domain.LeaseTemplate) error {
 	cid, err := tenant.From(ctx)
@@ -137,13 +156,17 @@ func (r *LeaseTemplateRepo) Update(ctx context.Context, t *domain.LeaseTemplate)
 		WHERE id=$17 AND company_id=$18
 		RETURNING updated_at
 	`
-	return r.db.QueryRow(ctx, q,
+	err = r.db.QueryRow(ctx, q,
 		t.Name, t.Description, t.IsDefault, t.PaymentFrequency, t.PaymentDayOfMonth,
 		t.AutoGeneratePayments, t.DefaultSecurityDepositPct, t.DefaultUtilityCharges,
 		t.DefaultLateFeePercent, t.DefaultLeaseDurationMonths, t.DefaultNoticePeriodDays,
 		t.DefaultRenewalDurationMonths, t.TemplateDocumentURL, t.TermsConditions,
 		t.Status, t.UpdatedBy, t.ID, cid,
 	).Scan(&t.UpdatedAt)
+	if err != nil {
+		return err
+	}
+	return r.makeOnlyDefault(ctx, cid, t)
 }
 
 func (r *LeaseTemplateRepo) Delete(ctx context.Context, id uuid.UUID) error {
@@ -151,8 +174,14 @@ func (r *LeaseTemplateRepo) Delete(ctx context.Context, id uuid.UUID) error {
 	if err != nil {
 		return err
 	}
-	_, err = r.db.Exec(ctx, `DELETE FROM lease_templates WHERE id=$1 AND company_id=$2`, id, cid)
-	return err
+	tag, err := r.db.Exec(ctx, `DELETE FROM lease_templates WHERE id=$1 AND company_id=$2`, id, cid)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrLeaseTemplateNotFound
+	}
+	return nil
 }
 
 func (r *LeaseTemplateRepo) GetDefault(ctx context.Context, companyID uuid.UUID) (*domain.LeaseTemplate, error) {
@@ -164,6 +193,7 @@ func (r *LeaseTemplateRepo) GetDefault(ctx context.Context, companyID uuid.UUID)
 		       created_at, updated_at, created_by, updated_by
 		FROM lease_templates
 		WHERE company_id = $1 AND is_default = TRUE
+		ORDER BY updated_at DESC
 		LIMIT 1
 	`
 	t := &domain.LeaseTemplate{}

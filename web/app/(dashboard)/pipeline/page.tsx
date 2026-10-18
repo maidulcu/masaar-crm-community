@@ -1,5 +1,6 @@
 'use client'
-import { useEffect, useState, useCallback } from 'react'
+import { leadSourceLabel, MANUAL_SOURCES } from '@/lib/leadSource'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import {
   DndContext, DragEndEvent, DragOverlay, DragStartEvent,
   PointerSensor, useSensor, useSensors, closestCorners,
@@ -15,10 +16,12 @@ import { api } from '@/lib/api'
 import { useLang } from '@/context/LangContext'
 import { useAuthStore } from '@/store/auth'
 import type { KanbanBoard, KanbanBoardResponse, KanbanTotals, Lead, LeadStage, Contact, PaginatedResult, CommunicationHistory, User, PipelineStage } from '@/types'
+import { companyCurrency, currencyChoices } from '@/lib/money'
 
 // Cards fetched per column on load, and per "load more" click.
 const BOARD_PER_STAGE = 50
 const BOARD_PAGE = 50
+const EMPTY_LEADS: Lead[] = []
 
 export default function PipelinePage() {
   const { user } = useAuthStore()
@@ -242,7 +245,7 @@ export default function PipelinePage() {
       contact_id: formData.get('contact_id'),
       source: formData.get('source') || 'whatsapp',
       deal_value: parseFloat(formData.get('deal_value') as string) || 0,
-      currency: (formData.get('currency') as string) || 'AED',
+      currency: (formData.get('currency') as string) || companyCurrency(),
       notes: formData.get('notes') as string || '',
       assigned_to: (formData.get('assigned_to') as string) || null,
     }
@@ -266,19 +269,24 @@ export default function PipelinePage() {
 
   useEffect(() => { load() }, [load])
 
-  const findCard = (id: string): Lead | null => {
-    for (const leads of Object.values(board)) {
-      const found = leads?.find((l) => l.id === id)
-      if (found) return found
+  // Memoized O(1) lookup map for leads and their stage, avoiding linear full-board scans on drag operations
+  const leadMap = useMemo(() => {
+    const map = new Map<string, { lead: Lead; stage: string }>()
+    for (const [stage, leads] of Object.entries(board)) {
+      if (!leads) continue
+      for (const lead of leads) {
+        map.set(lead.id, { lead, stage })
+      }
     }
-    return null
+    return map
+  }, [board])
+
+  const findCard = (id: string): Lead | null => {
+    return leadMap.get(id)?.lead ?? null
   }
 
   const findStage = (id: string): string | null => {
-    for (const [stage, leads] of Object.entries(board)) {
-      if (leads?.some((l) => l.id === id)) return stage
-    }
-    return null
+    return leadMap.get(id)?.stage ?? null
   }
 
   const handleDragStart = (e: DragStartEvent) => {
@@ -369,7 +377,7 @@ export default function PipelinePage() {
                 stage={s.name}
                 stageName={s.name}
                 stageColor={s.color}
-                leads={board[s.name] ?? []}
+                leads={board[s.name] ?? EMPTY_LEADS}
                 total={totals[s.name]?.count}
                 totalValue={totals[s.name]?.value}
                 hasMore={!!cursors[s.name] && !exhausted[s.name]}
@@ -414,10 +422,7 @@ export default function PipelinePage() {
               defaultValue="whatsapp"
               className="w-full px-3.5 py-2.5 border border-surface-200 rounded-xl text-sm bg-white placeholder:text-surface-400 focus:outline-none focus:ring-2 focus:ring-primary-500/40 focus:border-primary-400 transition-shadow"
             >
-              <option value="whatsapp">{t('واتساب', 'WhatsApp')}</option>
-              <option value="web">{t('الموقع', 'Website')}</option>
-              <option value="referral">{t('إحالة', 'Referral')}</option>
-              <option value="event">{t('فعالية', 'Event')}</option>
+              {MANUAL_SOURCES.map((s) => <option key={s} value={s}>{leadSourceLabel(s, t)}</option>)}
             </select>
           </FormField>
           
@@ -433,11 +438,10 @@ export default function PipelinePage() {
               />
               <select
                 name="currency"
-                defaultValue="AED"
+                defaultValue={companyCurrency()}
                 className="w-24 px-2 py-2.5 border border-surface-200 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-500/40"
               >
-                <option value="AED">AED</option>
-                <option value="USD">USD</option>
+                {currencyChoices().map(c => <option key={c} value={c}>{c}</option>)}
               </select>
             </div>
           </FormField>
@@ -529,7 +533,7 @@ export default function PipelinePage() {
               {selectedLead.source && (
                 <div className="bg-surface-50 border border-surface-200/70 rounded-xl p-3">
                   <p className="text-[11px] uppercase tracking-wide text-surface-500 mb-1 font-medium">{t('المصدر', 'Source')}</p>
-                  <p className="font-semibold text-surface-900 capitalize">{selectedLead.source}</p>
+                  <p className="font-semibold text-surface-900">{leadSourceLabel(selectedLead.source, t)}</p>
                 </div>
               )}
               {selectedLead.closed_reason && (

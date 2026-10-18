@@ -53,14 +53,14 @@ func (r *UserRepo) FindByEmail(ctx context.Context, email string) (*domain.User,
 
 func (r *UserRepo) FindByID(ctx context.Context, id uuid.UUID) (*domain.User, error) {
 	const q = `
-		SELECT id, company_id, name, email, password_hash, role, lang_pref, COALESCE(wa_number, ''), is_active, created_at
+		SELECT id, company_id, name, email, password_hash, role, lang_pref, COALESCE(wa_number, ''), COALESCE(phone, ''), is_active, created_at
 		FROM users
 		WHERE id = $1
 	`
 	u := &domain.User{}
 	err := r.db.QueryRow(ctx, q, id).Scan(
 		&u.ID, &u.CompanyID, &u.Name, &u.Email, &u.PasswordHash,
-		&u.Role, &u.LangPref, &u.WANumber, &u.IsActive, &u.CreatedAt,
+		&u.Role, &u.LangPref, &u.WANumber, &u.Phone, &u.IsActive, &u.CreatedAt,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("find user by id: %w", err)
@@ -326,7 +326,7 @@ func (r *UserRepo) ListByCompany(ctx context.Context, companyID uuid.UUID, page,
 	offset := (page - 1) * limit
 	const q = `
 		SELECT id, company_id, name, email, password_hash, role, lang_pref,
-		       COALESCE(wa_number, ''), is_active, created_at
+		       COALESCE(wa_number, ''), is_active, created_at, brn, brn_expiry
 		FROM users WHERE company_id = $1
 		ORDER BY created_at ASC LIMIT $2 OFFSET $3
 	`
@@ -340,7 +340,7 @@ func (r *UserRepo) ListByCompany(ctx context.Context, companyID uuid.UUID, page,
 	for rows.Next() {
 		var u domain.User
 		if err := rows.Scan(&u.ID, &u.CompanyID, &u.Name, &u.Email, &u.PasswordHash,
-			&u.Role, &u.LangPref, &u.WANumber, &u.IsActive, &u.CreatedAt); err != nil {
+			&u.Role, &u.LangPref, &u.WANumber, &u.IsActive, &u.CreatedAt, &u.BRN, &u.BRNExpiry); err != nil {
 			return nil, 0, fmt.Errorf("scan user: %w", err)
 		}
 		users = append(users, u)
@@ -349,11 +349,6 @@ func (r *UserRepo) ListByCompany(ctx context.Context, companyID uuid.UUID, page,
 }
 
 func (r *UserRepo) InviteUser(ctx context.Context, email, name string, companyID uuid.UUID, role domain.Role) (*domain.User, string, error) {
-	token, err := r.CreatePasswordResetToken(ctx, uuid.Nil)
-	if err != nil {
-		return nil, "", fmt.Errorf("generate invite token: %w", err)
-	}
-
 	u := &domain.User{
 		ID:           uuid.New(),
 		CompanyID:    companyID,
@@ -370,7 +365,7 @@ func (r *UserRepo) InviteUser(ctx context.Context, email, name string, companyID
 		VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
 		RETURNING created_at
 	`
-	err = r.db.QueryRow(ctx, q,
+	err := r.db.QueryRow(ctx, q,
 		u.ID, u.CompanyID, u.Name, u.Email, u.PasswordHash,
 		u.Role, u.LangPref, u.IsActive,
 	).Scan(&u.CreatedAt)
@@ -378,9 +373,24 @@ func (r *UserRepo) InviteUser(ctx context.Context, email, name string, companyID
 		return nil, "", fmt.Errorf("create invited user: %w", err)
 	}
 
-	// Store the invite as a password reset token
-	_ = r.db.QueryRow(ctx, `UPDATE password_reset_tokens SET user_id = $1 WHERE token_hash = $2`,
-		u.ID, sha256.Sum256([]byte(token)))
+	// Create password reset token directly bound to the new user's ID
+	token, err := r.CreatePasswordResetToken(ctx, u.ID)
+	if err != nil {
+		return nil, "", fmt.Errorf("generate invite token: %w", err)
+	}
 
 	return u, token, nil
+}
+
+// SetBRN stores a user's RERA broker registration number and its expiry.
+func (r *UserRepo) SetBRN(ctx context.Context, companyID, id uuid.UUID, brn string, expiry *time.Time) error {
+	tag, err := r.db.Exec(ctx, `UPDATE users SET brn = $1, brn_expiry = $2 WHERE id = $3 AND company_id = $4`,
+		brn, expiry, id, companyID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrUserNotFound
+	}
+	return nil
 }
