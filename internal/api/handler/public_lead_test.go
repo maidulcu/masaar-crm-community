@@ -41,6 +41,16 @@ func TestSubmitLeadInputValidation(t *testing.T) {
 			wantError:  "email is too long",
 		},
 		{
+			name: "Invalid email format",
+			req: PublicLeadRequest{
+				Name:  "Valid Name",
+				Phone: "+971501234567",
+				Email: "not-an-email",
+			},
+			wantStatus: fiber.StatusUnprocessableEntity,
+			wantError:  "invalid email format",
+		},
+		{
 			name: "Notes too long",
 			req: PublicLeadRequest{
 				Name:  "Valid Name",
@@ -69,6 +79,42 @@ func TestSubmitLeadInputValidation(t *testing.T) {
 			},
 			wantStatus: fiber.StatusUnprocessableEntity,
 			wantError:  "area is too long",
+		},
+		{
+			name:       "Unknown source is rejected, not turned into web",
+			req:        PublicLeadRequest{Name: "Valid Name", Phone: "+971501234567", Source: "facebook"},
+			wantStatus: fiber.StatusUnprocessableEntity,
+			wantError:  "source must be one of",
+		},
+		{
+			name:       "bos24 is not a public source",
+			req:        PublicLeadRequest{Name: "Valid Name", Phone: "+971501234567", Source: "bos24"},
+			wantStatus: fiber.StatusUnprocessableEntity,
+			wantError:  "source must be one of",
+		},
+		{
+			name:       "external_ref without external_source",
+			req:        PublicLeadRequest{Name: "Valid Name", Phone: "+971501234567", ExternalRef: "enquiry:1"},
+			wantStatus: fiber.StatusUnprocessableEntity,
+			wantError:  "must be sent together",
+		},
+		{
+			name:       "external_source with uppercase",
+			req:        PublicLeadRequest{Name: "Valid Name", Phone: "+971501234567", ExternalSource: "Waqov", ExternalRef: "enquiry:1"},
+			wantStatus: fiber.StatusUnprocessableEntity,
+			wantError:  "external_source must be",
+		},
+		{
+			name:       "external_ref too long",
+			req:        PublicLeadRequest{Name: "Valid Name", Phone: "+971501234567", ExternalSource: "waqov", ExternalRef: strings.Repeat("r", 129)},
+			wantStatus: fiber.StatusUnprocessableEntity,
+			wantError:  "external_ref must be",
+		},
+		{
+			name:       "portal needs an external id",
+			req:        PublicLeadRequest{Name: "Valid Name", Phone: "+971501234567", Source: "portal"},
+			wantStatus: fiber.StatusUnprocessableEntity,
+			wantError:  "requires external_source",
 		},
 	}
 

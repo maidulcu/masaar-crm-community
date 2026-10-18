@@ -8,6 +8,8 @@ import { useNotifications } from '@/hooks/useNotifications'
 import { api } from '@/lib/api'
 import type { Notification } from '@/types'
 import clsx from 'clsx'
+import { useRouter } from 'next/navigation'
+import { notificationHref } from '@/lib/notificationLink'
 
 const typeLabels: Record<string, { en: string; ar: string }> = {
   lead_assigned: { en: 'Lead Assigned', ar: 'عميل محتمل مُسند' },
@@ -15,6 +17,15 @@ const typeLabels: Record<string, { en: string; ar: string }> = {
   new_message: { en: 'New Message', ar: 'رسالة جديدة' },
   payment_reminder_sent: { en: 'Payment Reminder', ar: 'تذكير بالدفع' },
   lead_created: { en: 'Lead Created', ar: 'تم إنشاء عميل محتمل' },
+  viewing_reminder: { en: 'Viewing', ar: 'معاينة' },
+  offer_expired: { en: 'Offer Expired', ar: 'انتهاء عرض' },
+  expiry_alert: { en: 'Expiry', ar: 'انتهاء صلاحية' },
+  task_due: { en: 'Task', ar: 'مهمة' },
+  lease_ending: { en: 'Lease Ending', ar: 'انتهاء عقد' },
+  rent_notice_deadline: { en: 'Rent Notice', ar: 'إشعار الإيجار' },
+  ejari_expiry: { en: 'Ejari', ar: 'إيجاري' },
+  cheques_to_deposit: { en: 'Cheques', ar: 'شيكات' },
+  cheque_bounced: { en: 'Bounced Cheque', ar: 'شيك مرتجع' },
 }
 
 const typeColors: Record<string, string> = {
@@ -23,10 +34,16 @@ const typeColors: Record<string, string> = {
   new_message: 'bg-green-100 text-green-700',
   payment_reminder_sent: 'bg-yellow-100 text-yellow-700',
   lead_created: 'bg-indigo-100 text-indigo-700',
+  lease_ending: 'bg-amber-100 text-amber-700',
+  rent_notice_deadline: 'bg-amber-100 text-amber-700',
+  ejari_expiry: 'bg-amber-100 text-amber-700',
+  cheques_to_deposit: 'bg-blue-100 text-blue-700',
+  cheque_bounced: 'bg-red-100 text-red-700',
 }
 
 export default function NotificationsPage() {
   const { t, lang } = useLang()
+  const router = useRouter()
   const { user } = useAuthStore()
   const { notifications, unread, markRead, markAllRead, loadMore } = useNotifications(user?.id ?? null)
   const [items, setItems] = useState<Notification[]>([])
@@ -129,7 +146,7 @@ export default function NotificationsPage() {
             {filtered.map(n => (
               <div
                 key={n.id}
-                onClick={() => !n.read && markRead(n.id)}
+                onClick={() => { if (!n.read) markRead(n.id); const href = notificationHref(n.data); if (href) router.push(href) }}
                 className={clsx(
                   'flex items-start gap-3 p-4 rounded-xl border transition-colors cursor-pointer',
                   n.read ? 'bg-white border-gray-200' : 'bg-primary-50/60 border-primary-200'

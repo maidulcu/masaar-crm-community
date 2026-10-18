@@ -78,6 +78,16 @@ type Config struct {
 	// App
 	AppEnv string
 	AppURL string // base URL for generating links in emails, e.g. https://crm.yourcompany.ae
+	// PublicAPIURL is the API's public origin, used in URLs handed to third parties (portal
+	// webhooks and feeds). Empty means: derive it from the request.
+	PublicAPIURL string
+	// TwoFactorKey encrypts users' authenticator secrets. Empty: derived from JWT_SECRET
+	// (then rotating JWT_SECRET means everyone sets two-factor up again).
+	TwoFactorKey string
+
+	// JobsEnabled runs background jobs (reminders, expiries) in this process. Replicas
+	// coordinate through the database, so leaving it on everywhere is safe.
+	JobsEnabled bool
 
 	// SaaS registration
 	AllowRegistration bool
@@ -151,7 +161,7 @@ func Load() *Config {
 		GeminiAPIKey:           getEnv("GEMINI_API_KEY", ""),
 		GeminiModel:            getEnv("GEMINI_MODEL", "gemini-2.0-flash"),
 		BOS24Token:             getEnv("BOS24_API_TOKEN", ""),
-		BOS24BaseURL:           getEnv("BOS24_BASE_URL", "https://data.buyorsell24.com"),
+		BOS24BaseURL:           getEnv("BOS24_BASE_URL", "https://dldapi.waqov.com"),
 		EmailProvider:          getEnv("EMAIL_PROVIDER", "smtp"),
 		SMTPHost:               getEnv("SMTP_HOST", ""),
 		SMTPPort:               getEnv("SMTP_PORT", "587"),
@@ -171,7 +181,10 @@ func Load() *Config {
 		SMSCountrySenderID:     getEnv("SMSCOUNTRY_SENDER_ID", ""),
 		AppEnv:                 getEnv("APP_ENV", "development"),
 		AppURL:                 getEnv("APP_URL", "http://localhost:3000"),
+		PublicAPIURL:           getEnv("PUBLIC_API_URL", ""),
+		TwoFactorKey:           getEnv("TWO_FACTOR_KEY", ""),
 		AllowRegistration:      getEnv("ALLOW_REGISTRATION", "false") == "true",
+		JobsEnabled:            getEnv("JOBS_ENABLED", "true") != "false",
 		AppCompanyID:           getEnv("APP_COMPANY_ID", "00000000-0000-0000-0000-000000000001"),
 		TrialDurationDays:      getEnvInt("TRIAL_DURATION_DAYS", 90),
 		TrialPlanID:            getEnv("TRIAL_PLAN_ID", "starter"),

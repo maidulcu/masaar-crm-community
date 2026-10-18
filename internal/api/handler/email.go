@@ -14,6 +14,13 @@ import (
 type EmailHandler struct {
 	emailService *email.Service
 	emailRepo    *repo.EmailRepository
+	privacy      consentStore // nil: no consent checks
+}
+
+// UsePrivacy makes the handler refuse to email contacts who opted out of email.
+func (h *EmailHandler) UsePrivacy(p consentStore) *EmailHandler {
+	h.privacy = p
+	return h
 }
 
 func NewEmailHandler(emailService *email.Service, emailRepo *repo.EmailRepository) *EmailHandler {
@@ -54,6 +61,15 @@ func (h *EmailHandler) SendEmail(c *fiber.Ctx) error {
 	// Reject malformed recipients and CR/LF in headers (SMTP header injection / Bcc smuggling).
 	if err := email.ValidateRecipient(req.ToEmail); err != nil || strings.ContainsAny(req.Subject, "\r\n") {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid to_email or subject"})
+	}
+	if h.privacy != nil {
+		out, err := h.privacy.EmailOptedOut(c.Context(), req.ToEmail)
+		if err != nil {
+			return serverError(c, err)
+		}
+		if out {
+			return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "this recipient has opted out of email"})
+		}
 	}
 
 	// Create email history record

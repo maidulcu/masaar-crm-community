@@ -6,6 +6,7 @@ import { useLang } from '@/context/LangContext'
 import { useAuthStore } from '@/store/auth'
 import { api } from '@/lib/api'
 import type { Expense, ExpenseCategory, RentalProperty, PaginatedResult } from '@/types'
+import { companyCurrency } from '@/lib/money'
 
 const PAYMENT_METHODS = ['cash', 'bank_transfer', 'credit_card', 'check', 'other']
 
@@ -75,7 +76,7 @@ export default function ExpensesPage() {
   }
 
   const fmtDate = (d: string) => new Date(d).toLocaleDateString(lang === 'ar' ? 'ar-AE' : 'en-AE', { year: 'numeric', month: 'short', day: 'numeric' })
-  const fmtAmount = (v: number) => `AED ${v.toLocaleString()}`
+  const fmtAmount = (v: number) => `${companyCurrency()} ${v.toLocaleString()}`
   const inputCls = 'w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-500'
 
   return (
@@ -165,7 +166,7 @@ export default function ExpensesPage() {
                   <input type="date" required className={inputCls} value={form.expense_date} onChange={e => set('expense_date', e.target.value)} />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">{t('المبلغ (AED)', 'Amount (AED)')} *</label>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">{t(`المبلغ (${companyCurrency()})`, `Amount (${companyCurrency()})`)} *</label>
                   <input type="number" min={0} step={0.01} required className={inputCls} value={form.amount} onChange={e => set('amount', +e.target.value)} />
                 </div>
               </div>

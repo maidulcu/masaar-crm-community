@@ -3,11 +3,12 @@ package handler
 import (
 	"errors"
 	"strconv"
-	"time"
+	"strings"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/maidulcu/masaar-crm/internal/domain"
 	"github.com/maidulcu/masaar-crm/internal/repo"
 )
@@ -16,6 +17,14 @@ type DealHandler struct {
 	deals    *repo.DealRepo
 	invoices *repo.InvoiceRepo
 	audit    *repo.AuditLogRepo
+	kyc      *repo.KYCRepo // optional: a deal is won only with complete KYC (#87)
+}
+
+// UseKYC makes winning a deal require the buyer's complete identity record (or an
+// admin's override).
+func (h *DealHandler) UseKYC(k *repo.KYCRepo) *DealHandler {
+	h.kyc = k
+	return h
 }
 
 func NewDealHandler(deals *repo.DealRepo, invoices *repo.InvoiceRepo, audit *repo.AuditLogRepo) *DealHandler {
@@ -48,9 +57,15 @@ func (h *DealHandler) List(c *fiber.Ctx) error {
 
 	var ownerID *uuid.UUID
 	if s := c.Query("owner_id"); s != "" {
-		if id, err := uuid.Parse(s); err == nil {
-			ownerID = &id
+		id, err := uuid.Parse(s)
+		if err != nil {
+			// Ignoring a bad id silently returned every deal, as if no filter had been asked for.
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid owner_id"})
 		}
+		ownerID = &id
+	}
+	if stage != "" && stage != string(domain.DealStageOpen) && stage != string(domain.DealStageWon) && stage != string(domain.DealStageLost) {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "stage must be open, won or lost"})
 	}
 
 	result, err := h.deals.List(c.Context(), ownerID, stage, page, limit)
@@ -98,31 +113,78 @@ func (h *DealHandler) Get(c *fiber.Ctx) error {
 // @Security     BearerAuth
 // @Router       /deals [post]
 func (h *DealHandler) Create(c *fiber.Ctx) error {
-	var deal domain.Deal
-	if err := c.BodyParser(&deal); err != nil {
+	var in struct {
+		LeadID      uuid.UUID        `json:"lead_id"`
+		Title       string           `json:"title"`
+		Stage       domain.DealStage `json:"stage"`
+		Amount      float64          `json:"amount"`
+		Currency    string           `json:"currency"`
+		CloseDate   string           `json:"close_date"`
+		Probability *int             `json:"probability"` // pointer: 0% is a legitimate value
+	}
+	if err := c.BodyParser(&in); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid request"})
 	}
-	if deal.LeadID == uuid.Nil {
+	if in.LeadID == uuid.Nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "lead_id is required"})
 	}
-	if deal.Title == "" {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "title is required"})
+	title, err := validateDealTitle(in.Title)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 	}
-	if deal.Amount < 0 {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "amount must be non-negative"})
+	amount, err := validateDealAmount(in.Amount)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 	}
-	if deal.Currency == "" {
-		deal.Currency = "AED"
+	if strings.TrimSpace(in.Currency) == "" {
+		in.Currency = defaultCurrency(c.Context())
 	}
-	if deal.Stage == "" {
-		deal.Stage = domain.DealStageOpen
+	currency, ok := normalizeCurrency(in.Currency)
+	if !ok {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "currency must be a 3-letter code such as AED"})
 	}
-	if deal.Probability == 0 {
-		deal.Probability = 50
+	closeDate, err := parseCloseDate(in.CloseDate)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+	}
+	stage := in.Stage
+	if stage == "" {
+		stage = domain.DealStageOpen
+	}
+	probability := 50
+	if in.Probability != nil {
+		if *in.Probability < 0 || *in.Probability > 100 {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "probability must be 0-100"})
+		}
+		probability = *in.Probability
+	}
+	switch stage {
+	case domain.DealStageOpen:
+	case domain.DealStageWon:
+		probability = 100
+	case domain.DealStageLost:
+		probability = 0
+	default:
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "stage must be open, won or lost"})
+	}
+	if stage == domain.DealStageWon && h.kyc != nil {
+		missing, err := h.kyc.LeadKYCMissing(c.Context(), in.LeadID)
+		if err != nil {
+			return serverError(c, err)
+		}
+		if len(missing) > 0 {
+			return c.Status(fiber.StatusUnprocessableEntity).JSON(fiber.Map{
+				"error":       "the buyer's identity record is incomplete (KYC); create the deal as open, complete KYC or ask an admin to override, then mark it won",
+				"kyc_missing": missing,
+			})
+		}
 	}
 
-	deal.OwnerID = c.Locals("user_id").(uuid.UUID)
-
+	deal := domain.Deal{
+		LeadID: in.LeadID, Title: title, Stage: stage, Amount: amount, Currency: currency,
+		CloseDate: closeDate, Probability: probability,
+		OwnerID: c.Locals("user_id").(uuid.UUID),
+	}
 	if err := h.deals.Create(c.Context(), &deal); err != nil {
 		return serverError(c, err)
 	}
@@ -167,16 +229,25 @@ func (h *DealHandler) Update(c *fiber.Ctx) error {
 	}
 
 	if updates.Title != nil {
-		deal.Title = *updates.Title
+		title, err := validateDealTitle(*updates.Title)
+		if err != nil {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+		}
+		deal.Title = title
 	}
 	if updates.Amount != nil {
-		if *updates.Amount < 0 {
-			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "amount must be non-negative"})
+		amount, err := validateDealAmount(*updates.Amount)
+		if err != nil {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 		}
-		deal.Amount = *updates.Amount
+		deal.Amount = amount
 	}
 	if updates.Currency != nil {
-		deal.Currency = *updates.Currency
+		currency, ok := normalizeCurrency(*updates.Currency)
+		if !ok {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "currency must be a 3-letter code such as AED"})
+		}
+		deal.Currency = currency
 	}
 	if updates.Probability != nil {
 		if *updates.Probability < 0 || *updates.Probability > 100 {
@@ -185,11 +256,12 @@ func (h *DealHandler) Update(c *fiber.Ctx) error {
 		deal.Probability = *updates.Probability
 	}
 	if updates.CloseDate != nil {
-		t, err := time.Parse("2006-01-02", *updates.CloseDate)
+		// "" clears the date; a full timestamp (what GET returns) is accepted as well as YYYY-MM-DD.
+		t, err := parseCloseDate(*updates.CloseDate)
 		if err != nil {
-			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid close_date format, expected YYYY-MM-DD"})
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 		}
-		deal.CloseDate = &t
+		deal.CloseDate = t
 	}
 
 	if err := h.deals.Update(c.Context(), deal); err != nil {
@@ -232,6 +304,19 @@ func (h *DealHandler) UpdateStage(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid stage"})
 	}
 
+	if body.Stage == domain.DealStageWon && h.kyc != nil {
+		k, err := h.kyc.DealKYC(c.Context(), id)
+		if err != nil {
+			return serverError(c, err)
+		}
+		if !k.CanWin {
+			return c.Status(fiber.StatusUnprocessableEntity).JSON(fiber.Map{
+				"error":       "the buyer's identity record is incomplete (KYC); add a valid Emirates ID or passport, or ask an admin to override",
+				"kyc_missing": k.Missing,
+			})
+		}
+	}
+
 	if err := h.deals.UpdateStage(c.Context(), id, body.Stage); err != nil {
 		return serverError(c, err)
 	}
@@ -254,9 +339,18 @@ func (h *DealHandler) ListInvoices(c *fiber.Ctx) error {
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid id"})
 	}
+	if _, err := h.deals.GetByID(c.Context(), id); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "deal not found"})
+		}
+		return serverError(c, err)
+	}
 	invoices, err := h.invoices.ListByDeal(c.Context(), id)
 	if err != nil {
 		return serverError(c, err)
+	}
+	if invoices == nil {
+		invoices = []domain.VATInvoice{}
 	}
 	return c.JSON(invoices)
 }
@@ -276,6 +370,11 @@ func (h *DealHandler) Delete(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid id"})
 	}
 	if err := h.deals.Delete(c.Context(), id); err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23503" {
+			// vat_invoices.deal_id is ON DELETE RESTRICT: invoices are accounting records.
+			return c.Status(fiber.StatusConflict).JSON(fiber.Map{"error": "this deal has invoices and cannot be deleted"})
+		}
 		return serverError(c, err)
 	}
 	h.audit.Log(c.Context(), c.Locals("user_id").(uuid.UUID), repo.AuditDelete, repo.AuditDeal, id, nil)
