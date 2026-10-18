@@ -13,10 +13,26 @@ import (
 type WebhookSubHandler struct {
 	webhooks   *repo.WebhookRepo
 	dispatcher *webhook.Dispatcher
+	audit      actorAuditLogger
 }
 
 func NewWebhookSubHandler(webhooks *repo.WebhookRepo, dispatcher *webhook.Dispatcher) *WebhookSubHandler {
 	return &WebhookSubHandler{webhooks: webhooks, dispatcher: dispatcher}
+}
+
+// UseAudit records subscription changes in the audit log.
+func (h *WebhookSubHandler) UseAudit(a actorAuditLogger) *WebhookSubHandler {
+	h.audit = a
+	return h
+}
+
+// canManageWebhooks: admins, and API keys (the router already checked webhooks:manage).
+func canManageWebhooks(c *fiber.Ctx) bool {
+	if c.Locals("api_key_id") != nil {
+		return true
+	}
+	role, _ := c.Locals("role").(domain.Role)
+	return role == domain.RoleAdmin
 }
 
 type WebhookSubCreateRequest struct {
@@ -86,7 +102,7 @@ func (h *WebhookSubHandler) List(c *fiber.Ctx) error {
 // @Security Bearer
 // @Router /api/v1/settings/webhooks [post]
 func (h *WebhookSubHandler) Create(c *fiber.Ctx) error {
-	if c.Locals("role").(domain.Role) != domain.RoleAdmin {
+	if !canManageWebhooks(c) {
 		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "only admins can register webhooks"})
 	}
 
@@ -119,6 +135,7 @@ func (h *WebhookSubHandler) Create(c *fiber.Ctx) error {
 	if err != nil {
 		return serverError(c, err)
 	}
+	auditWrite(c, h.audit, repo.AuditCreate, repo.AuditWebhook, sub.ID, fiber.Map{"name": sub.Name, "url": sub.URL, "events": sub.Events})
 
 	return c.Status(fiber.StatusCreated).JSON(WebhookSubResponse{
 		ID:        sub.ID,
@@ -139,7 +156,7 @@ func (h *WebhookSubHandler) Create(c *fiber.Ctx) error {
 // @Security Bearer
 // @Router /api/v1/settings/webhooks/{id} [delete]
 func (h *WebhookSubHandler) Delete(c *fiber.Ctx) error {
-	if c.Locals("role").(domain.Role) != domain.RoleAdmin {
+	if !canManageWebhooks(c) {
 		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "only admins can delete webhooks"})
 	}
 
@@ -151,6 +168,7 @@ func (h *WebhookSubHandler) Delete(c *fiber.Ctx) error {
 	if err := h.webhooks.Delete(c.Context(), id); err != nil {
 		return serverError(c, err)
 	}
+	auditWrite(c, h.audit, repo.AuditDelete, repo.AuditWebhook, id, nil)
 	return c.SendStatus(fiber.StatusNoContent)
 }
 

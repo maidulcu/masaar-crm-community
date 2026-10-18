@@ -42,7 +42,8 @@ func (f *fakeDispatcher) got() string {
 
 type noAudit struct{}
 
-func (noAudit) Log(context.Context, uuid.UUID, string, string, uuid.UUID, any) {}
+func (noAudit) Log(context.Context, uuid.UUID, string, string, uuid.UUID, any)       {}
+func (noAudit) LogAPIKey(context.Context, uuid.UUID, string, string, uuid.UUID, any) {}
 
 type leadEnv struct {
 	pool          *pgxpool.Pool

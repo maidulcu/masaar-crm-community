@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [v0.4.0] - Unreleased
 
+### API keys reach the REST API, with scopes (integration standards, step 1)
+
+- **API keys can call `/api/v1`**, limited by scope: `leads:read`, `leads:write`, `contacts:read`, `contacts:write`, `listings:read`, `webhooks:manage` (plus `lead:create` for `POST /webhooks/leads`). Only the routes listed in `internal/api/apikey_routes.go` accept a key; every other `/api/v1` route answers `403`. Data stays limited to the key's company, writes are audited under the key (`audit_logs.api_key_id`), and each key keeps its 300 requests/minute limit. The demo company's keys are read-only. No migration.
+- **New keys must use known scopes.** `POST /api/v1/settings/api-keys` refuses unknown scopes and wildcards (`422`); `GET /api/v1/settings/api-keys/scopes` lists them. Existing keys keep working, including old `*` and `resource:*` values.
+- **Standard error bodies** for API-key requests: RFC 9457 problem details (`application/problem+json`: `type`, `title`, `status`, `detail`). The `error` field stays, so existing clients keep working. Missing scope → `WWW-Authenticate: Bearer error="insufficient_scope"`, bad key → `error="invalid_token"` (RFC 6750). Applies to `POST /webhooks/leads` too.
+- **`Idempotency-Key`** on API-key `POST`/`PATCH` (including `POST /webhooks/leads`): a retry with the same key and request replays the first response (`Idempotent-Replayed: true`); a different request with the same key gets `422`, one still running `409`. Stored 24 hours per key in Redis; a failed or crashed request frees its key; without Redis requests run normally.
+- Webhook subscription create/delete and lead note edits are now written to the audit log.
+- **Settings → API Keys fixed:** the list was always empty, a new key was never shown, and every key was labelled "Revoked". Scopes are now picked with checkboxes.
+
 ### UAE e-invoicing and Saudi groundwork (#88) — migration `0078`
 
 **UAE e-invoicing (PINT AE)** — off by default; see [docs/einvoicing.md](docs/einvoicing.md)

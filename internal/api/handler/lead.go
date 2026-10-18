@@ -44,9 +44,7 @@ type ScoringService interface {
 }
 
 // AuditLogRepository defines the interface for audit logging.
-type AuditLogRepository interface {
-	Log(ctx context.Context, actorID uuid.UUID, action, entityType string, entityID uuid.UUID, diff any)
-}
+type AuditLogRepository = actorAuditLogger
 
 // WebhookDispatcher defines the interface for dispatching webhook events.
 type WebhookDispatcher interface {
@@ -277,8 +275,7 @@ func (h *LeadHandler) Create(c *fiber.Ctx) error {
 		})
 	}
 
-	actorID := c.Locals("user_id").(uuid.UUID)
-	h.audit.Log(c.Context(), actorID, repo.AuditCreate, repo.AuditLead, lead.ID, lead)
+	auditWrite(c, h.audit, repo.AuditCreate, repo.AuditLead, lead.ID, lead)
 	return c.Status(fiber.StatusCreated).JSON(lead)
 }
 
@@ -397,10 +394,8 @@ func (h *LeadHandler) UpdateStage(c *fiber.Ctx) error {
 		}
 	}
 
-	if actorID, ok := c.Locals("user_id").(uuid.UUID); ok {
-		h.audit.Log(c.Context(), actorID, repo.AuditUpdate, repo.AuditLead, id,
-			fiber.Map{"stage": body.Stage, "previous_stage": prev, "closed_reason": reason})
-	}
+	auditWrite(c, h.audit, repo.AuditUpdate, repo.AuditLead, id,
+		fiber.Map{"stage": body.Stage, "previous_stage": prev, "closed_reason": reason})
 	return c.JSON(fiber.Map{"lead_id": id, "stage": body.Stage})
 }
 
@@ -436,6 +431,7 @@ func (h *LeadHandler) UpdateNotes(c *fiber.Ctx) error {
 		return serverError(c, err)
 	}
 
+	auditWrite(c, h.audit, repo.AuditUpdate, repo.AuditLead, id, fiber.Map{"notes": body.Notes})
 	return c.JSON(fiber.Map{"lead_id": id, "notes": body.Notes})
 }
 

@@ -257,7 +257,7 @@ func main() {
 		Document:            handler.NewDocumentHandler(documentRepo, auditRepo, dsClient).UseRera(reraRepo),
 		ApiKey:              handler.NewApiKeyHandler(apiKeyRepo),
 		PublicLead:          handler.NewPublicLeadHandler(contactRepo, leadRepo, auditRepo, dispatcher).UsePrivacy(privacyRepo),
-		WebhookSub:          handler.NewWebhookSubHandler(webhookRepo, dispatcher),
+		WebhookSub:          handler.NewWebhookSubHandler(webhookRepo, dispatcher).UseAudit(auditRepo),
 		Billing:             handler.NewBillingHandler(billingRepo, companySettingsRepo, stripeCfg),
 		MessageTemplate:     handler.NewMessageTemplateHandler(messageTemplateRepo),
 		AuditLog:            handler.NewAuditHandler(auditRepo),

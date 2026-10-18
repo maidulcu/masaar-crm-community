@@ -157,4 +157,5 @@ const (
 	AuditInvoice  = domain.AuditEntityInvoice
 	AuditUser     = "user"
 	AuditDocument = "document"
+	AuditWebhook  = "webhook_subscription"
 )
