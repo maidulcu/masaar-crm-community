@@ -11,6 +11,7 @@ import (
 
 	"github.com/maidulcu/masaar-crm/internal/apiscope"
 	"github.com/maidulcu/masaar-crm/internal/config"
+	"github.com/maidulcu/masaar-crm/internal/webhook"
 	"github.com/maidulcu/masaar-crm/internal/ws"
 )
 
@@ -171,6 +172,7 @@ func BuildOpenAPI(swagger2 []byte) ([]byte, OpenAPIReport, error) {
 		comps["schemas"] = schemas
 	}
 	schemas["Problem"] = problemSchema
+	doc["webhooks"] = webhooksSection(schemas)
 	schemas["Error"] = map[string]any{
 		"type": "object", "required": []any{"error"},
 		"properties": map[string]any{"error": map[string]any{"type": "string", "examples": []any{"lead not found"}}},
@@ -308,6 +310,49 @@ func addAPIKeyAccess(op map[string]any, method, scope string, keyOnly bool) {
 			responses[code] = map[string]any{"description": desc, "content": problem}
 		}
 	}
+}
+
+// webhooksSection documents the outbound events (OpenAPI 3.1 "webhooks"): the request Masaar
+// sends to a subscription URL, signed per Standard Webhooks.
+func webhooksSection(schemas map[string]any) map[string]any {
+	header := func(name, desc string, required bool) map[string]any {
+		return map[string]any{"name": name, "in": "header", "required": required, "description": desc,
+			"schema": map[string]any{"type": "string"}}
+	}
+	params := []any{
+		header("webhook-id", "Message id (msg_...): the same on every retry; use it to ignore duplicates.", true),
+		header("webhook-timestamp", "Unix seconds when this attempt was signed. Reject old ones (e.g. older than 5 minutes).", true),
+		header("webhook-signature", `"v1," + base64(HMAC-SHA256(key, webhook-id + "." + webhook-timestamp + "." + raw body)), `+
+			`where key is the subscription secret without "whsec_", base64-decoded. Any Standard Webhooks library verifies it.`, true),
+		header("X-Masaar-Signature", `Legacy: "sha256=" + hex(HMAC-SHA256(secret string, raw body)).`, false),
+		header("X-Masaar-Event", "Legacy: the event name.", false),
+		header("X-Masaar-Delivery", "Legacy: same value as webhook-id.", false),
+	}
+	out := map[string]any{}
+	for _, ev := range webhook.SentEvents {
+		name := "WebhookData_" + nonWord.ReplaceAllString(ev.Name, "_")
+		schemas[name] = ev.Data
+		out[ev.Name] = map[string]any{"post": map[string]any{
+			"operationId": "webhook" + operationID("", "/"+ev.Name),
+			"summary":     ev.Name,
+			"description": ev.Description + " Retried up to 3 times (after 1 s and 4 s) until the URL answers 2xx.",
+			"parameters":  params,
+			"security":    []any{}, // authenticated by webhook-signature
+			"requestBody": map[string]any{"required": true, "content": map[string]any{"application/json": map[string]any{
+				"schema": map[string]any{
+					"type": "object", "required": []any{"type", "event", "timestamp", "data"},
+					"properties": map[string]any{
+						"type":      map[string]any{"type": "string", "const": ev.Name},
+						"event":     map[string]any{"type": "string", "const": ev.Name, "description": "Same as type, for older receivers."},
+						"timestamp": map[string]any{"type": "string", "format": "date-time"},
+						"data":      map[string]any{"$ref": "#/components/schemas/" + name},
+					},
+				},
+			}}},
+			"responses": map[string]any{"2XX": map[string]any{"description": "Received. Any other answer is retried."}},
+		}}
+	}
+	return out
 }
 
 // problemSchema is RFC 9457 problem details as the API sends them to API-key requests.

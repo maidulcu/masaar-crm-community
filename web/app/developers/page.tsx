@@ -429,7 +429,7 @@ Authorization: Bearer <jwt>
 {"name":"My App","url":"https://...","events":"lead.created,lead.won"}
 // Response includes secret — store it to verify signatures`}</Pre>
                 <p className="text-xs text-gray-500 mt-2">
-                  All requests carry <Code>X-Masaar-Signature: sha256=hmac</Code>. 3 retries with 1s/4s backoff.
+                  Signed per <a href="https://www.standardwebhooks.com" className="text-brand-600 hover:underline">Standard Webhooks</a> (<Code>webhook-id</Code>, <Code>webhook-timestamp</Code>, <Code>webhook-signature</Code>), so any Standard Webhooks library verifies them with your <Code>whsec_…</Code> secret. The legacy <Code>X-Masaar-Signature: sha256=hmac</Code> is still sent. 3 retries with 1s/4s backoff.
                 </p>
               </div>
             </div>

@@ -15,6 +15,7 @@ import (
 	"github.com/maidulcu/masaar-crm/internal/api/middleware"
 	"github.com/maidulcu/masaar-crm/internal/apiscope"
 	"github.com/maidulcu/masaar-crm/internal/config"
+	"github.com/maidulcu/masaar-crm/internal/webhook"
 	"github.com/maidulcu/masaar-crm/internal/ws"
 )
 
@@ -61,6 +62,13 @@ func TestOpenAPIMatchesRouter(t *testing.T) {
 		}
 		if op["x-api-key-scope"] != r.Scope || !strings.Contains(mustJSON(op["security"]), `"ApiKeyAuth":["`+r.Scope+`"]`) {
 			t.Errorf("%s %s: scope not documented as %s", r.Method, r.Path, r.Scope)
+		}
+	}
+
+	hooks, _ := doc["webhooks"].(map[string]any)
+	for _, ev := range webhook.SentEvents {
+		if _, ok := hooks[ev.Name]; !ok {
+			t.Errorf("webhook event %s is not documented", ev.Name)
 		}
 	}
 
