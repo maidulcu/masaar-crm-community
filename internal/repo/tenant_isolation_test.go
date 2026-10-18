@@ -72,7 +72,6 @@ func setup(t *testing.T) *testEnv {
 				`DELETE FROM tasks WHERE company_id = $1`,
 				`DELETE FROM kyc_documents WHERE company_id = $1`,
 				`DELETE FROM beneficial_owners WHERE company_id = $1`,
-				`DELETE FROM portal_leads WHERE company_id = $1`,
 				`DELETE FROM portal_connections WHERE company_id = $1`,
 				`DELETE FROM whatsapp_threads WHERE company_id = $1`,
 				`DELETE FROM whatsapp_messages WHERE thread_id IN (SELECT id FROM whatsapp_threads WHERE company_id = $1)`,

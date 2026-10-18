@@ -55,28 +55,27 @@ func TestPortalConnectionsAndLeads(t *testing.T) {
 		t.Fatalf("A's connections = %+v", conns)
 	}
 
-	// Each external lead id is claimed once per company and portal.
-	if ok, err := portals.ClaimLead(e.a.ctx, "bayut", "ext-1"); !ok || err != nil {
-		t.Fatalf("first claim: %v %v", ok, err)
+	// A portal lead id is held once per company and portal, on the lead itself.
+	leads := NewLeadRepo(e.pool)
+	portalLead := func(c company, ref string) error {
+		ct := e.contact(t, c, testPhone("97155"))
+		return leads.Create(c.ctx, &domain.Lead{ContactID: ct.ID, Stage: domain.StageNew, Source: domain.SourceBayut,
+			Currency: "AED", ExternalSource: "bayut", ExternalRef: ref})
 	}
-	if ok, _ := portals.ClaimLead(e.a.ctx, "bayut", "ext-1"); ok {
-		t.Fatal("duplicate lead claimed twice")
+	if err := portalLead(e.a, "ext-1"); err != nil {
+		t.Fatalf("first delivery: %v", err)
 	}
-	if ok, _ := portals.ClaimLead(e.b.ctx, "bayut", "ext-1"); !ok {
-		t.Fatal("another company's claim blocked")
+	if err := portalLead(e.a, "ext-1"); !errors.Is(err, ErrDuplicateExternalRef) {
+		t.Fatalf("redelivery: want ErrDuplicateExternalRef, got %v", err)
 	}
-	ct := e.contact(t, e.a, testPhone("97155"))
-	ld := e.lead(t, e.a, ct.ID)
-	if err := portals.AttachLead(e.a.ctx, "bayut", "ext-1", ld.ID); err != nil {
+	if err := portalLead(e.b, "ext-1"); err != nil {
+		t.Fatalf("another company's lead with the same id was blocked: %v", err)
+	}
+	if err := portals.TouchLastLead(e.a.ctx, "bayut"); err != nil {
 		t.Fatal(err)
 	}
-	portals.ReleaseLead(e.a.ctx, "bayut", "ext-2")
-	if ok, _ := portals.ClaimLead(e.a.ctx, "bayut", "ext-2"); !ok {
-		t.Fatal("claim ext-2")
-	}
-	portals.ReleaseLead(e.a.ctx, "bayut", "ext-2")
-	if ok, _ := portals.ClaimLead(e.a.ctx, "bayut", "ext-2"); !ok {
-		t.Fatal("a released claim cannot be retried")
+	if conns, _ := portals.ListConnections(e.a.ctx); len(conns) != 1 || conns[0].LastLeadAt == nil {
+		t.Fatalf("last_lead_at not set: %+v", conns)
 	}
 
 	if err := portals.Disconnect(e.a.ctx, "bayut"); err != nil {

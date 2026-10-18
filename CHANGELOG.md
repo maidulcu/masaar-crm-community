@@ -175,6 +175,7 @@ Foundations for the UAE-launch roadmap (#82, milestone #83). Includes migrations
 - **New source `portal`** for leads from listing portals and marketplaces; it requires `external_source`.
 - **Breaking:** an unknown `source` is now rejected with `422` instead of silently stored as `web`.
 - **Suspended companies.** An API key whose company is suspended now gets `403 account_suspended` (previously the key kept working).
+- **One de-duplication for pushed leads.** Portal webhooks (`/webhooks/portals/:portal`) now record the portal's lead id on the lead (`external_source` = the portal, `external_ref` = its id) instead of the separate `portal_leads` claim table, which is dropped after its rows are copied onto their leads (migration `0080`). A redelivered portal lead returns `{"duplicate": true, "lead_id": …}`.
 - **Audit log.** Leads created by API key are now audited, with the key recorded in the new `audit_logs.api_key_id` (previously API-key actions wrote no audit entry at all).
 
 ### Security / bug / performance audit

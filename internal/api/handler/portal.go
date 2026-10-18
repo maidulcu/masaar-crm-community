@@ -176,16 +176,16 @@ func (h *PortalHandler) ReceiveLead(c *fiber.Ctx) error {
 	}
 
 	ctx := tenant.With(c.Context(), cid)
-	claimed, err := h.portals.ClaimLead(ctx, p, lead.ExternalID)
-	if err != nil {
-		return serverError(c, err)
-	}
-	if !claimed {
-		return c.JSON(fiber.Map{"duplicate": true})
+	// A redelivered lead is found by the portal's own id (leads.external_source/external_ref).
+	if existing, err := h.leads.FindByExternalRef(ctx, p, lead.ExternalID); err == nil {
+		return c.JSON(fiber.Map{"duplicate": true, "lead_id": existing.ID})
 	}
 	created, err := h.createLead(ctx, cid, p, lead)
+	if errors.Is(err, repo.ErrDuplicateExternalRef) {
+		// Two deliveries of the same lead raced; the other one created it.
+		return c.JSON(fiber.Map{"duplicate": true})
+	}
 	if err != nil {
-		h.portals.ReleaseLead(ctx, p, lead.ExternalID)
 		return serverError(c, err)
 	}
 	return c.Status(fiber.StatusCreated).JSON(fiber.Map{"lead_id": created.ID, "contact_id": created.ContactID})
@@ -212,12 +212,13 @@ func (h *PortalHandler) createLead(ctx context.Context, cid uuid.UUID, p string,
 		notes = append(notes, in.Message)
 	}
 	lead := &domain.Lead{ContactID: contact.ID, Stage: domain.StageNew, Source: domain.LeadSource(p),
-		Currency: defaultCurrency(ctx), Notes: strings.Join(notes, "\n")}
+		Currency: defaultCurrency(ctx), Notes: strings.Join(notes, "\n"),
+		ExternalSource: p, ExternalRef: in.ExternalID}
 	if err := h.leads.Create(ctx, lead); err != nil {
 		return nil, err
 	}
-	if err := h.portals.AttachLead(ctx, p, in.ExternalID, lead.ID); err != nil {
-		log.Printf("portal lead: attach %s: %v", in.ExternalID, err)
+	if err := h.portals.TouchLastLead(ctx, p); err != nil {
+		log.Printf("portal lead: last_lead_at for %s: %v", p, err)
 	}
 	if h.assign != nil {
 		h.assign(cid, lead.ID)

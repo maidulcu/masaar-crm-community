@@ -129,37 +129,10 @@ func (r *PortalRepo) CompanyForToken(ctx context.Context, portal, kind, token st
 	return cid, err
 }
 
-// ClaimLead records a portal lead id; it reports false when the lead was already
-// received (a redelivery).
-func (r *PortalRepo) ClaimLead(ctx context.Context, portal, externalID string) (bool, error) {
+// TouchLastLead records that a lead just arrived from this portal.
+func (r *PortalRepo) TouchLastLead(ctx context.Context, portal string) error {
 	cid, err := tenant.From(ctx)
 	if err != nil {
-		return false, err
-	}
-	tag, err := r.db.Exec(ctx, `INSERT INTO portal_leads (company_id, portal, external_id) VALUES ($1, $2, $3)
-		ON CONFLICT DO NOTHING`, cid, portal, externalID)
-	if err != nil {
-		return false, err
-	}
-	return tag.RowsAffected() == 1, nil
-}
-
-// ReleaseLead forgets a claim whose lead could not be created, so a retry can succeed.
-func (r *PortalRepo) ReleaseLead(ctx context.Context, portal, externalID string) {
-	if cid, err := tenant.From(ctx); err == nil {
-		_, _ = r.db.Exec(ctx, `DELETE FROM portal_leads WHERE company_id = $1 AND portal = $2 AND external_id = $3 AND lead_id IS NULL`,
-			cid, portal, externalID)
-	}
-}
-
-// AttachLead links a claimed portal lead to the CRM lead created for it.
-func (r *PortalRepo) AttachLead(ctx context.Context, portal, externalID string, leadID uuid.UUID) error {
-	cid, err := tenant.From(ctx)
-	if err != nil {
-		return err
-	}
-	if _, err := r.db.Exec(ctx, `UPDATE portal_leads SET lead_id = $1 WHERE company_id = $2 AND portal = $3 AND external_id = $4`,
-		leadID, cid, portal, externalID); err != nil {
 		return err
 	}
 	_, err = r.db.Exec(ctx, `UPDATE portal_connections SET last_lead_at = NOW() WHERE company_id = $1 AND portal = $2`, cid, portal)
