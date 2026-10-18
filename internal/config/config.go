@@ -161,7 +161,7 @@ func Load() *Config {
 		GeminiAPIKey:           getEnv("GEMINI_API_KEY", ""),
 		GeminiModel:            getEnv("GEMINI_MODEL", "gemini-2.0-flash"),
 		BOS24Token:             getEnv("BOS24_API_TOKEN", ""),
-		BOS24BaseURL:           getEnv("BOS24_BASE_URL", "https://data.buyorsell24.com"),
+		BOS24BaseURL:           getEnv("BOS24_BASE_URL", "https://dldapi.waqov.com"),
 		EmailProvider:          getEnv("EMAIL_PROVIDER", "smtp"),
 		SMTPHost:               getEnv("SMTP_HOST", ""),
 		SMTPPort:               getEnv("SMTP_PORT", "587"),

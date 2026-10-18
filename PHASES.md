@@ -50,7 +50,7 @@ Syndicate listings to Property Finder, Bayut, Dubizzle, JamesEdition.
 
 ## Phase 3: BOS24 Integration — Deepen
 
-The BOS24 (BuyOrSell24) client exists but needs deeper integration into the CRM workflow beyond the current search/property data pages.
+The BOS24 (Waqov market data) client exists but needs deeper integration into the CRM workflow beyond the current search/property data pages.
 
 **What's needed:**
 - **Auto-populate listings** from BOS24 transaction/project data (agent selects a transaction → pre-fills listing form)

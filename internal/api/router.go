@@ -593,7 +593,7 @@ func RegisterRoutes(app *fiber.App, h *Handlers, hub *ws.Hub, cfg *config.Config
 		h.Message.AutoCreateLead,
 	)
 
-	// Real Estate Market Data (BuyOrSell24) — agents and admin only, quota enforced
+	// Real Estate Market Data (Waqov) — agents and admin only, quota enforced
 	bos24Quota := middleware.CheckQuota(billingRepo, rdb, "bos24")
 	prop := v1.Group("/properties",
 		middleware.RequireRole(domain.RoleAdmin, domain.RoleAgent),
