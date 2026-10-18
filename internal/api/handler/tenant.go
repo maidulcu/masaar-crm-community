@@ -1,7 +1,9 @@
 package handler
 
 import (
+	"encoding/json"
 	"strconv"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -85,13 +87,17 @@ func (h *TenantHandler) Get(c *fiber.Ctx) error {
 // @Security     BearerAuth
 // @Router       /tenants [post]
 func (h *TenantHandler) Create(c *fiber.Ctx) error {
-	var t domain.Tenant
-	if err := c.BodyParser(&t); err != nil {
+	var in domain.Tenant
+	if err := json.Unmarshal(normalizeDateFields(c.Body(), tenantDateKeys...), &in); err != nil {
 		return badRequest(c, err)
 	}
-
-	if t.FullNameEN == "" || t.IDType == "" {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "full_name_en and id_type are required"})
+	// A new tenant is always unverified: verification is admin-only (POST /tenants/:id/verify) and
+	// used to be settable here. Ids and timestamps are server-owned.
+	t := in
+	t.ID, t.CreatedAt, t.UpdatedAt = uuid.Nil, time.Time{}, time.Time{}
+	t.IsVerified, t.VerificationStatus, t.VerificationDate, t.VerifiedBy, t.VerificationNotes = false, domain.VerificationPending, nil, nil, ""
+	if err := validateTenant(&t); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 	}
 
 	userID := c.Locals("user_id").(uuid.UUID)
@@ -105,6 +111,9 @@ func (h *TenantHandler) Create(c *fiber.Ctx) error {
 	t.CompanyID = companyID
 
 	if err := h.tenants.Create(c.Context(), &t); err != nil {
+		if isUniqueViolation(err) {
+			return c.Status(fiber.StatusConflict).JSON(fiber.Map{"error": "a tenant with this id_number already exists"})
+		}
 		return serverError(c, err)
 	}
 	return c.Status(fiber.StatusCreated).JSON(t)
@@ -134,14 +143,27 @@ func (h *TenantHandler) Update(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "tenant not found"})
 	}
 
-	if err := c.BodyParser(t); err != nil {
+	// Identity, audit and verification state are not the client's to edit: an agent could PATCH
+	// is_verified/verification_status and skip the admin-only verify step, and an id in the body
+	// would redirect the update to another tenant.
+	keep := *t
+	if err := json.Unmarshal(normalizeDateFields(c.Body(), tenantDateKeys...), t); err != nil {
 		return badRequest(c, err)
+	}
+	t.ID, t.CompanyID, t.CreatedAt, t.CreatedBy = keep.ID, keep.CompanyID, keep.CreatedAt, keep.CreatedBy
+	t.IsVerified, t.VerificationStatus, t.VerificationDate = keep.IsVerified, keep.VerificationStatus, keep.VerificationDate
+	t.VerifiedBy, t.VerificationNotes = keep.VerifiedBy, keep.VerificationNotes
+	if err := validateTenant(t); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 	}
 
 	userID := c.Locals("user_id").(uuid.UUID)
 	t.UpdatedBy = &userID
 
 	if err := h.tenants.Update(c.Context(), t); err != nil {
+		if isUniqueViolation(err) {
+			return c.Status(fiber.StatusConflict).JSON(fiber.Map{"error": "a tenant with this id_number already exists"})
+		}
 		return serverError(c, err)
 	}
 	return c.JSON(t)
@@ -164,6 +186,10 @@ func (h *TenantHandler) Delete(c *fiber.Ctx) error {
 	}
 
 	if err := h.tenants.Delete(c.Context(), id); err != nil {
+		if isForeignKeyViolation(err) {
+			// leases (RESTRICT) and expenses reference the tenant: they are financial records.
+			return c.Status(fiber.StatusConflict).JSON(fiber.Map{"error": "this tenant has leases or expenses and cannot be deleted; mark them inactive instead"})
+		}
 		return serverError(c, err)
 	}
 	return c.SendStatus(fiber.StatusNoContent)
@@ -201,7 +227,9 @@ func (h *TenantHandler) Verify(c *fiber.Ctx) error {
 	}
 
 	userID := c.Locals("user_id").(uuid.UUID)
+	now := time.Now()
 	t.IsVerified = true
+	t.VerificationDate = &now // was never recorded
 	t.VerificationStatus = domain.VerificationVerified
 	t.VerificationNotes = body.VerificationNotes
 	t.VerifiedBy = &userID

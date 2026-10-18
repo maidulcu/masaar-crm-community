@@ -103,14 +103,14 @@ export default function APISettingsPage() {
             </div>
           )}
 
-          {/* BuyOrSell24 API Settings */}
+          {/* Waqov market data API settings */}
           <div className="bg-white rounded-xl border border-gray-200 p-6">
             <div className="mb-6">
               <h2 className="text-sm font-semibold text-gray-700 mb-2">
-                {t('بيانات العقارات - BuyOrSell24', 'Real Estate Data - BuyOrSell24')}
+                {t('بيانات العقارات - Waqov', 'Real Estate Data - Waqov')}
               </h2>
               <p className="text-xs text-gray-500">
-                {t('خدمة بيانات العقارات من Dynamic Web Lab', 'Real estate data service by Dynamic Web Lab')}
+                {t('خدمة بيانات العقارات من Waqov', 'Real estate data service by Waqov')}
               </p>
             </div>
 
@@ -126,7 +126,7 @@ export default function APISettingsPage() {
                     onChange={(e) => setBos24Token(e.target.value)}
                     disabled={loading}
                     className="flex-1 text-sm border border-gray-200 rounded-lg px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent disabled:bg-gray-100"
-                    placeholder={t('أدخل API token من Dynamic Web Lab', 'Enter API token from Dynamic Web Lab')}
+                    placeholder={t('أدخل API token من Waqov', 'Enter API token from Waqov')}
                   />
                   <button
                     type="button"
@@ -140,12 +140,12 @@ export default function APISettingsPage() {
                 <p className="mt-2 text-xs text-gray-500">
                   {t('احصل على توكن من:', 'Get token from:')} <br/>
                   <a
-                    href="https://dynamicweblab.com/products/real-estate-data-api/"
+                    href="https://waqov.com/"
                     target="_blank"
                     rel="noopener noreferrer"
                     className="text-brand-600 hover:underline font-medium"
                   >
-                    https://dynamicweblab.com/products/real-estate-data-api/
+                    https://waqov.com/
                   </a>
                 </p>
               </div>

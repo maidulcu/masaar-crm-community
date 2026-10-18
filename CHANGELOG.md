@@ -7,7 +7,184 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [v0.4.0] - Unreleased
+
+### UAE e-invoicing and Saudi groundwork (#88) — migration `0078`
+
+**UAE e-invoicing (PINT AE)** — off by default; see [docs/einvoicing.md](docs/einvoicing.md)
+- Tax invoices and credit notes can be exported as **PINT AE** XML (UBL 2.1, the UAE Peppol specification), including mixed standard/exempt/out-of-scope lines and credit note reason codes. Missing data (TIN, legal registration, buyer address…) is listed instead of producing an invalid file.
+- The generated XML is checked in CI against the UBL 2.1 schema and the official PINT AE Schematron (`scripts/pint-ae/validate.sh`).
+- Submission through a provider **connector** interface, with a status job that records accepted and rejected e-invoices and notifies the issuer of a rejection. Only a **mock** provider ships; a real accredited service provider needs its own connector.
+- Settings → E-invoicing (provider, TIN, legal registration, exemption code); an E-invoice panel on each invoice for the buyer details, XML download and submission.
+- AED invoices only for now.
+
+**Saudi Arabia groundwork** — see [docs/adr/0001-ksa-groundwork.md](docs/adr/0001-ksa-groundwork.md)
+- Country **SA**: 15 % VAT, SAR, Asia/Riyadh, Friday–Saturday weekend, the 13 regions.
+- Listings in Saudi regions require a **REGA** advertising licence, enforced like Trakheesi/Madhmoun.
+- Optional **Hijri (Umm al-Qura)** dates next to Gregorian dates (Settings → Company).
+- Money defaults (new leads, deals, offers, expenses, listings, imports) follow the company currency instead of AED.
+- ZATCA e-invoicing, Ejar and Nafath are not part of the community edition.
+
+#### Upgrade notes
+- Nothing changes until an admin enables e-invoicing; existing invoices are unaffected.
+
+### KYC/AML, WhatsApp broadcasts and two-factor authentication (#87) — migrations `0075`–`0077`
+
+**Two-factor authentication**
+- Optional per user, with an authenticator app (TOTP, RFC 6238): turn on from Settings with a QR code; 8 single-use backup codes (stored hashed); turning it off needs the password and a code.
+- Every sign-in path (password, magic link, SMS code) answers with a short-lived pending token instead of a session when a second factor is needed; `POST /auth/verify-totp` exchanges it with a code or a backup code. A code cannot be used twice. Five wrong codes lock the account for 15 minutes (the same lock as wrong passwords).
+- Admins can require two-factor for the whole company (Settings → Security); users without it set it up at their next sign-in. Admins can reset a user's two-factor (lost phone).
+- Secrets are encrypted at rest with AES-GCM; set `TWO_FACTOR_KEY` (otherwise derived from `JWT_SECRET`).
+
+**KYC and AML (record keeping and workflow; no automatic compliance decisions)**
+- Identity documents per contact (Emirates ID, passport, residence visa, trade licence; number, issuing country, dates, a private copy), risk rating with reason, PEP flag, and screening result entered by hand. A screening-provider interface (`kyc.Screener`) is available; none is bundled.
+- Beneficial owners of corporate clients (organisations), with their KYC status.
+- Alerts before a client's identity document expires.
+- **A deal cannot be marked won** while the buyer has no valid Emirates ID or passport on file, unless an admin overrides it with a reason (audit-logged).
+- Deals record their payment method (cash, cheque, transfer, virtual assets, mixed) and cash part. Cash at or above the configured threshold (AED 55,000 by default) or payment in virtual assets sends the deal to the **AML review queue** (Compliance page), where the decision (no report / reported, with the goAML reference) is recorded. A CSV export gathers what a goAML report needs; it is not a goAML XML submission.
+- A **compliance** role: reads like a viewer, plus the KYC and AML screens. Viewing identity documents and the AML queue is audit-logged.
+
+**WhatsApp**
+- **Broadcasts** of an approved template to a segment (lead tag, stage, source, listing interest), only to contacts who granted WhatsApp consent; the others are recorded as skipped. Sent by a background job at a configurable rate per minute, with per-recipient delivery status from Meta's receipts. Consent is checked again just before each message.
+- Replying **STOP / إيقاف** (or UNSUBSCRIBE, إلغاء الاشتراك) records a WhatsApp opt-out and confirms it; **START / اشتراك** opts back in. Only whole-message replies count.
+- Inbox: the **24-hour customer-service window** is shown on each conversation, and free-form messages outside it are refused with a clear message (an approved template is needed); conversations can be **assigned** to an agent.
+- **Business-hours auto-reply**: weekly hours in the company timezone plus special periods (Ramadan hours, holidays); outside them a customer's message gets the auto-reply, at most once every 12 hours per conversation. Settings → WhatsApp Inbox.
+
+#### Upgrade notes
+- Set `TWO_FACTOR_KEY` to a long random value before anyone turns on two-factor, and keep it stable.
+- Existing deals have no payment method recorded and are not flagged until one is set.
+
+### Property management (#86) — migration `0074`
+
+**Post-dated cheque register**
+- Cheques per lease: number, bank, drawer, amount, date, and an optional scan (JPEG, PNG or PDF, kept in the bank statement store). Status: in hand (`received`) → `deposited` → `cleared`, or `bounced`; also `on_hold`, `returned` and `replaced`. Every change is audit-logged.
+- **Cheque schedule:** `POST /leases/:id/cheques/schedule` (or `cheque_schedule` in the lease-creation body) splits the rent for the lease term over N cheques at equal month intervals, numbered upwards from the first cheque number, and creates a pending payment for each. A 12-cheque lease gets 12 cheques and 12 payments; rounding goes to the last cheque.
+- A cleared cheque marks its payment received (with the clearing date); a bounced cheque marks it failed, notifies the lease's agent and the admins, and can add a returned-cheque charge as a new payment. A replacement cheque pays the same payment.
+- **Cheque register** (`/cheques`): cheques to deposit today, in the next 30 days, awaiting clearance, or bounced, with totals and bulk "mark deposited". A daily digest of the cheques to deposit goes to each lease's agent and the admins (`cheque_deposits` job).
+
+**Lease alerts and notices**
+- Leases have an **agent** (defaults to whoever created the lease) and an **Ejari expiry**.
+- Alerts to the agent and the admins, once per threshold: before a lease ends (by default 120, 90, 60 and 30 days, configurable), two weeks before the last day to serve a rent-change notice when none has been recorded (90 days before the end by default, configurable), and 30 and 7 days before (and once after) the Ejari registration expires (`lease_alerts` job). Clicking the notification opens the lease.
+- **Notices to the tenant** (rent change, renewal terms, non-renewal, other): drafted in English and Arabic from the lease, edited, saved, printed side by side, and recorded as served (when and how: email, WhatsApp, by hand, registered mail, notary). The drafts are a starting point, not legal advice.
+- "Start renewal" on the lease page opens the existing renewal workflow. Its renewal date is now the day after the lease ends (it was "today + 90 days").
+
+**Rent reminders**
+- When switched on (Settings → Property Management), tenants are reminded by email and WhatsApp a few days before rent is due (3 by default) and once when it is late, between 9:00 and 20:00 local time (`rent_reminders` job). WhatsApp uses an approved template with four parameters (tenant name, amount, due date, property).
+- Not sent for payments covered by a cheque in hand, to tenants switched off on the lease page, or on a channel the tenant opted out of as a contact (matched by phone or email). Skipped and failed reminders are recorded and shown on the lease page.
+- This replaces the no-op `PaymentReminderService` stub; the `payment_reminders` table it expected is created by this migration.
+
+**Other**
+- The lease page loads its own payments (`GET /leases/:id/payments`); it used to filter the first 100 payments of the company.
+- Notifications open the record they are about (lease, task, listing…).
+
+#### Upgrade notes
+- Existing leases get their creator as agent. Rent reminders are off until an admin switches them on.
+- Notice periods and alert days are defaults for Dubai: check the rules that apply to your emirate.
+
+### Brokerage workflow (#85) — migrations `0070`–`0073`
+
+**Tasks and follow-ups**
+- Tasks (call, meeting, viewing, to-do, follow-up) with a due date, priority and assignee, linked to a lead, contact, deal, listing, viewing or offer. A **Tasks** page (mine / all / overdue), task panels on contact, deal and listing pages, and an overdue widget on the dashboard.
+- The assignee is reminded (in-app, live, and by email when mail is configured) about 15 minutes before a task is due, once; moving the due date or the assignee re-arms the reminder (`task_reminders` job).
+
+**Contacts**
+- Contact profile: secondary phones, nationality (ISO country), source, preferred contact time, address, job title, notes, and an **organisation** (B2B companies with trade licence and TRN; `/organisations`).
+- **Custom fields** for contacts, leads, deals and listings (text, number, date, select, yes/no), managed under Settings → Custom Fields, validated on save, and included in CSV import/export as `cf_<name>` columns. The tables existed since `0030` but were never wired up.
+- **Duplicate detection and merge** (`GET /contacts/duplicates`; `POST /contacts/merge`, admin only): contacts sharing an email, a name, or a phone are grouped; merging moves leads, offers, viewings, conversations, consent history, tasks and custom values to the contact you keep.
+
+**RERA forms (Dubai)**
+- Pre-filled **Form A** (seller/landlord – broker), **Form B** (buyer/tenant – broker), **Form I** (broker – broker) and **Form F** (MOU between seller and buyer) from the company, listing, agent, contact and offer. Each form is stored as a document, printable in English and Arabic, and can be sent for e-signature through the existing signing link. Form F is offered on accepted offers.
+- These are agreement records with the forms' key fields, not the official DLD templates, and nothing is submitted to the DLD. Check the current official forms before relying on them.
+
+**Property portals**
+- **Lead webhook** per portal (Property Finder, Bayut, Dubizzle, or any other): `POST /webhooks/portals/:portal?token=…`. The contact is matched or created by phone, the lead gets the portal as its source, a listing reference is noted on the lead, lead rotation assigns it, and `lead.created` is delivered to webhook subscribers. A lead delivered twice is created once.
+- **Listing feed** per portal: `GET /api/public/feeds/:portal/listings.xml?token=…` lists published listings with photos, agent (with BRN) and company (with ORN). Listings whose advertising permit is missing or expired are left out.
+- Tokens are created, rotated, paused and revoked under **Settings → Property Portals** (admin); they are stored hashed and shown once.
+- The portals' own lead and feed formats are not public. The webhook recognises common field names, and the feed uses a documented, generic XML format (`masaar-listings/1`). Mapping to a portal's exact schema is left for contributors with access to its documentation.
+- **Lead-source report** (`GET /reports/lead-sources`, Reports → Lead Sources): leads, wins, conversion and won deal value by source for a date range.
+
+**Calculators**
+- Buyer's purchase costs (DLD transfer fee, admin and trustee fees, commission, mortgage registration and bank fees), mortgage repayment, rental yield (gross and net) and commission with VAT. The rates are editable and remembered in the browser. Results can be printed or shared on WhatsApp. Linked from listings and offers. The default rates are indicative and should be checked against current DLD fees and the bank's offer.
+
+#### Upgrade notes
+- Set `PUBLIC_API_URL` to the API's public address (for example `https://api.crm.example.ae`) so the portal URLs shown to admins are correct behind a proxy. When it is empty, the address of the incoming request is used.
+- Migration `0071` deletes custom field values whose definition no longer exists, and keeps one value per field and record.
+
+### UAE compliance core (#84) — migrations `0067`–`0069`
+
+**Tax invoices**
+- Invoices have **line items** with a VAT category each (standard, zero-rated, exempt, out of scope), VAT computed and rounded per line under the company's country rules, and stored totals (no longer generated columns).
+- The supplier (name, address, TRN) and customer (name, address, TRN for B2B) are **captured when the invoice is issued** and never change afterwards. The customer defaults to the deal's contact.
+- **Credit notes** (`CN-YYYY-NNNN`) against an invoice, in full or in part. An invoice can never be credited beyond its total, also under concurrent requests. Invoices show what has been credited and what is outstanding.
+- **Void** with a reason (not for paid documents, nor for invoices with credit notes). A void document never changes again.
+- **Gap-free numbering** per company, document kind and year, taken inside the issuing transaction (the previous `MAX()+1` could hand two requests the same number).
+- A company **without a TRN** can only issue invoices without VAT (out of scope), which are titled "Invoice" rather than "Tax Invoice".
+- A **printable bilingual (English | Arabic) invoice** page (`/invoices/<id>/print`, "Print / Save as PDF"), with a VAT summary per category. Server-side PDF generation remains a Pro feature.
+- The legacy `POST /invoices {deal_id, subtotal}` body still works (one standard-rated line).
+
+**RERA licences and advertising permits**
+- Company: RERA office number (ORN), trade licence number and expiry. Users: broker registration number (BRN) and expiry (`PATCH /users/:id/brn`).
+- Listings: advertising permit number, expiry and QR image. In Dubai (Trakheesi) and Abu Dhabi (Madhmoun) a listing needs a valid permit before it can be **published, shared on its public page, emailed in a campaign, or given a QR code**. An admin can allow it anyway with a reason (`POST /listings/:id/permit-override`, audit-logged).
+- The public listing page shows the permit number and QR; a listing whose permit has lapsed disappears from it.
+- **Expiry alerts** 30 and 7 days before (and once after) a listing permit, BRN or trade licence expires, to the person concerned and the company's admins.
+
+**PDPL**
+- **Consent per channel** (WhatsApp, email, SMS, phone) with full history: recorded from the contact page, when creating a contact, from the public lead form (`"consent": {"whatsapp": true}`) and from CSV imports (`consent_whatsapp`, `consent_email`, …).
+- **Opt-outs are enforced**: WhatsApp messages, templates and media, single emails and listing email campaigns are refused (or skipped) for contacts who opted out.
+- **Data-subject export** (`GET /contacts/:id/export`, admin): everything held about a contact as one JSON file.
+- **Erasure** (`POST /contacts/:id/erase`, admin, confirmation required): anonymises the contact and removes personal data from conversations, notes, emails and stored attachments; issued invoices are kept as tax records. Audit-logged.
+- **Retention**: a daily job deletes bank statements (and their files), documents and payment confirmations whose `retention_until` has passed.
+
+**Fixed**
+- Changing a listing's status (`PATCH /listings/:id/status`) and reviewing an approval request always answered 500: both read the user id with the wrong type.
+- Approving a listing approval request now publishes the listing (previously nothing did, so with listing approval switched on a listing could never be published). `published_at` is set when a listing is published.
+- `PATCH /listings/:id` could change the status directly, bypassing approval; status changes now only go through the status endpoint.
+- Creating a listing failed (NOT NULL violation) unless the client sent `portal_sync_status`, which the web form never does.
+
+#### Upgrade notes
+- Migration `0067` converts existing invoices: each gets one line for its deal, the deal's currency, the current company details as supplier and the deal's contact as customer. Numbering continues after the highest existing `INV-YYYY-NNNN`.
+- Dubai and Abu Dhabi listings that are already published keep their status but cannot be re-published, shared or campaigned until a permit is entered (or an admin overrides).
+
+### Foundations (#83)
+
+Foundations for the UAE-launch roadmap (#82, milestone #83). Includes migrations `0065` and `0066`.
+
+### Added
+- **Background jobs.** A scheduler runs inside the API (`internal/jobs`). Each job is claimed in the database before it runs, so with several replicas it still runs once per interval, and a lease stops a slow run from being started twice. Runs that handled something or failed are logged per company for 30 days and listed under **Settings → Background Jobs** (`GET /api/v1/admin/jobs/runs`). Set `JOBS_ENABLED=false` to keep a process from running jobs.
+  - **Viewing reminders:** the assigned agent is notified (in-app, live, and by email when mail is configured) up to an hour before a viewing, once. Rescheduling a viewing re-arms its reminder.
+  - **Offer expiry:** submitted or under-review offers past `valid_until` become `expired` and the agent is notified.
+- **Country rules** (`internal/jurisdiction`): VAT rates and categories, currency and its decimals, timezone, weekend days, regions (emirates) and tax-number format, per country. Only the UAE is defined so far.
+- **Company country, emirate, currency and timezone** (Settings → Company). `GET /api/v1/settings/locale` (every role) and `GET /api/v1/settings/jurisdictions`. The web app formats amounts in the company currency and dates in the company timezone instead of hard-coded AED/Asia/Dubai.
+
+### Changed
+- **Money columns hold 3 decimals** (`NUMERIC(p+1,3)`), so BHD, KWD and OMR amounts are stored exactly. Existing values are unchanged. Invoices keep 2 decimals until the invoice model is reworked (#84).
+- The company VAT number (TRN) is **optional** (businesses below the registration threshold have none); when given it must have 15 digits.
+
+### Fixed
+- **Settings → Company never loaded or saved.** The page used field names the API does not have (`company_name`, `address`, `iban`, …) and read a `data` wrapper the API never returns, so the form stayed empty and every save failed. It now uses the API's fields.
+- Notifications created without an id (e.g. "viewing scheduled") were all inserted with the nil UUID, so every one after the first failed silently.
+
+### Upgrade notes
+- Migration `0066` rewrites the tables that hold money columns (deals, leads, leases, payments, listings, offers, …). On a large database, run it in a maintenance window.
+- A company whose stored VAT number is not 15 digits must correct it the next time it saves company settings.
+
 ## [v0.3.4] - Unreleased
+
+### BOS24 marketplace integration retired
+- **Removed** the BOS24 (BuyOrSell24) marketplace sync, which was a stub in this edition: `POST /webhooks/bos24`, `GET|PATCH /api/v1/settings/bos24-integration`, `POST /api/v1/settings/bos24-integration/register|sync`, the "BOS24 Sync" settings page and the `bos24_integration_settings` table.
+- **Imported ids kept, under the generic names.** Migration `0082` moves `leads.bos24_inquiry_id` to `external_source = 'bos24'` + `external_ref`, and `listings.bos24_listing_uuid` to the same new pair on listings (unique per company; portal publishing will use it). Its down migration restores the old columns.
+- New leads can no longer be created with source `bos24` (existing ones keep it).
+- **Not changed yet:** the market-data endpoints (`/api/v1/properties/*`, Properties and Map pages) still run on the stub client and answer `503`; a dldapi client will replace it.
+- **README** corrected: Go 1.26, Docker Compose instead of "single binary", the market-data section describes the stub, no "resets every 24 hours" or "immutable" claims.
+- **Market data is now credited to Waqov** (https://waqov.com/) instead of BuyOrSell24: settings page, DEVELOPER.md and developer page, API doc comments. `BOS24_BASE_URL` now defaults to `https://dldapi.waqov.com`. The `BOS24_*` env var names are unchanged so existing configs keep working.
+
+### Lead intake hardening (`POST /webhooks/leads`)
+- **Idempotent pushes.** Optional `external_source` + `external_ref` identify a lead in the system that sends it. The same pair again returns the existing lead (`200`, `"duplicate": true`) instead of creating a second one, so a sender can retry safely. Unique per company. Adds migration `0079`.
+- **New source `portal`** for leads from listing portals and marketplaces; it requires `external_source`.
+- **Breaking:** an unknown `source` is now rejected with `422` instead of silently stored as `web`.
+- **Suspended companies.** An API key whose company is suspended now gets `403 account_suspended` (previously the key kept working).
+- **One de-duplication for pushed leads.** Portal webhooks (`/webhooks/portals/:portal`) now record the portal's lead id on the lead (`external_source` = the portal, `external_ref` = its id) instead of the separate `portal_leads` claim table, which is dropped after its rows are copied onto their leads (migration `0080`). A redelivered portal lead returns `{"duplicate": true, "lead_id": …}`.
+- **Audit log.** Leads created by API key are now audited, with the key recorded in the new `audit_logs.api_key_id` (previously API-key actions wrote no audit entry at all).
 
 ### Security / bug / performance audit
 - **Security — email header injection and sender spoofing.** `to_email`/`subject` were written straight into the SMTP headers, so a CR/LF could smuggle `Bcc:` headers or body content, and `POST /emails/send` accepted a client-chosen `from_email`. Recipients are now validated, header values containing CR/LF are refused, the sender is always the configured account, and subjects are RFC 2047-encoded (Arabic subjects no longer arrive garbled).
@@ -24,6 +201,59 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Bank statements are actually stored.** Upload used to record metadata and discard the file. Files are now kept under `BANK_STATEMENT_DIR` (default `./data/bank-statements`, on the Docker `/app/data` volume; `BANK_STATEMENT_MAX_MB`, default 10) under random names, content-checked against the extension, and served only through the new authenticated, company-scoped `GET /bank-statements/:id/download` (forced download, `nosniff`). Deleting a statement removes the file and keeps the audit row. Adds migration `0063`. Also fixes `GET /bank-statements` (list and detail) failing with a scan error once any statement existed (`import_error` is NULL), and `upload_date` being saved as year 0001.
 - **QR codes no longer trust the `Host` header.** The listing QR now encodes `APP_URL/l/<id>` instead of whatever host the request claimed (the old URL also pointed at the API rather than the public page).
 - **Outbound webhooks use a bounded worker pool** (8 workers, 1024-event queue; overflow is dropped and logged) instead of a goroutine per event, serialise the payload at dispatch time, cancel retries on timeout, reuse connections, and drain in-flight deliveries on shutdown.
+- **Login / sign-up fixes.**
+  - **Password reset and invite links never worked from the web app.** The reset page sent `password` but the API reads `new_password`, so every attempt failed validation. (A reset also now clears the failed-login lockout, so the new password works immediately.)
+  - **Sign-up always failed when Cloudflare Turnstile was enabled on both web and API.** The page redeemed the single-use token itself before the API did, so the API's own check got "duplicate". The API now does the only verification.
+  - **Registering an email that differed only in case/whitespace** passed the uniqueness check, created a company, then failed with a 500 and left that company behind (and mixed-case input was never validated as an email). Sign-up is now one transaction under an advisory lock: emails and subdomains are normalised and validated (3-40 chars, `a-z0-9-`, reserved names refused), duplicates are a clean 409, concurrent sign-ups cannot both become "first user", and nothing is left behind on failure. Passwords over 72 bytes are a 400 instead of a 500, and a Redis failure storing the refresh token is no longer ignored.
+  - **Account enumeration via lockout.** The "account locked" response (429) only ever appeared for registered emails; unknown emails are now counted and locked the same way.
+  - **SMS OTP** is only sent to registered, active numbers (it used to text any number: SMS-pumping cost and spam), and the per-phone/per-email limits for SMS, magic link and password-reset email are now atomic (concurrent requests could all pass a read-then-increment check).
+  - **Magic-link and SMS sign-in** reported `days_remaining: 0` (hiding the trial banner), ignored suspended workspaces and expired trials; they now use the same company checks as password login, and `/auth/refresh` returns the company so plan/trial state no longer goes stale. `/auth/refresh` also now returns the user's phone.
+  - Removed `UserRepo.InviteUser` (unused, and it could not have worked: it inserted a token for the nil user id).
+- **Lead audit.**
+  - **Lead rotation never assigned anything.** `AssignNewLead` was never called, so enabling round-robin/capacity only affected the manual "auto-assign" button. New leads from the API, the public intake endpoint, CSV import and AI auto-create are now assigned when rotation is on.
+  - **`PATCH /settings/lead-rotation` reset what it did not mention** (`{"mode":"capacity"}` disabled rotation and zeroed the cap); absent fields now keep their value, a negative cap is refused, and saving no longer rolls the round-robin counter back. Auto-assign reports "rotation not enabled" / "no active agents" instead of "upstream service unavailable", and no longer consumes an agent's turn for a lead that does not exist.
+  - **Stage / notes / assign changes on a missing, deleted or other-company lead returned 200**, and a stage move still fired the `lead.stage_changed`/`lead.won`/`lead.lost` webhooks, WebSocket event and scoring for it. They now return 404 and fire nothing. Assigning to a viewer, an inactive user or another company's user is a 422 instead of a silent no-op.
+  - **Stage moves** are atomic and report the previous stage: moving a lead to the stage it is already in is a no-op (no duplicate webhooks, `closed_reason` untouched), a reason is only kept on won/lost stages and is cleared when a lead is reopened, and `lead.won`/`lead.lost` follow the pipeline stage's `is_won`/`is_lost` flags (custom-named closing stages never fired them). Stage changes and assignments are now audit-logged and assignments are broadcast to other users.
+  - **Creating leads**: a new lead starts in the company's default pipeline stage (and must use a real stage), `source` defaults to `web` (an empty source used to fail the DB CHECK), currency must be a 3-letter code (longer ones were a 500) and is upper-cased, `deal_value` must be 0–9,999,999,999.99, notes are capped at 10,000 characters.
+  - **Public intake (`POST /webhooks/leads`)**: every submission reset an existing contact's language to Arabic (the default was always "provided") and could overwrite its email; it now only fills a missing email and only applies a language the caller actually sent (validated `ar`/`en`, email format checked). A retry or double-submit within 10 minutes returns the existing lead (`200`, `duplicate: true`) instead of creating another. Currency/deal value are validated like the main API.
+  - **CSV lead import** validated rows after creating their contact (rejected rows left orphan contacts), silently turned an unparsable `deal_value` into 0 and passed bad currencies through to a 500; it now validates the whole row first and reports each problem.
+  - Searching leads or contacts for `%` or `_` treated them as wildcards (e.g. `%` matched everything); they now match literally. AI auto-create ignores budgets the column cannot hold, and `GET /leads/:id/communications` returns `[]` instead of `null`.
+- **Contacts / deals / invoices audit.**
+  - **Deleting a contact silently deleted its leads, deals, offers, viewings and WhatsApp conversations** (all `ON DELETE CASCADE`), and a contact whose deals had invoices failed with a confusing 422. `DELETE /contacts/:id` now answers 409 with the counts of what would go unless `?force=true`, always refuses when invoices exist, and returns 404 for an unknown id (it said 204). The contact page asks for a second confirmation listing the records.
+  - **A deal with a close date could not be edited from the web app.** `GET` returns `close_date` as a timestamp, the page sent it straight back, and `PATCH` only accepted `YYYY-MM-DD` (400). Both formats are accepted, `""` clears the date, and the page now uses the date part.
+  - **Contact PATCH could not clear an email or unassign a contact** (empty/`null` were treated as "not provided"); both work now. Contacts validate name, email, language (`ar`/`en`, the column is `varchar(2)` so other values were a 500) and lead score (0–100); assignees must be active admins/agents; client-supplied ids/timestamps are ignored; a legacy invalid value no longer blocks an unrelated edit.
+  - **Deals**: probability can be 0 (it was forced to 50), won/lost stages set probability to 100/0 and a close date, so weighted forecasts are right; stage/delete of a missing deal is 404 (was 200/204), deleting a deal with invoices is a clear 409, invalid `owner_id`/`stage` filters are 400, title/amount/currency are validated, deals cannot be added to a deleted lead, and the deal's invoice list is `[]` (not `null`) and 404 for an unknown deal.
+  - **Invoice numbers** (`INV-YYYY-NNNN`): the number was computed in one query and inserted in another, so two invoices created together got the same number and one failed; and the next number was read from the last four characters, so the 10,000th invoice of a year became `1000` (duplicate) and any unparsable number broke numbering. Numbering and insert now happen in one transaction under a per-company lock, and 5+ digit numbers work. Sending an invoice only works from draft (re-sending a paid invoice flipped it back to "sent"), unknown invoices are 404, subtotals are rounded to fils and bounded, and PDF filenames are sanitised.
+- **Listings / properties / approvals audit.**
+  - **Changing a listing's status always failed (500)** and **no approval request could ever be reviewed (500)**: both handlers read the user id from the request as a string, but it is a `uuid.UUID`, so they panicked. The whole publish/approve workflow was unusable.
+  - **Approving a request never published the listing** (it only flipped the request). Approval now publishes the listing in the same transaction; a request can be reviewed once (409 afterwards, 404 if unknown), and asking to publish again while one is pending reuses it instead of piling up duplicates.
+  - **Approval bypass.** `PATCH /listings/:id` and `POST /listings` accepted `status` from the client, so a listing could be published without approval. Status now changes only through `/listings/:id/status`; creating with `status: published` publishes only when no approval is required.
+  - **Creating a listing failed with "invalid data"** unless the client sent `portal_sync_status` (NOT NULL jsonb sent as NULL), and **editing one failed to parse** whenever the date field was empty (the form sends `available_from: ""`). `published_at` was never set; it now is. The body can no longer overwrite the listing's id (which redirected the update to another listing), company or audit fields.
+  - **Validation** for listings (type, listing type, price > 0, currency, coordinates, counts, lengths) and rental properties (type, status, occupancy, units/occupied, money, lengths). Rental properties stored zero values literally (status `''`, currency `''`, 0 units) because the INSERT bypassed the column defaults; defaults are now applied. Updates now persist currency, purchase price and purchase date (the response claimed they were saved). Over-long values anywhere are a 422 instead of a 500.
+  - **Deleting** a listing silently deleted its offers (cascade); it now needs `?force=true` when offers exist (the listing page asks). Deleting a rental property that has leases or expenses is a clear 409 instead of a confusing 422; unknown ids are 404 instead of 204. Listing assignees must be active admins/agents. The listing page now says "sent for approval" instead of "status updated" when publishing needs approval.
+- **Tenants, leases, payments and renewals audit.** Adds migration `0081`.
+  - **Leases could not be read back.** `termination_reason` is NULL until a lease is edited and was scanned into a plain string, so `GET /leases/:id` (and therefore every `PATCH`, the lease page, renewals, payment confirmations) failed with "lease not found" for every freshly created lease. Nullable text columns are now coalesced.
+  - **Tenants: verification cannot be forged.** `is_verified`/`verification_*` were taken from the create/update body, so any agent could create or edit a tenant as "verified"; only `POST /tenants/:id/verify` sets them (and now stamps `verification_date`). `id_number` uniqueness was global, so one company's tenant blocked another company's; it is now unique per company (a duplicate is a 409), as are bank-transaction external ids. ID type, employment and status are validated (both the web form's and the API's vocabulary are accepted); empty date inputs no longer fail to parse; deleting a missing or referenced tenant is a 404/409 instead of a silent 204/500.
+  - **Leases: validation and double-booking.** End must follow start (max 20 years), rent must be positive, fees/percentages/day-of-month/notice are range-checked, frequency and status are validated (a lease can only be created `active`), and an active lease overlapping another on a single-unit property is a 409 (also on re-activation). Editing a lease no longer rewrites its property, tenant, term or currency (the response used to echo values that were never saved); terminating stamps `termination_date`; a body `id` can no longer redirect an update. Leases that have payments cannot be deleted (409, terminate instead).
+  - **Payments.** `GET /payments?lease_id=` filters on the server (the lease page used to fetch the first 100 payments of the whole company and filter in the browser, so older leases looked empty). Amounts must be positive, dates/method/status are validated, a "received" payment gets `paid_date`, the currency always follows the lease, and the reconciliation fields (`bank_transaction_id`, `reconciled_*`) are no longer client-writable. Updates cannot move a payment to another lease.
+  - **Lease templates.** Validated like leases, only one default per company (a new default demotes the old one; `GetDefault` is deterministic), ids in the body are ignored, deleting an in-use template is a 409 and a missing one a 404.
+  - **Renewals.** The renewal date is the lease's end date (it was "90 days from now"), only active leases can be renewed, starting a second renewal is a 409, accepted/rejected renewals are final, proposed and counter amounts must be positive, and sending an offer without a template no longer marks the renewal "offer sent" and then fails on a zero-UUID foreign key.
+- **Payments, invoices and bank integrations audit.**
+  - **Invoices could not be read back.** `qr_payload` is NULL on every new invoice and was scanned into a plain string, so `GET /invoices`, `GET /invoices/:id`, the invoice PDF and a deal's invoice list all answered 500 as soon as one invoice existed. Fixed (the invoices page was effectively empty).
+  - **Invoice status.** A sent or paid invoice can no longer be set back to draft (409), `?status=` now filters on the server (the page filtered only the 50 rows it had fetched), lookups of a missing invoice are 404 and other errors are no longer reported as "not found", and the PDF endpoint answers 501 in this edition instead of a generic 500.
+  - **Bank integrations could not be read back either** (`last_sync_error` NULL), and they accepted anything: empty status/type, a zero sync interval, plain-http endpoints, junk IBANs. They are now validated (type manual/api/file_import, status, 1-720 h interval, https endpoint, IBAN shape), `is_connected`, sync state and an `id` in the body are ignored on update (the id used to redirect the update to another integration), and deleting an integration that has statements is a 409 (it used to cascade-delete the uploaded statements and orphan their files); a missing one is a 404.
+  - **Financial analytics always failed.** `GET /analytics/financial` selected `expenses.category_type`, a column that does not exist; it now joins the category, ignores soft-deleted expenses and also returns `rent_overdue`.
+  - **Overdue rent was always zero.** Nothing ever sets a payment's status to `overdue`, so the dashboard counts and amounts were 0; a pending payment past its due date now counts as overdue (and no longer as pending) in the tenant and financial analytics.
+  - **Payments.** A payment matched to a bank transaction can no longer have its amount or status changed or be deleted (409); a pending/overdue payment drops any paid date; the payment-method error lists the accepted values.
+  - **Payment confirmations** answered 201 with `null` when nothing was sent (the community edition's service is a no-op). They now check the payment exists in the company (404) and is received (409), and answer 501 when the edition cannot send one.
+- **Expenses, maintenance and inspections audit.**
+  - **Expenses could not be created from the web app.** The form posts a date-only `expense_date` and `""` for "no property", neither of which the handler could decode, so every create answered 400. Both are accepted now; the amount (> 0, whole fils), description, date, payment method/status and receipt URL (http(s) only) are validated, categories and properties must belong to the company (422, was 500), and a duplicate category name is a 409.
+  - **Expense edits** can now change more than amount/description/status (category, date, vendor, method, receipt, notes); an approved expense's amount is locked; approving a missing expense is a 404, approving twice a 409 (was 500) and the web client's body-less approve works (it used to be "invalid request body"); deleting a missing expense is a 404.
+  - **Maintenance tasks.** Date-only dates and `""` references are accepted (the DATE columns could not be filled from a form); type, priority, status, description and costs are validated; a missing property/assignee is a 422 (was 500); completing through `PATCH` sets the completion date and re-opening clears it; a task can be completed only once and a closed task is not editable unless re-opened; `POST .../complete` with no body (what the web client sends without a cost) no longer answers 400; the list sorts by real priority (urgent, high, medium, low) instead of alphabetically; deleting a missing task is a 404.
+  - **Photo links** (maintenance photos, inspection photos) must be http(s) or site-relative: a `javascript:`/`data:` URL used to be stored and rendered as a link. Photos can only be added to (and read from) an existing task.
+  - **Inspections.** Type, status, severity, schedule date and checklist results are validated, optional references may be `""`, a missing property/template/inspector is a 422 and a missing inspection a 404 (both were 500), completing twice no longer rewrites the completion time (409), and an empty `photos_urls` clears the photos. Template names are unique (409) and templates are validated (type, duration, checklist items).
+  - **Properties with maintenance tasks or inspections can't be deleted** (409); neither table has a foreign key to the property, so they were left orphaned.
+  - **`GET /analytics/maintenance` returned the wrong numbers** (average completion days and the high-priority count were scanned from each other's columns, and the average into an int, which fails for fractional values); it now counts open high-priority work and ignores soft-deleted tasks.
 - **Performance / robustness** — SMTP connections have connect and overall timeouts (a stalled relay used to hang the request forever); `last_used_at` on API keys is written at most once a minute instead of on every call; `GET /leads/search` (`limit` ≤ 200) and `GET /leads/:id/communications` (`limit` ≤ 500) can no longer be asked for an unbounded result.
 
 WhatsApp attachments (follow-up to v0.3.3). Includes migration `0062`.

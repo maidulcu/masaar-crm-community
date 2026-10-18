@@ -7,7 +7,8 @@ import { api } from '@/lib/api'
 import { isLoggedIn } from '@/lib/auth'
 import { useAuthStore } from '@/store/auth'
 import { useLang } from '@/context/LangContext'
-import type { LoginResponse } from '@/types'
+import type { LoginResponse, TwoFactorPending } from '@/types'
+import TwoFactorStep from '@/components/auth/TwoFactorStep'
 type LoginMode = 'password' | 'magic-link' | 'sms'
 
 const TURNSTILE_SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? ''
@@ -45,6 +46,20 @@ export default function LoginPage() {
     if (token && isLoggedIn()) router.replace('/pipeline')
   }, [token, router])
 
+  const [pending, setPending] = useState<TwoFactorPending | null>(null)
+
+  // A sign-in answers with a session, or, when a second factor is needed, a pending token.
+  const finish = (res: LoginResponse | TwoFactorPending) => {
+    if ('two_factor_required' in res && res.two_factor_required) {
+      setPending(res)
+      return
+    }
+    const r = res as LoginResponse
+    setSession(r.access_token, r.user, r.company)
+    if (r.user.lang_pref) setLang(r.user.lang_pref)
+    router.push('/pipeline')
+  }
+
   const checkTurnstile = async (): Promise<boolean> => {
     if (!TURNSTILE_SITE_KEY) return true
     if (!turnstileToken) {
@@ -67,10 +82,7 @@ export default function LoginPage() {
     setLoading(true)
     try {
       if (!await checkTurnstile()) return
-      const res = await api.auth.login(email, password) as LoginResponse
-      setSession(res.access_token, res.user, res.company)
-      if (res.user.lang_pref) setLang(res.user.lang_pref)
-      router.push('/pipeline')
+      finish(await api.auth.login(email, password) as LoginResponse | TwoFactorPending)
     } catch (err: any) {
       setError(err.message || t('حدث خطأ', 'Something went wrong'))
       turnstileRef.current?.reset()
@@ -84,10 +96,7 @@ export default function LoginPage() {
     setError('')
     setLoading(true)
     try {
-      const res = await api.auth.login('ahmed@masaar.local', 'Demo@1234') as LoginResponse
-      setSession(res.access_token, res.user, res.company)
-      if (res.user.lang_pref) setLang(res.user.lang_pref)
-      router.push('/pipeline')
+      finish(await api.auth.login('ahmed@masaar.local', 'Demo@1234') as LoginResponse | TwoFactorPending)
     } catch (err: any) {
       setError(err.message || t('حدث خطأ', 'Something went wrong'))
     } finally {
@@ -134,10 +143,7 @@ export default function LoginPage() {
     setError('')
     setLoading(true)
     try {
-      const res = await api.auth.verifySMSOTP(phone, otp) as LoginResponse
-      setSession(res.access_token, res.user, res.company)
-      if (res.user.lang_pref) setLang(res.user.lang_pref)
-      router.push('/pipeline')
+      finish(await api.auth.verifySMSOTP(phone, otp) as LoginResponse | TwoFactorPending)
     } catch (err: any) {
       setError(err.message || t('رمز التحقق غير صحيح', 'Invalid OTP'))
     } finally {
@@ -180,7 +186,11 @@ export default function LoginPage() {
           </p>
         </div>
 
-        {!showLogin ? (
+        {pending ? (
+          <div className="bg-white rounded-2xl shadow-card border border-surface-200/70 p-8">
+            <TwoFactorStep pending={pending} onSuccess={finish} onCancel={() => { setPending(null); setError('') }} />
+          </div>
+        ) : !showLogin ? (
           <>
             {/* ────── DEMO HERO ────── */}
             <div className="relative bg-white rounded-2xl shadow-card border border-surface-200/70 p-8 text-center animate-scale-in">

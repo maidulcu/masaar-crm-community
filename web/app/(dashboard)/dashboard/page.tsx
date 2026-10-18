@@ -4,6 +4,8 @@ import Link from 'next/link'
 import { Header } from '@/components/layout/Header'
 import { api } from '@/lib/api'
 import { useLang } from '@/context/LangContext'
+import { companyCurrency } from '@/lib/money'
+import TaskList from '@/components/task/TaskList'
 
 interface Stats {
   total_contacts: number
@@ -71,6 +73,15 @@ export default function DashboardPage() {
       <main className="flex-1 overflow-y-auto px-6 py-8 bg-surface-50">
         <div className="max-w-5xl space-y-8">
 
+          <section className="bg-white rounded-2xl border border-surface-200/70 p-5" aria-labelledby="overdue-tasks">
+            <div className="flex items-center justify-between mb-2">
+              <h2 id="overdue-tasks" className="text-sm font-semibold text-surface-900">{t('مهامي المتأخرة', 'My overdue tasks')}</h2>
+              <a href="/tasks" className="text-xs text-primary-600 hover:underline">{t('كل المهام', 'All tasks')}</a>
+            </div>
+            <TaskList filter={{ mine: true, overdue: true }} canEdit compact
+              emptyText={{ en: 'Nothing overdue — well done.', ar: 'لا توجد مهام متأخرة.' }} />
+          </section>
+
           {/* Top row */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
             {loading ? (
@@ -99,7 +110,7 @@ export default function DashboardPage() {
                 <StatCard
                   label={t('صفقات مفتوحة', 'Open Deals')}
                   value={fmt(stats?.open_deals ?? 0)}
-                  sub={stats?.open_deals_value ? `AED ${fmt(stats.open_deals_value)}` : undefined}
+                  sub={stats?.open_deals_value ? `${companyCurrency()} ${fmt(stats.open_deals_value)}` : undefined}
                   href="/deals"
                   color="text-gold-600"
                 />
@@ -119,7 +130,7 @@ export default function DashboardPage() {
                 </div>
                 <div className="text-end">
                   <p className="text-[11px] text-emerald-600 mb-1.5">{t('إجمالي القيمة', 'Total Value')}</p>
-                  <p className="text-xl font-bold text-emerald-700 tabular-nums">AED {fmt(stats?.won_deals_value ?? 0)}</p>
+                  <p className="text-xl font-bold text-emerald-700 tabular-nums">{companyCurrency()} {fmt(stats?.won_deals_value ?? 0)}</p>
                 </div>
                 <div className="w-11 h-11 rounded-2xl bg-emerald-100 text-emerald-600 flex items-center justify-center ms-2 shrink-0">
                   <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
