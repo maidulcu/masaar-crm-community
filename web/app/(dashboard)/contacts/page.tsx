@@ -6,12 +6,15 @@ import { Modal, FormField, FormError } from '@/components/ui/Modal'
 import { Pagination } from '@/components/ui/Pagination'
 import { api } from '@/lib/api'
 import { useLang } from '@/context/LangContext'
+import { useDebounce } from '@/hooks/useDebounce'
 import type { Contact, PaginatedResult } from '@/types'
 import clsx from 'clsx'
 
 export default function ContactsPage() {
   const [result, setResult] = useState<PaginatedResult<Contact> | null>(null)
   const [search, setSearch] = useState('')
+  // Debounce search query by 300ms to reduce backend API calls during rapid typing
+  const debouncedSearch = useDebounce(search, 300)
   const [page, setPage] = useState(1)
   const [loading, setLoading] = useState(true)
   const [showAddModal, setShowAddModal] = useState(false)
@@ -19,17 +22,18 @@ export default function ContactsPage() {
   const [submitError, setSubmitError] = useState('')
   const { lang, t } = useLang()
 
+  // Optimization: use debouncedSearch in load dependency array to avoid triggering API calls on every keystroke
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const data = await api.contacts.list({ search, page, limit: 20 }) as PaginatedResult<Contact>
+      const data = await api.contacts.list({ search: debouncedSearch, page, limit: 20 }) as PaginatedResult<Contact>
       setResult(data)
     } catch {
       setResult(null)
     } finally {
       setLoading(false)
     }
-  }, [search, page])
+  }, [debouncedSearch, page])
 
   useEffect(() => { load() }, [load])
 
@@ -100,7 +104,10 @@ export default function ContactsPage() {
                 <input
                   type="search"
                   value={search}
-                  onChange={(e) => setSearch(e.target.value)}
+                  onChange={(e) => {
+                    setSearch(e.target.value)
+                    setPage(1)
+                  }}
                   placeholder={t('ابحث بالاسم أو الهاتف أو البريد...', 'Search by name, phone, or email...')}
                   className="w-full ps-10 pe-4 py-2.5 border border-surface-200 rounded-xl text-sm bg-white placeholder:text-surface-400 focus:outline-none focus:ring-2 focus:ring-primary-500/40 focus:border-primary-400 transition-shadow"
                 />
