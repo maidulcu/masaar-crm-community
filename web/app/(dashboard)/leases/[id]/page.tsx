@@ -6,9 +6,14 @@ import Link from 'next/link'
 import { Header } from '@/components/layout/Header'
 import { api } from '@/lib/api'
 import { useLang } from '@/context/LangContext'
-import type { Lease, Payment, PaginatedResult } from '@/types'
+import type { Lease, Payment } from '@/types'
 import DocumentAttachmentSection from '@/components/DocumentAttachmentSection'
 import clsx from 'clsx'
+import { companyCurrency } from '@/lib/money'
+import { useAuthStore } from '@/store/auth'
+import ChequePanel from '@/components/lease/ChequePanel'
+import LeaseExtrasPanel from '@/components/lease/LeaseExtrasPanel'
+import LeaseNoticesPanel from '@/components/lease/LeaseNoticesPanel'
 
 const statusColor: Record<string, string> = {
   active:     'bg-green-100 text-green-700',
@@ -28,6 +33,8 @@ const paymentStatusColor: Record<string, string> = {
 export default function LeaseDetailPage() {
   const { id } = useParams<{ id: string }>()
   const { t, lang } = useLang()
+  const { user } = useAuthStore()
+  const canEdit = user?.role === 'admin' || user?.role === 'agent'
 
   const [lease, setLease] = useState<Lease | null>(null)
   const [payments, setPayments] = useState<Payment[]>([])
@@ -37,13 +44,11 @@ export default function LeaseDetailPage() {
     if (!id) return
     setLoading(true)
     try {
-      const [leaseData, paymentsData] = await Promise.all([
+      const [leaseData, leasePayments] = await Promise.all([
         api.leases.get(id) as Promise<Lease>,
-        api.payments.list({ limit: 100 }) as Promise<PaginatedResult<Payment>>,
+        api.leaseOps.payments(id),
       ])
       setLease(leaseData)
-      // filter payments to only this lease
-      const leasePayments = (paymentsData.data ?? []).filter((p) => p.lease_id === id)
       setPayments(leasePayments)
     } catch (err) {
       console.error('Failed to load lease:', err)
@@ -59,7 +64,7 @@ export default function LeaseDetailPage() {
       year: 'numeric', month: 'short', day: 'numeric',
     }) : '—'
 
-  const fmtAmount = (amount: number, currency = 'AED') =>
+  const fmtAmount = (amount: number, currency = companyCurrency()) =>
     new Intl.NumberFormat(lang === 'ar' ? 'ar-AE' : 'en-AE', {
       style: 'currency', currency,
     }).format(amount)
@@ -191,6 +196,10 @@ export default function LeaseDetailPage() {
             </table>
           </div>
         )}
+
+        <LeaseExtrasPanel leaseId={id} canEdit={canEdit} />
+        <ChequePanel leaseId={id} frequency={lease.payment_frequency} canEdit={canEdit} onChange={() => { api.leaseOps.payments(id).then(setPayments).catch(() => {}) }} />
+        <LeaseNoticesPanel leaseId={id} canEdit={canEdit} />
 
         {/* Documents */}
         <div className="bg-white rounded-xl border border-gray-100 p-5">

@@ -8,6 +8,7 @@ import { useLang } from '@/context/LangContext'
 import { useAuthStore } from '@/store/auth'
 import { api } from '@/lib/api'
 import type { Listing, PaginatedResult } from '@/types'
+import { companyCurrency, currencyChoices } from '@/lib/money'
 
 const EMIRATES = ['Abu Dhabi', 'Dubai', 'Sharjah', 'Ajman', 'Umm Al Quwain', 'Ras Al Khaimah', 'Fujairah']
 const PROPERTY_TYPES = ['apartment', 'villa', 'townhouse', 'commercial', 'land', 'studio', 'warehouse', 'office']
@@ -43,7 +44,7 @@ export default function ListingsPage() {
   const [page, setPage] = useState(1)
   const [total, setTotal] = useState(0)
   const [open, setOpen] = useState(false)
-  const [form, setForm] = useState(blank)
+  const [form, setForm] = useState(() => ({ ...blank, currency: companyCurrency() }))
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const limit = 20
@@ -85,7 +86,7 @@ export default function ListingsPage() {
         available_from: form.available_from || null,
       })
       setOpen(false)
-      setForm(blank)
+      setForm({ ...blank, currency: companyCurrency() })
       load()
     } catch (err: any) {
       setError(err.message || t('حدث خطأ', 'Something went wrong'))
@@ -146,6 +147,11 @@ export default function ListingsPage() {
                     <span className={`px-2 py-0.5 rounded text-[11px] font-medium ${STATUS_COLORS[l.status] || 'bg-gray-100 text-gray-600'}`}>
                       {l.status}
                     </span>
+                    {l.permit?.required && !l.permit.valid && !l.permit.overridden && (
+                      <span className="px-2 py-0.5 rounded text-[11px] font-medium bg-red-100 text-red-700">
+                        {l.permit.problem === 'expired' ? t('التصريح منتهي', 'Permit expired') : t('بدون تصريح', 'No permit')}
+                      </span>
+                    )}
                     {l.featured && (
                       <span className="px-2 py-0.5 rounded text-[11px] font-medium bg-gold-100 text-gold-700">
                         {t('مميز', 'Featured')}
@@ -215,9 +221,7 @@ export default function ListingsPage() {
             </FormField>
             <FormField label={t('العملة', 'Currency')}>
               <select className={inputCls} value={form.currency} onChange={e => set('currency', e.target.value)}>
-                <option value="AED">AED</option>
-                <option value="USD">USD</option>
-                <option value="EUR">EUR</option>
+                {currencyChoices(form.currency).map(c => <option key={c} value={c}>{c}</option>)}
               </select>
             </FormField>
           </div>

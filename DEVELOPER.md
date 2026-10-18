@@ -314,7 +314,7 @@ GET  /api/v1/properties/yield-analysis     # Rental yield analysis
 GET  /api/v1/properties/comparables        # Comparable properties
 GET  /api/v1/properties/market-trends      # Market trends
 ```
-> Requires `BOS24_API_TOKEN` configured. See [BuyOrSell24 API](https://data.buyorsell24.com/redoc).
+> Requires `BOS24_API_TOKEN` configured. See [Waqov DLD data API](https://dldapi.waqov.com/#api).
 
 ### WebSocket — Real-Time Notifications
 
@@ -346,7 +346,7 @@ Authorization: Bearer <jwt_token>
 | `OLLAMA_MODEL` | — | `llama3` | Ollama model name |
 | `GEMINI_API_KEY` | AI (Gemini) | — | Google Gemini API key |
 | `GEMINI_MODEL` | — | `gemini-2.0-flash` | Gemini model name |
-| `BOS24_API_TOKEN` | Real estate | — | BuyOrSell24 token |
+| `BOS24_API_TOKEN` | Real estate | — | Waqov data API token |
 | `SMTP_HOST` | Email | — | SMTP server host |
 | `SMTP_PORT` | — | `587` | SMTP port |
 | `SMTP_USER` | Email | — | SMTP username |
@@ -488,13 +488,13 @@ Get API key: https://aistudio.google.com/app/apikey
 
 ## Real Estate Data
 
-The BOS24 integration (BuyOrSell24) provides UAE market data. Optional — all endpoints return 503 if not configured.
+The market-data integration ([Waqov](https://waqov.com/)) provides UAE market data. Optional — all endpoints return 503 if not configured.
 
 **Setup:**
-1. Contact [Dynamic Web Lab](https://dynamicweblab.com/products/real-estate-data-api/) for API token
+1. Get an API token from [Waqov](https://waqov.com/)
 2. Set `BOS24_API_TOKEN` in `.env` or via `PATCH /api/v1/settings/bos24`
 
-**API Docs:** https://data.buyorsell24.com/redoc
+**API Docs:** https://dldapi.waqov.com/#api
 
 ---
 
@@ -607,14 +607,19 @@ Content-Type: application/json
   "notes": "Interested in Marina apartments",
   "deal_value": 500000,
   "property_type": "2BR",
-  "area": "Marina"
+  "area": "Marina",
+  "external_source": "myportal",
+  "external_ref": "enquiry:48213"
 }
 ```
 
-- Requires API key with scope `lead:create`
+- Requires API key with scope `lead:create`; a suspended company's key gets `403 account_suspended`
+- `source` is one of `web`, `referral`, `event`, `whatsapp`, `property_finder`, `bayut`, `dubizzle`, `portal` (default `web`); anything else is `422`
+- `external_source` + `external_ref` (optional, sent together; `portal` requires them) make the push idempotent: the same pair again returns the existing lead with `200` and `"duplicate": true` instead of creating a second one. Unique per company
 - Contact auto-created or matched by phone number
 - Rate limited at 300 req/min (same as WhatsApp webhook)
-- Returns `lead_id`, `contact_id`, `stage`, `source`
+- Returns `lead_id`, `contact_id`, `stage`, `source`, `external_source`, `external_ref`, `duplicate`
+- Each lead created is written to the audit log with the API key as the actor
 
 ### Phase 3 — Outbound Webhooks ✅ Live
 

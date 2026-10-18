@@ -27,13 +27,19 @@ func (r *LeaseRenewalRepo) Create(ctx context.Context, workflow *domain.LeaseRen
 	}
 	workflow.CompanyID = cid // never trust a company id supplied by the client
 	termsJSON, _ := json.Marshal(workflow.ProposedTerms)
-	// The lease must belong to the caller's company.
+	// The lease must belong to the caller's company. Without a renewal date, the renewal
+	// starts the day after the lease ends.
+	var renewalDate *time.Time
+	if !workflow.RenewalDate.IsZero() {
+		renewalDate = &workflow.RenewalDate
+	}
 	return r.conn.QueryRow(ctx, `
 		INSERT INTO lease_renewal_workflows (id, company_id, lease_id, renewal_date, renewal_status, days_before_expiry, proposed_rent_amount, proposed_terms, tenant_response)
-		SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9
-		WHERE EXISTS (SELECT 1 FROM leases WHERE id = $3 AND company_id = $2)
-		RETURNING id, created_at, updated_at
-	`, workflow.ID, workflow.CompanyID, workflow.LeaseID, workflow.RenewalDate, workflow.RenewalStatus, workflow.DaysBeforeExpiry, workflow.ProposedRentAmount, termsJSON, workflow.TenantResponse).Scan(&workflow.ID, &workflow.CreatedAt, &workflow.UpdatedAt)
+		SELECT $1, $2, $3, COALESCE($4::date, l.end_date + 1), $5, GREATEST(l.end_date - CURRENT_DATE, 0), $6, $7, $8
+		  FROM leases l WHERE l.id = $3 AND l.company_id = $2
+		RETURNING id, renewal_date, days_before_expiry, created_at, updated_at
+	`, workflow.ID, workflow.CompanyID, workflow.LeaseID, renewalDate, workflow.RenewalStatus, workflow.ProposedRentAmount, termsJSON, workflow.TenantResponse).Scan(
+		&workflow.ID, &workflow.RenewalDate, &workflow.DaysBeforeExpiry, &workflow.CreatedAt, &workflow.UpdatedAt)
 }
 
 func (r *LeaseRenewalRepo) Get(ctx context.Context, id uuid.UUID) (*domain.LeaseRenewalWorkflow, error) {

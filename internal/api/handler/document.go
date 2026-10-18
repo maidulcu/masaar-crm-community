@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
@@ -11,6 +12,7 @@ import (
 	"github.com/maidulcu/masaar-crm/internal/docusign"
 	"github.com/maidulcu/masaar-crm/internal/domain"
 	"github.com/maidulcu/masaar-crm/internal/repo"
+	"github.com/maidulcu/masaar-crm/internal/rera"
 	"github.com/maidulcu/masaar-crm/internal/safehttp"
 )
 
@@ -18,6 +20,13 @@ type DocumentHandler struct {
 	docs     *repo.DocumentRepo
 	audit    *repo.AuditLogRepo
 	dsClient *docusign.Client
+	rera     *repo.ReraRepo // optional: RERA form contents on the public signing page
+}
+
+// UseRera shows RERA form contents on the public signing page.
+func (h *DocumentHandler) UseRera(r *repo.ReraRepo) *DocumentHandler {
+	h.rera = r
+	return h
 }
 
 func NewDocumentHandler(docs *repo.DocumentRepo, audit *repo.AuditLogRepo, dsClient *docusign.Client) *DocumentHandler {
@@ -263,18 +272,33 @@ func (h *DocumentHandler) SendForSignature(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid id"})
 	}
 
-	d, err := h.docs.GetDocument(c.Context(), docID)
-	if err != nil {
-		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "document not found"})
-	}
-
 	var body struct {
 		SignerName  string `json:"signer_name"`
 		SignerEmail string `json:"signer_email"`
 		UseDocusign bool   `json:"use_docusign"`
 	}
-	if err := c.BodyParser(&body); err != nil || body.SignerName == "" || body.SignerEmail == "" {
+	if err := c.BodyParser(&body); err != nil || strings.TrimSpace(body.SignerName) == "" || strings.TrimSpace(body.SignerEmail) == "" {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "signer_name and signer_email required"})
+	}
+
+	body.SignerName = strings.TrimSpace(body.SignerName)
+	body.SignerEmail = strings.ToLower(strings.TrimSpace(body.SignerEmail))
+
+	if len(body.SignerName) > 200 {
+		return c.Status(fiber.StatusUnprocessableEntity).JSON(fiber.Map{"error": "signer_name is too long (max 200 characters)"})
+	}
+	if len(body.SignerEmail) > 254 {
+		return c.Status(fiber.StatusUnprocessableEntity).JSON(fiber.Map{"error": "signer_email is too long (max 254 characters)"})
+	}
+
+	d, err := h.docs.GetDocument(c.Context(), docID)
+	if err != nil {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "document not found"})
+	}
+
+	ua := c.Get("User-Agent")
+	if len(ua) > 512 {
+		ua = ua[:512]
 	}
 
 	sig := &domain.DocumentSignature{
@@ -284,7 +308,7 @@ func (h *DocumentHandler) SendForSignature(c *fiber.Ctx) error {
 		SignatureFieldName: "signature_1",
 		SignatureStatus:    domain.SignaturePending,
 		IPAddress:          c.IP(),
-		UserAgent:          c.Get("User-Agent"),
+		UserAgent:          ua,
 	}
 
 	// DocuSign flow
@@ -380,7 +404,15 @@ func (h *DocumentHandler) PublicGetSignature(c *fiber.Ctx) error {
 	// Network details captured when the request was created belong to the sender, not the
 	// signer, and the DocuSign envelope id is internal: neither is shown on the public page.
 	sigs.IPAddress, sigs.UserAgent, sigs.EnvelopeID = "", "", ""
-	return c.JSON(fiber.Map{"signature": sigs, "document": doc})
+	resp := fiber.Map{"signature": sigs, "document": doc}
+	// A RERA form carries its contents, so the signer sees what they are signing.
+	if h.rera != nil {
+		if f, err := h.rera.ForDocument(c.Context(), doc.ID); err == nil {
+			def, _ := rera.Lookup(f.FormType)
+			resp["rera_form"] = fiber.Map{"data": f.Data, "definition": def}
+		}
+	}
+	return c.JSON(resp)
 }
 
 // PublicSign godoc

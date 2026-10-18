@@ -8,6 +8,7 @@ import { useAuthStore } from '@/store/auth'
 import { api } from '@/lib/api'
 import type { LeaseRenewalWorkflow, RenewalCommunicationTemplate } from '@/types'
 import clsx from 'clsx'
+import { companyCurrency } from '@/lib/money'
 
 const statusColor: Record<string, string> = {
   pending: 'bg-yellow-100 text-yellow-700',
@@ -106,7 +107,7 @@ export default function RenewalDetailPage() {
 
   const fmtDate = (d: string | null) =>
     d ? new Date(d).toLocaleDateString(lang === 'ar' ? 'ar-AE' : 'en-AE', { year: 'numeric', month: 'short', day: 'numeric' }) : '—'
-  const fmtAmount = (v: number | null | undefined) => v != null ? `AED ${v.toLocaleString()}` : '—'
+  const fmtAmount = (v: number | null | undefined) => v != null ? `${companyCurrency()} ${v.toLocaleString()}` : '—'
 
   const btnCls = 'w-full text-sm font-medium rounded-lg py-2.5 disabled:opacity-50 transition-colors'
   const inputCls = 'w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-500'
@@ -226,7 +227,7 @@ export default function RenewalDetailPage() {
               <h3 className="text-sm font-semibold text-gray-700 mb-4">{t('اقتراح إيجار جديد', 'Propose New Rent')}</h3>
               <form onSubmit={handlePropose} className="space-y-4">
                 <div>
-                  <label className={labelCls}>{t('الإيجار المقترح (AED)', 'Proposed Rent (AED)')}</label>
+                  <label className={labelCls}>{t(`الإيجار المقترح (${companyCurrency()})`, `Proposed Rent (${companyCurrency()})`)}</label>
                   <input type="number" min={0} step={100} required className={inputCls}
                     value={proposedRent} onChange={e => setProposedRent(e.target.value)}
                     placeholder={t('مثلاً: 85000', 'e.g. 85000')} />
@@ -299,7 +300,7 @@ export default function RenewalDetailPage() {
               )}
               <form onSubmit={handleCounterOffer} className="space-y-4">
                 <div>
-                  <label className={labelCls}>{t('مبلغ العرض المقابل (AED)', 'Counter Offer Amount (AED)')}</label>
+                  <label className={labelCls}>{t(`مبلغ العرض المقابل (${companyCurrency()})`, `Counter Offer Amount (${companyCurrency()})`)}</label>
                   <input type="number" min={0} step={100} required className={inputCls}
                     value={counterAmount} onChange={e => setCounterAmount(e.target.value)}
                     placeholder={t('مثلاً: 90000', 'e.g. 90000')} />

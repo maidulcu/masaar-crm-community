@@ -7,6 +7,7 @@ import { useLang } from '@/context/LangContext'
 import { useAuthStore } from '@/store/auth'
 import type { Deal, PaginatedResult } from '@/types'
 import clsx from 'clsx'
+import { companyCurrency, currencyChoices } from '@/lib/money'
 
 const stageColor: Record<string, string> = {
   open:   'bg-blue-100 text-blue-700',
@@ -30,7 +31,7 @@ export default function DealsPage() {
   const [newLeadId, setNewLeadId] = useState('')
   const [newTitle, setNewTitle] = useState('')
   const [newAmount, setNewAmount] = useState('')
-  const [newCurrency, setNewCurrency] = useState('AED')
+  const [newCurrency, setNewCurrency] = useState(companyCurrency())
   const [newProbability, setNewProbability] = useState('50')
   const { lang, t } = useLang()
   const { user } = useAuthStore()
@@ -58,13 +59,13 @@ export default function DealsPage() {
         title: newTitle.trim(),
         amount: parseFloat(newAmount) || 0,
         currency: newCurrency,
-        probability: parseInt(newProbability) || 50,
+        probability: Number.isNaN(parseInt(newProbability)) ? 50 : parseInt(newProbability), // 0% is valid
       })
       setShowForm(false)
       setNewLeadId('')
       setNewTitle('')
       setNewAmount('')
-      setNewCurrency('AED')
+      setNewCurrency(companyCurrency())
       setNewProbability('50')
       setPage(1)
     } catch {
@@ -74,7 +75,7 @@ export default function DealsPage() {
 
   const formatAmount = (amount: number, currency: string) =>
     new Intl.NumberFormat(lang === 'ar' ? 'ar-AE' : 'en-AE', {
-      style: 'currency', currency: currency || 'AED', maximumFractionDigits: 0,
+      style: 'currency', currency: currency || companyCurrency(), maximumFractionDigits: 0,
     }).format(amount)
 
   return (
@@ -238,9 +239,7 @@ export default function DealsPage() {
                   <label className="text-xs text-gray-500 mb-1 block">{t('العملة', 'Currency')}</label>
                   <select value={newCurrency} onChange={e => setNewCurrency(e.target.value)}
                     className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
-                    <option value="AED">AED</option>
-                    <option value="USD">USD</option>
-                    <option value="SAR">SAR</option>
+                    {currencyChoices(newCurrency).map(c => <option key={c} value={c}>{c}</option>)}
                   </select>
                 </div>
               </div>
