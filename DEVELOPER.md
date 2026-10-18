@@ -614,7 +614,7 @@ Content-Type: application/json
 ```
 
 - Requires API key with scope `lead:create`; a suspended company's key gets `403 account_suspended`
-- `source` is one of `web`, `referral`, `event`, `whatsapp`, `portal` (default `web`); anything else is `422`
+- `source` is one of `web`, `referral`, `event`, `whatsapp`, `property_finder`, `bayut`, `dubizzle`, `portal` (default `web`); anything else is `422`
 - `external_source` + `external_ref` (optional, sent together; `portal` requires them) make the push idempotent: the same pair again returns the existing lead with `200` and `"duplicate": true` instead of creating a second one. Unique per company
 - Contact auto-created or matched by phone number
 - Rate limited at 300 req/min (same as WhatsApp webhook)

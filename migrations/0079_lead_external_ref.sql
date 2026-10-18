@@ -12,10 +12,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_leads_company_external_ref
   ON leads(company_id, external_source, external_ref)
   WHERE external_ref IS NOT NULL;
 
--- 'portal': a lead from a listing portal or marketplace; external_source names which one.
-ALTER TABLE leads DROP CONSTRAINT IF EXISTS leads_source_check;
-ALTER TABLE leads ADD CONSTRAINT leads_source_check
-  CHECK (source IN ('whatsapp','web','referral','event','bos24','portal'));
+-- The 'portal' lead source itself comes from 0073_portals.
 
 -- Actions taken with an API key have no user actor; record the key instead.
 ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS api_key_id UUID
@@ -23,11 +20,6 @@ ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS api_key_id UUID
 
 -- +goose Down
 ALTER TABLE audit_logs DROP COLUMN IF EXISTS api_key_id;
-
-UPDATE leads SET source = 'web' WHERE source = 'portal';
-ALTER TABLE leads DROP CONSTRAINT IF EXISTS leads_source_check;
-ALTER TABLE leads ADD CONSTRAINT leads_source_check
-  CHECK (source IN ('whatsapp','web','referral','event','bos24'));
 
 DROP INDEX IF EXISTS idx_leads_company_external_ref;
 ALTER TABLE leads DROP CONSTRAINT IF EXISTS leads_external_ref_pair;

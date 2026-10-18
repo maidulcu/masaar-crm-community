@@ -171,7 +171,7 @@ Foundations for the UAE-launch roadmap (#82, milestone #83). Includes migrations
 ## [v0.3.4] - Unreleased
 
 ### Lead intake hardening (`POST /webhooks/leads`)
-- **Idempotent pushes.** Optional `external_source` + `external_ref` identify a lead in the system that sends it. The same pair again returns the existing lead (`200`, `"duplicate": true`) instead of creating a second one, so a sender can retry safely. Unique per company. Adds migration `0065`.
+- **Idempotent pushes.** Optional `external_source` + `external_ref` identify a lead in the system that sends it. The same pair again returns the existing lead (`200`, `"duplicate": true`) instead of creating a second one, so a sender can retry safely. Unique per company. Adds migration `0079`.
 - **New source `portal`** for leads from listing portals and marketplaces; it requires `external_source`.
 - **Breaking:** an unknown `source` is now rejected with `422` instead of silently stored as `web`.
 - **Suspended companies.** An API key whose company is suspended now gets `403 account_suspended` (previously the key kept working).
