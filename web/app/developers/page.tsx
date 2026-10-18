@@ -366,7 +366,7 @@ Content-Type: application/json
   "phone": "+971501234567",          // required, E.164
   "email": "ahmed@example.com",      // optional
   "language": "ar",                  // optional (ar|en, default: ar)
-  "source": "web",                   // optional (web|referral|event|whatsapp|portal, default: web)
+  "source": "web",                   // optional (web|referral|event|whatsapp|property_finder|bayut|dubizzle|portal)
   "notes": "Interested in Marina",   // optional
   "deal_value": 500000,              // optional
   "property_type": "2BR",            // optional metadata

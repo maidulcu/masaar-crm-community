@@ -21,7 +21,8 @@ var externalSourceRe = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,31}$`)
 var externalRefRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$`)
 
 // publicLeadSources are the sources an API client may set. bos24 is internal only.
-var publicLeadSources = map[string]bool{"web": true, "referral": true, "event": true, "whatsapp": true, "portal": true}
+var publicLeadSources = map[string]bool{"web": true, "referral": true, "event": true, "whatsapp": true,
+	"property_finder": true, "bayut": true, "dubizzle": true, "portal": true}
 
 type PublicLeadHandler struct {
 	contacts   *repo.ContactRepo
@@ -46,7 +47,7 @@ type PublicLeadRequest struct {
 	Phone     string  `json:"phone"`
 	Email     string  `json:"email"`
 	Language  string  `json:"language"` // ar | en (default: ar)
-	Source    string  `json:"source"`   // web|referral|event|whatsapp|portal (default: web)
+	Source    string  `json:"source"`   // web|referral|event|whatsapp|property_finder|bayut|dubizzle|portal (default: web)
 	Notes     string  `json:"notes"`
 	DealValue float64 `json:"deal_value"`
 	Currency  string  `json:"currency"` // default: AED
@@ -131,7 +132,7 @@ func (h *PublicLeadHandler) SubmitLead(c *fiber.Ctx) error {
 
 	if !publicLeadSources[req.Source] {
 		return c.Status(fiber.StatusUnprocessableEntity).JSON(fiber.Map{
-			"error": "source must be one of: web, referral, event, whatsapp, portal",
+			"error": "source must be one of: web, referral, event, whatsapp, property_finder, bayut, dubizzle, portal",
 		})
 	}
 	if (req.ExternalSource == "") != (req.ExternalRef == "") {

@@ -232,11 +232,11 @@ const (
 	SourceReferral LeadSource = "referral"
 	SourceEvent    LeadSource = "event"
 	SourceBOS24    LeadSource = "bos24"
-	// Property portals (migration 0073).
+
 	SourcePropertyFinder LeadSource = "property_finder"
 	SourceBayut          LeadSource = "bayut"
 	SourceDubizzle       LeadSource = "dubizzle"
-	// SourcePortal is a lead from any other listing portal or marketplace; ExternalSource names which one.
+	// SourcePortal is any other listing portal or marketplace; ExternalSource names which one.
 	SourcePortal LeadSource = "portal"
 )
 
