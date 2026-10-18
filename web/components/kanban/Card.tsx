@@ -37,7 +37,6 @@ export const KanbanCard = memo(function KanbanCard({ lead, onOpen }: Props) {
     <div
       ref={setNodeRef}
       style={style}
-      {...attributes}
       className={clsx(
         'bg-white rounded-xl border border-surface-200/70 shadow-card select-none transition-all duration-200 ease-soft hover:shadow-card-hover hover:border-surface-300',
         isDragging && 'opacity-60 shadow-pop ring-2 ring-primary-300'
@@ -58,13 +57,13 @@ export const KanbanCard = memo(function KanbanCard({ lead, onOpen }: Props) {
         }}
       >
         {/* Contact name */}
-        <p className="font-semibold text-[13.5px] text-surface-900 truncate tracking-tight">
+        <div className="font-semibold text-[13.5px] text-surface-900 truncate tracking-tight">
           {lead.contact?.full_name ?? t('جهة اتصال غير معروفة', 'Unknown contact')}
-        </p>
+        </div>
 
         {/* Phone */}
         {lead.contact?.phone_wa && (
-          <p className="text-[11.5px] text-surface-500 mt-0.5 truncate font-mono">{lead.contact.phone_wa}</p>
+          <div className="text-[11.5px] text-surface-500 mt-0.5 truncate font-mono">{lead.contact.phone_wa}</div>
         )}
 
         {/* Deal value */}
@@ -81,9 +80,9 @@ export const KanbanCard = memo(function KanbanCard({ lead, onOpen }: Props) {
 
         {/* Assigned agent */}
         {lead.assigned_user && (
-          <p className="mt-2 text-[10px] text-surface-500 font-medium truncate">
+          <div className="mt-2 text-[10px] text-surface-500 font-medium truncate">
             👤 {lead.assigned_user.name}
-          </p>
+          </div>
         )}
 
         {/* Tags */}
@@ -115,14 +114,15 @@ export const KanbanCard = memo(function KanbanCard({ lead, onOpen }: Props) {
 
         {/* Notes preview */}
         {lead.notes && (
-          <p className="mt-2 text-[11px] text-surface-500 truncate italic">
+          <div className="mt-2 text-[11px] text-surface-500 truncate italic">
             {lead.notes}
-          </p>
+          </div>
         )}
-      </div>
+      </button>
 
       {/* Drag handle — only this triggers DnD */}
       <div
+        {...attributes}
         {...listeners}
         aria-label={t('اسحب للنقل', 'Drag to move')}
         className="flex items-center justify-center py-1.5 border-t border-surface-100 cursor-grab active:cursor-grabbing text-surface-300 hover:text-surface-500 transition-colors"
