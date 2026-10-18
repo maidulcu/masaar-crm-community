@@ -104,9 +104,14 @@ func RequireAPIKeyScope(requiredScope string) fiber.Handler {
 			return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "missing api key scopes"})
 		}
 
-		scopesStr := scopes.(string)
+		scopesStr, ok := scopes.(string)
+		if !ok {
+			return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "invalid api key scopes format"})
+		}
+
 		for _, scope := range strings.Split(scopesStr, ",") {
-			if strings.TrimSpace(scope) == requiredScope {
+			s := strings.TrimSpace(scope)
+			if s == requiredScope || s == "*" || (strings.HasSuffix(s, ":*") && strings.HasPrefix(requiredScope, strings.TrimSuffix(s, "*"))) {
 				return c.Next()
 			}
 		}

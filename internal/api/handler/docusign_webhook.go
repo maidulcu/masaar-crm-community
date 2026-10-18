@@ -35,10 +35,15 @@ func (h *DocusignWebhookHandler) Handle(c *fiber.Ctx) error {
 	if sig == "" {
 		return c.SendStatus(fiber.StatusUnauthorized)
 	}
+	sigBytes, err := base64.StdEncoding.DecodeString(sig)
+	if err != nil {
+		return c.SendStatus(fiber.StatusUnauthorized)
+	}
 	mac := hmac.New(sha256.New, []byte(h.webhookSecret))
 	mac.Write(body)
-	expected := base64.StdEncoding.EncodeToString(mac.Sum(nil))
-	if !hmac.Equal([]byte(sig), []byte(expected)) {
+	expected := mac.Sum(nil)
+	// Security: Compare raw HMAC digest bytes in constant time to prevent timing side-channel attacks.
+	if !hmac.Equal(sigBytes, expected) {
 		return c.SendStatus(fiber.StatusUnauthorized)
 	}
 
@@ -52,7 +57,9 @@ func (h *DocusignWebhookHandler) Handle(c *fiber.Ctx) error {
 			} `json:"recipients"`
 		} `json:"data"`
 	}
-	json.Unmarshal(body, &event)
+	if err := json.Unmarshal(body, &event); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid json"})
+	}
 
 	envelopeID := event.Data.EnvelopeID
 	if envelopeID == "" {

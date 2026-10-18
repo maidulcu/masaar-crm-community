@@ -41,6 +41,16 @@ func TestSubmitLeadInputValidation(t *testing.T) {
 			wantError:  "email is too long",
 		},
 		{
+			name: "Invalid email format",
+			req: PublicLeadRequest{
+				Name:  "Valid Name",
+				Phone: "+971501234567",
+				Email: "not-an-email",
+			},
+			wantStatus: fiber.StatusUnprocessableEntity,
+			wantError:  "invalid email format",
+		},
+		{
 			name: "Notes too long",
 			req: PublicLeadRequest{
 				Name:  "Valid Name",
