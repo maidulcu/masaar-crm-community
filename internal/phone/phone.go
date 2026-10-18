@@ -67,7 +67,12 @@ func Normalize(raw string) (string, bool) {
 			if r == ' ' { // Non-breaking space U+00A0
 				i += w
 			} else {
-				return "", false
+				r, w := utf8.DecodeRuneInString(trimmed[i:])
+				if r == ' ' { // Non-breaking space U+00A0
+					i += w
+				} else {
+					return "", false
+				}
 			}
 		}
 	}
