@@ -2,6 +2,8 @@
 
 Last updated: 2026-05-04
 
+> **This document is historical.** The current roadmap — UAE launch readiness, then GCC (Saudi Arabia first) — is tracked in [issue #82](https://github.com/maidulcu/masaar-crm-community/issues/82) and its milestones #83–#88. Several "Known Issues" below have since been fixed (for example the password-reset token is now consumed atomically).
+
 ---
 
 ## Status legend

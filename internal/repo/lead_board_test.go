@@ -80,3 +80,35 @@ func ids(ls []domain.Lead) []uuid.UUID {
 	}
 	return out
 }
+
+func TestLeadAndContactSearchTreatWildcardsLiterally(t *testing.T) {
+	e := setup(t)
+	plain := e.contact(t, e.a, testPhone("97153"))
+	pct := &domain.Contact{PhoneWA: testPhone("97154"), FullName: "100% Real_Estate", Language: "en"}
+	if err := NewContactRepo(e.pool).Create(e.a.ctx, pct); err != nil {
+		t.Fatal(err)
+	}
+	e.lead(t, e.a, plain.ID)
+	e.lead(t, e.a, pct.ID)
+
+	leads, err := NewLeadRepo(e.pool).List(e.a.ctx, LeadFilter{Query: "%", Limit: 50})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(leads) != 1 || leads[0].ContactID != pct.ID {
+		t.Fatalf("searching '%%' matched %d leads, want only the one whose name contains a literal %%", len(leads))
+	}
+	if leads, _ = NewLeadRepo(e.pool).List(e.a.ctx, LeadFilter{Query: "Real_E", Limit: 50}); len(leads) != 1 {
+		t.Errorf("'Real_E' matched %d leads, want 1", len(leads))
+	}
+	if leads, _ = NewLeadRepo(e.pool).List(e.a.ctx, LeadFilter{Query: "Real?E", Limit: 50}); len(leads) != 0 {
+		t.Errorf("'Real?E' matched %d leads, want 0", len(leads))
+	}
+	res, err := NewContactRepo(e.pool).List(e.a.ctx, "_", 1, 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Total != 1 {
+		t.Errorf("contact search for '_' matched %d, want only the name containing an underscore", res.Total)
+	}
+}

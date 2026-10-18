@@ -5,6 +5,7 @@ import { Header } from '@/components/layout/Header'
 import { useLang } from '@/context/LangContext'
 import { api } from '@/lib/api'
 import type { LeaseRenewalWorkflow, PaginatedResult } from '@/types'
+import { companyCurrency } from '@/lib/money'
 
 const STATUS_FILTERS = ['', 'pending', 'in_progress', 'offer_sent', 'accepted', 'rejected', 'expired']
 
@@ -38,7 +39,7 @@ export default function RenewalsPage() {
   }
 
   const fmtDate = (d: string | null) => d ? new Date(d).toLocaleDateString(lang === 'ar' ? 'ar-AE' : 'en-AE', { year: 'numeric', month: 'short', day: 'numeric' }) : '—'
-  const fmtAmount = (v: number | null | undefined) => v != null ? `AED ${v.toLocaleString()}` : '—'
+  const fmtAmount = (v: number | null | undefined) => v != null ? `${companyCurrency()} ${v.toLocaleString()}` : '—'
 
   return (
     <div className="flex flex-col flex-1 overflow-hidden">

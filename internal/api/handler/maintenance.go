@@ -1,12 +1,16 @@
 package handler
 
 import (
+	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/maidulcu/masaar-crm/internal/domain"
 	"github.com/maidulcu/masaar-crm/internal/repo"
@@ -44,6 +48,9 @@ func (h *MaintenanceTaskHandler) List(c *fiber.Ctx) error {
 	}
 
 	status := c.Query("status", "")
+	if status != "" && !validMaintenanceStatuses[domain.MaintenanceStatus(status)] {
+		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": "invalid status"})
+	}
 	var tasks []domain.MaintenanceTask
 	var total int
 	var err error
@@ -55,7 +62,7 @@ func (h *MaintenanceTaskHandler) List(c *fiber.Ctx) error {
 	}
 
 	if err != nil {
-		return c.Status(http.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to fetch tasks"})
+		return serverError(c, err)
 	}
 
 	return c.Status(http.StatusOK).JSON(fiber.Map{
@@ -83,7 +90,7 @@ func (h *MaintenanceTaskHandler) Get(c *fiber.Ctx) error {
 
 	task, err := h.maintenanceRepo.Get(c.Context(), id)
 	if err != nil {
-		return c.Status(http.StatusNotFound).JSON(fiber.Map{"error": "Task not found"})
+		return taskLookupError(c, err)
 	}
 
 	return c.Status(http.StatusOK).JSON(fiber.Map{"data": task})
@@ -114,8 +121,12 @@ func (h *MaintenanceTaskHandler) Create(c *fiber.Ctx) error {
 		AssignedTo        *uuid.UUID `json:"assigned_to"`
 		Notes             string     `json:"notes"`
 	}
-	if err := c.BodyParser(&req); err != nil {
-		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": "Invalid request"})
+	// The columns are DATEs and the browser sends "2026-05-01" (or ""), which *time.Time rejects.
+	if err := json.Unmarshal(normalizeDateFields(c.Body(), "scheduled_date", "due_date", "inspection_id", "assigned_to"), &req); err != nil {
+		return badRequest(c, err)
+	}
+	if req.PropertyID == uuid.Nil {
+		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": "property_id is required"})
 	}
 
 	task := &domain.MaintenanceTask{
@@ -137,8 +148,14 @@ func (h *MaintenanceTaskHandler) Create(c *fiber.Ctx) error {
 		CreatedBy:         userID,
 	}
 
+	if err := validateMaintenanceTask(task); err != nil {
+		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+	}
 	if err := h.maintenanceRepo.Create(c.Context(), task); err != nil {
-		return c.Status(http.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to create task"})
+		if errors.Is(err, pgx.ErrNoRows) { // property, inspection or assignee is not this company's
+			return c.Status(http.StatusUnprocessableEntity).JSON(fiber.Map{"error": "property, inspection or assignee not found"})
+		}
+		return serverError(c, err)
 	}
 
 	return c.Status(http.StatusCreated).JSON(fiber.Map{"data": task})
@@ -160,7 +177,7 @@ func (h *MaintenanceTaskHandler) Update(c *fiber.Ctx) error {
 
 	task, err := h.maintenanceRepo.Get(c.Context(), id)
 	if err != nil {
-		return c.Status(http.StatusNotFound).JSON(fiber.Map{"error": "Task not found"})
+		return taskLookupError(c, err)
 	}
 
 	var req struct {
@@ -177,8 +194,14 @@ func (h *MaintenanceTaskHandler) Update(c *fiber.Ctx) error {
 		AssignedTo        *uuid.UUID `json:"assigned_to"`
 		Notes             *string    `json:"notes"`
 	}
-	if err := c.BodyParser(&req); err != nil {
-		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": "Invalid request"})
+	if err := json.Unmarshal(normalizeDateFields(c.Body(), "scheduled_date", "due_date", "assigned_to"), &req); err != nil {
+		return badRequest(c, err)
+	}
+	if task.Status == domain.MaintenanceCompleted || task.Status == domain.MaintenanceCancelled {
+		// Re-opening is allowed (status), editing a closed task's details is not.
+		if req.Status == nil || domain.MaintenanceStatus(*req.Status) == task.Status {
+			return c.Status(http.StatusConflict).JSON(fiber.Map{"error": "this task is closed; change its status to re-open it"})
+		}
 	}
 
 	if req.MaintenanceType != nil {
@@ -218,8 +241,14 @@ func (h *MaintenanceTaskHandler) Update(c *fiber.Ctx) error {
 		task.Notes = *req.Notes
 	}
 
+	if err := validateMaintenanceTask(task); err != nil {
+		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+	}
 	if err := h.maintenanceRepo.Update(c.Context(), task); err != nil {
-		return c.Status(http.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to update task"})
+		if errors.Is(err, pgx.ErrNoRows) {
+			return c.Status(http.StatusUnprocessableEntity).JSON(fiber.Map{"error": "assignee not found"})
+		}
+		return serverError(c, err)
 	}
 
 	return c.Status(http.StatusOK).JSON(fiber.Map{"data": task})
@@ -241,25 +270,32 @@ func (h *MaintenanceTaskHandler) Complete(c *fiber.Ctx) error {
 
 	task, err := h.maintenanceRepo.Get(c.Context(), id)
 	if err != nil {
-		return c.Status(http.StatusNotFound).JSON(fiber.Map{"error": "Task not found"})
+		return taskLookupError(c, err)
 	}
 
+	// The web client posts no body when no cost is entered; that used to be "invalid request body".
 	var req struct {
 		ActualCost *float64 `json:"actual_cost"`
 	}
-	if err := c.BodyParser(&req); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid request body"})
+	if len(c.Body()) > 0 {
+		if err := c.BodyParser(&req); err != nil {
+			return badRequest(c, err)
+		}
+	}
+	if task.Status == domain.MaintenanceCompleted || task.Status == domain.MaintenanceCancelled {
+		return c.Status(http.StatusConflict).JSON(fiber.Map{"error": "this task is already " + string(task.Status)})
 	}
 
 	task.Status = domain.MaintenanceCompleted
-	now := time.Now()
-	task.CompletionDate = &now
 	if req.ActualCost != nil {
 		task.ActualCost = req.ActualCost
 	}
+	if err := validateMaintenanceTask(task); err != nil {
+		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+	}
 
 	if err := h.maintenanceRepo.Update(c.Context(), task); err != nil {
-		return c.Status(http.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to complete task"})
+		return serverError(c, err)
 	}
 
 	return c.Status(http.StatusOK).JSON(fiber.Map{"data": task})
@@ -284,7 +320,18 @@ func (h *MaintenanceTaskHandler) AddPhoto(c *fiber.Ctx) error {
 		PhotoStage string `json:"photo_stage"` // before/during/after
 	}
 	if err := c.BodyParser(&req); err != nil {
-		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": "Invalid request"})
+		return badRequest(c, err)
+	}
+	// The URL is rendered as a link: only http(s) or site-relative addresses may be stored.
+	req.PhotoURL = strings.TrimSpace(req.PhotoURL)
+	if req.PhotoURL == "" || tooLong(req.PhotoURL, 500) || !safeLink(req.PhotoURL) {
+		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": "photo_url must be an http(s) URL"})
+	}
+	if req.PhotoStage == "" {
+		req.PhotoStage = "after"
+	}
+	if !validPhotoStages[req.PhotoStage] {
+		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": "photo_stage must be one of: before, during, after"})
 	}
 
 	photo := &domain.MaintenancePhoto{
@@ -295,7 +342,7 @@ func (h *MaintenanceTaskHandler) AddPhoto(c *fiber.Ctx) error {
 	}
 
 	if err := h.maintenanceRepo.AddPhoto(c.Context(), photo); err != nil {
-		return c.Status(http.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to add photo"})
+		return taskLookupError(c, err)
 	}
 
 	return c.Status(http.StatusCreated).JSON(fiber.Map{"data": photo})
@@ -314,9 +361,15 @@ func (h *MaintenanceTaskHandler) GetPhotos(c *fiber.Ctx) error {
 		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": "Invalid task ID"})
 	}
 
+	if _, err := h.maintenanceRepo.Get(c.Context(), taskID); err != nil {
+		return taskLookupError(c, err)
+	}
 	photos, err := h.maintenanceRepo.GetPhotos(c.Context(), taskID)
 	if err != nil {
-		return c.Status(http.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to fetch photos"})
+		return serverError(c, err)
+	}
+	if photos == nil {
+		photos = []domain.MaintenancePhoto{}
 	}
 
 	return c.Status(http.StatusOK).JSON(fiber.Map{"data": photos})
@@ -335,8 +388,17 @@ func (h *MaintenanceTaskHandler) Delete(c *fiber.Ctx) error {
 	}
 
 	if err := h.maintenanceRepo.Delete(c.Context(), id); err != nil {
-		return c.Status(http.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to delete task"})
+		return serverError(c, err)
 	}
 
 	return c.SendStatus(http.StatusNoContent)
+}
+
+// taskLookupError answers 404 for a task that does not exist in the caller's company and a generic
+// error for anything else (every failure used to be reported as "not found" or a bare 500).
+func taskLookupError(c *fiber.Ctx, err error) error {
+	if errors.Is(err, pgx.ErrNoRows) {
+		return c.Status(http.StatusNotFound).JSON(fiber.Map{"error": "Task not found"})
+	}
+	return serverError(c, err)
 }

@@ -202,7 +202,7 @@ export default function ImportExportPage() {
                 <p className="font-semibold text-gray-600 mb-1">Contacts</p>
                 <table className="w-full">
                   <tbody>
-                    {[['phone_wa', 'required', 'WhatsApp number (+971...)'], ['full_name', 'required', 'Contact name'], ['email', 'optional', 'Email address'], ['language', 'optional', 'en or ar']].map(([col, req, desc]) => (
+                    {[['phone_wa', 'required', 'WhatsApp number (+971...)'], ['full_name', 'required', 'Contact name'], ['email', 'optional', 'Email address'], ['language', 'optional', 'en or ar'], ['consent_whatsapp', 'optional', 'yes / no — opted in or out of WhatsApp'], ['consent_email', 'optional', 'yes / no — opted in or out of email']].map(([col, req, desc]) => (
                       <tr key={col} className="border-b border-gray-100">
                         <td className="py-1 font-mono text-gray-700">{col}</td>
                         <td className={`py-1 px-2 ${req === 'required' ? 'text-red-500' : 'text-gray-400'}`}>{req}</td>
