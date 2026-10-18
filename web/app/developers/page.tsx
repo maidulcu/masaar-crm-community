@@ -186,6 +186,11 @@ DELETE /api/v1/auth/logout  // invalidates token in Redis`}</Pre>
           {/* API Keys */}
           <Section id="api-keys" title="API Keys">
             <p className="text-gray-600 mb-4">
+              The full API is described by an OpenAPI 3.1 document at <Code>GET /openapi.json</Code> (no
+              authentication). Import it into Postman, Zapier, Make or a code generator; routes open to API keys
+              list the scope they need.
+            </p>
+            <p className="text-gray-600 mb-4">
               For external integrations (website forms, Zapier, automation tools) that can&apos;t go through
               the user login flow, generate API keys in Settings. Keys use the same
               <Code>Authorization: Bearer sk_live_...</Code> header format.

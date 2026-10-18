@@ -27,6 +27,7 @@ Stubs in this edition (return 402/503, don't build on them): `internal/ai`, `int
 - New behaviour is additive: a new migration, never an edit to an applied one. Down migrations must not delete user data.
 - Public request fields are validated with explicit length/format limits (see `public_lead.go`).
 - Update `CHANGELOG.md` (Unreleased) and, for API changes, `DEVELOPER.md` and `web/app/developers/page.tsx`.
+- New or changed handlers carry swag annotations (`@Summary`, `@Param`, `@Success`, `@Router` relative to `/api/v1`); then run `scripts/openapi.sh` and commit `docs/`. CI fails if `docs/` is stale; `TestOpenAPIMatchesRouter` fails on annotations for routes that don't exist or new undocumented routes.
 
 ## Commands
 
@@ -40,7 +41,7 @@ The DB tests (`internal/repo/*_test.go`, incl. `tenant_isolation_test.go`) skip 
 
 ## Keeping context small
 
-- Don't read generated or bulky files: `docs/docs.go`, `docs/swagger.*`, `web/package-lock.json`, `go.sum`, `scripts/seed/main.go`. Grep them if you must.
+- Don't read generated or bulky files: `docs/docs.go`, `docs/swagger.*`, `docs/openapi.json`, `web/package-lock.json`, `go.sum`, `scripts/seed/main.go`. Grep them if you must.
 - Grep before reading: `grep -n "func (r \*LeadRepo)" internal/repo/lead.go`, then read the line range you need.
 - `CHANGELOG.md`, `API_INVENTORY.md`, `PROJECT_OVERVIEW.md`, `ROADMAP.md` are long; read only the section you need. `README.md` overstates features (it describes stubs as working).
 - For a sweep across many files, use a search subagent and keep only its conclusion.

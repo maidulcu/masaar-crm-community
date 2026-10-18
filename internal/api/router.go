@@ -9,7 +9,7 @@ import (
 	"github.com/gofiber/fiber/v2/middleware/limiter"
 	fiberws "github.com/gofiber/websocket/v2"
 	"github.com/jackc/pgx/v5/pgxpool"
-	_ "github.com/maidulcu/masaar-crm/docs" // swagger generated docs
+	"github.com/maidulcu/masaar-crm/docs" // generated API docs (Swagger UI registration, OpenAPI 3.1)
 	"github.com/maidulcu/masaar-crm/internal/api/handler"
 	"github.com/maidulcu/masaar-crm/internal/api/middleware"
 	"github.com/maidulcu/masaar-crm/internal/apiscope"
@@ -1276,6 +1276,16 @@ func RegisterRoutes(app *fiber.App, h *Handlers, hub *ws.Hub, cfg *config.Config
 			})
 		}
 		return c.JSON(fiber.Map{"status": "ok"})
+	})
+
+	// OpenAPI 3.1 description (docs/openapi.json): public, so API clients and tools such as
+	// Postman, Zapier or code generators can import it. It lists the same routes as the code.
+	app.Get("/openapi.json", lim.api, func(c *fiber.Ctx) error {
+		c.Set(fiber.HeaderContentType, fiber.MIMEApplicationJSONCharsetUTF8)
+		c.Set(fiber.HeaderCacheControl, "public, max-age=300")
+		c.Set(fiber.HeaderAccessControlAllowOrigin, "*")
+		c.Response().Header.Del(fiber.HeaderAccessControlAllowCredentials)
+		return c.Send(docs.OpenAPI)
 	})
 
 	// Swagger UI — in production it is served only behind HTTP basic auth with a

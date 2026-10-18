@@ -384,7 +384,7 @@ func (h *DocumentHandler) MarkSigned(c *fiber.Ctx) error {
 // @Param        id  path      string  true  "Signature UUID"
 // @Success      200  {object}  object{signature=domain.DocumentSignature,document=domain.Document}
 // @Failure      404  {object}  object{error=string}
-// @Router       /public/sign/{id} [get]
+// @Router       /api/public/sign/{id} [get]
 func (h *DocumentHandler) PublicGetSignature(c *fiber.Ctx) error {
 	sigID, err := uuid.Parse(c.Params("id"))
 	if err != nil {
@@ -425,7 +425,7 @@ func (h *DocumentHandler) PublicGetSignature(c *fiber.Ctx) error {
 // @Failure      400  {object}  object{error=string}
 // @Failure      404  {object}  object{error=string}
 // @Failure      409  {object}  object{error=string}
-// @Router       /public/sign/{id} [post]
+// @Router       /api/public/sign/{id} [post]
 func (h *DocumentHandler) PublicSign(c *fiber.Ctx) error {
 	sigID, err := uuid.Parse(c.Params("id"))
 	if err != nil {

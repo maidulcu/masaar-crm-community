@@ -169,6 +169,15 @@ func (h *ApiKeyHandler) RevokeApiKey(c *fiber.Ctx) error {
 }
 
 // ListScopes returns the scopes a new API key can be given, with what each allows.
+//
+// @Summary      List API key scopes
+// @Description  The scopes a new API key can be given, with what each allows (admin only).
+// @Tags         Settings
+// @Produce      json
+// @Success      200  {array}   object{name=string,description=string}
+// @Failure      403  {object}  object{error=string}
+// @Security     BearerAuth
+// @Router       /settings/api-keys/scopes [get]
 func (h *ApiKeyHandler) ListScopes(c *fiber.Ctx) error {
 	type scope struct {
 		Name        string `json:"name"`
