@@ -1045,6 +1045,12 @@ func (h *AuthHandler) RequestSMSOTP(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusTooManyRequests).JSON(fiber.Map{"error": "too many OTP requests, please try again later"})
 	}
 
+	// Only registered, active accounts get an SMS OTP. Anything else gets the same generic response
+	// (no enumeration) but no SMS — preventing SMS toll fraud and unsolicited messaging.
+	if u, uerr := h.users.FindByPhone(c.Context(), phone); uerr != nil || !u.IsActive {
+		return c.JSON(fiber.Map{"message": "OTP sent"})
+	}
+
 	otp, err := generateOTP()
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to generate OTP"})

@@ -409,16 +409,17 @@ func (h *ImportExportHandler) ExportListings(c *fiber.Ctx) error {
 var numericLike = regexp.MustCompile(`^[+-]?[0-9][0-9 ().-]*$`)
 
 // csvSafeCell neutralises spreadsheet formula injection ("CSV injection"): a cell that starts
-// with = + - @ (or tab/CR) is executed as a formula by Excel/Sheets, so user-supplied text like
+// with = + - @ % (or tab/CR) is executed as a formula by Excel/Sheets, so user-supplied text like
 // `=HYPERLINK("http://evil",...)` in a contact name could run when an admin opens an export.
 // Such cells are prefixed with a single quote, which spreadsheets render as plain text.
 func csvSafeCell(v string) string {
-	if v == "" {
+	trimmed := strings.TrimSpace(v)
+	if trimmed == "" {
 		return v
 	}
-	switch v[0] {
-	case '=', '+', '-', '@', '\t', '\r':
-		if !numericLike.MatchString(v) {
+	switch trimmed[0] {
+	case '=', '+', '-', '@', '\t', '\r', '%':
+		if !numericLike.MatchString(trimmed) {
 			return "'" + v
 		}
 	}

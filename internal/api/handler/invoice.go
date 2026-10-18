@@ -3,8 +3,8 @@ package handler
 import (
 	"context"
 	"fmt"
-	"strings"
-	"time"
+	"mime"
+	"strconv"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -440,6 +440,6 @@ func (h *InvoiceHandler) DownloadPDF(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusPaymentRequired).JSON(fiber.Map{"error": "PDF generation is not available in this edition; use the printable invoice page"})
 	}
 	c.Set("Content-Type", "application/pdf")
-	c.Set("Content-Disposition", "attachment; filename="+safeFilename(fmt.Sprintf("invoice-%s.pdf", inv.InvoiceNo)))
+	c.Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": safeFilename(filename)}))
 	return c.Send(pdfBytes)
 }

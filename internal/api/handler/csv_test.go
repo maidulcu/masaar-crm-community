@@ -17,6 +17,9 @@ func TestCSVSafeCell(t *testing.T) {
 		"@SUM(A1)":                   "'@SUM(A1)",
 		"\t=1":                       "'\t=1",
 		"hello=world":                "hello=world",
+		" =1+1":                      "' =1+1",
+		"\n=1+1":                     "'\n=1+1",
+		"%SUM(A1)":                   "'%SUM(A1)",
 	}
 	for in, want := range tests {
 		if got := csvSafeCell(in); got != want {
