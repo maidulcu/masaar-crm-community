@@ -122,12 +122,36 @@ For external integrations (website forms, Zapier, automation tools) that can't g
 
 ### Scopes
 
-| Scope | Description |
-|-------|-------------|
-| `lead:create` | Submit new leads |
-| `lead:read` | Read leads |
-| `contact:create` | Create contacts |
-| `contact:read` | Read contacts |
+Scope names follow the OAuth 2.0 convention (`resource:action`). A key gets only the scopes it is created with; new keys must use the scopes below (`GET /api/v1/settings/api-keys/scopes` lists them).
+
+| Scope | Allows |
+|-------|--------|
+| `lead:create` | `POST /webhooks/leads` (lead intake) |
+| `leads:read` | `GET /api/v1/leads/search`, `GET /api/v1/leads/{id}` |
+| `leads:write` | `POST /api/v1/leads`, `PATCH /api/v1/leads/{id}/stage`, `PATCH /api/v1/leads/{id}/notes`; includes `lead:create` |
+| `contacts:read` | `GET /api/v1/contacts`, `GET /api/v1/contacts/{id}` |
+| `contacts:write` | `POST /api/v1/contacts`, `PATCH /api/v1/contacts/{id}` |
+| `listings:read` | `GET /api/v1/listings`, `GET /api/v1/listings/{id}` |
+| `webhooks:manage` | `GET /api/v1/settings/webhooks`, `POST /api/v1/settings/webhooks`, `DELETE /api/v1/settings/webhooks/{id}` |
+
+Every other `/api/v1` route refuses API keys with `403`. Requests and responses are the same as for a signed-in user; data is always limited to the key's company. Each key is limited to 300 requests a minute.
+
+### Calling the API with a key
+
+```bash
+curl https://crm.yourcompany.ae/api/v1/leads/search?stage=new \
+  -H "Authorization: Bearer sk_live_..."
+```
+
+**Errors** to API-key requests are [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) problem details (`Content-Type: application/problem+json`). The `error` field is kept for older clients:
+
+```json
+{"type": "about:blank", "title": "Forbidden", "status": 403, "detail": "insufficient_scope", "error": "insufficient_scope", "scope": "leads:write"}
+```
+
+A missing scope also sets `WWW-Authenticate: Bearer error="insufficient_scope", scope="leads:write"`; an unknown or revoked key gets `401` with `error="invalid_token"` ([RFC 6750](https://www.rfc-editor.org/rfc/rfc6750#section-3)).
+
+**Safe retries.** Send an `Idempotency-Key` header (1–255 printable ASCII characters, e.g. a UUID) on `POST` and `PATCH`. A retry with the same key and the same request returns the first response with `Idempotent-Replayed: true` instead of acting twice. The same key with a different body gets `422`; a retry while the first request is still running gets `409`. Keys are kept for 24 hours, per API key. A `5xx` response is not stored, so the retry runs again.
 
 ### Manage API Keys
 
@@ -143,7 +167,7 @@ Content-Type: application/json
 
 {
   "name": "Zapier Integration",
-  "scopes": "lead:create,contact:create"
+  "scopes": "leads:write,contacts:write"
 }
 
 # Response (plaintext shown ONCE — save immediately)
@@ -152,7 +176,7 @@ Content-Type: application/json
   "name": "Zapier Integration",
   "key_prefix": "sk_live_abcd1234",
   "plaintext": "sk_live_a1b2c3d4e5f6...",
-  "scopes": "lead:create,contact:create"
+  "scopes": "contacts:write,leads:write"
 }
 
 # Revoke key (admin only)
@@ -551,7 +575,7 @@ curl -X POST https://crm.yourcompany.ae/api/v1/settings/api-keys \
   -H "Authorization: Bearer JWT_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"name":"Website Form","scopes":"lead:create"}'
-# Returns: {"key":"sk_live_..."}  ← store this once
+# Returns: {"plaintext":"sk_live_...", ...}  ← store this once
 
 # 2. Submit leads from your form
 curl -X POST https://crm.yourcompany.ae/webhooks/leads \
@@ -575,7 +599,8 @@ curl -X POST https://crm.yourcompany.ae/webhooks/leads \
 Use the REST API module in Zapier/Make with:
 - **Auth type:** Bearer Token (use your API key)
 - **Base URL:** `https://crm.yourcompany.ae/api/v1`
-- **Create Lead action:** `POST /leads`
+- **Create Lead action:** `POST /contacts`, then `POST /leads` with the contact's `id` (scopes `contacts:write`, `leads:write`)
+- Set an `Idempotency-Key` header so Zapier's automatic retries do not create duplicates
 
 ### Connecting from Another CRM (HubSpot, Salesforce)
 

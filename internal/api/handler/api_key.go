@@ -1,8 +1,11 @@
 package handler
 
 import (
+	"sort"
+
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
+	"github.com/maidulcu/masaar-crm/internal/apiscope"
 	"github.com/maidulcu/masaar-crm/internal/domain"
 	"github.com/maidulcu/masaar-crm/internal/repo"
 )
@@ -17,7 +20,7 @@ func NewApiKeyHandler(apiKeyRepo *repo.ApiKeyRepo) *ApiKeyHandler {
 
 type ApiKeyCreateRequest struct {
 	Name   string `json:"name"`
-	Scopes string `json:"scopes"` // Comma-separated: "lead:create,lead:read"
+	Scopes string `json:"scopes"` // Comma-separated, from apiscope.Known: "leads:read,contacts:read"
 }
 
 type ApiKeyResponse struct {
@@ -104,6 +107,14 @@ func (h *ApiKeyHandler) CreateApiKey(c *fiber.Ctx) error {
 	if req.Name == "" {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "name is required"})
 	}
+	if len(req.Name) > 100 {
+		return c.Status(fiber.StatusUnprocessableEntity).JSON(fiber.Map{"error": "name is too long"})
+	}
+	scopes, err := apiscope.Normalize(req.Scopes)
+	if err != nil {
+		return c.Status(fiber.StatusUnprocessableEntity).JSON(fiber.Map{"error": err.Error()})
+	}
+	req.Scopes = scopes
 
 	// Generate the key
 	plaintext, keyHash, keyPrefix, err := h.apiKeyRepo.GenerateKey()
@@ -155,4 +166,18 @@ func (h *ApiKeyHandler) RevokeApiKey(c *fiber.Ctx) error {
 	}
 
 	return c.SendStatus(fiber.StatusNoContent)
+}
+
+// ListScopes returns the scopes a new API key can be given, with what each allows.
+func (h *ApiKeyHandler) ListScopes(c *fiber.Ctx) error {
+	type scope struct {
+		Name        string `json:"name"`
+		Description string `json:"description"`
+	}
+	out := make([]scope, 0, len(apiscope.Known))
+	for name, desc := range apiscope.Known {
+		out = append(out, scope{name, desc})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return c.JSON(out)
 }

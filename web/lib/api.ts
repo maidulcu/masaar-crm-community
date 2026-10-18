@@ -1188,6 +1188,7 @@ export const api = {
       request('/api/v1/settings/bos24', { method: 'PATCH', body: JSON.stringify(data) }),
     apiKeys: {
       list: () => request('/api/v1/settings/api-keys'),
+      scopes: () => request<{ name: string; description: string }[]>('/api/v1/settings/api-keys/scopes'),
       create: (data: unknown) =>
         request('/api/v1/settings/api-keys', { method: 'POST', body: JSON.stringify(data) }),
       revoke: (id: string) =>

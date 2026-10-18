@@ -13,7 +13,22 @@ interface ApiKey {
   scopes: string
   created_at: string
   last_used_at: string | null
-  is_active: boolean
+}
+
+interface Scope {
+  name: string
+  description: string
+}
+
+// Arabic labels for the scopes the API offers; the English text comes from the API.
+const SCOPE_AR: Record<string, string> = {
+  'lead:create': 'إرسال عملاء محتملين إلى نقطة الاستقبال',
+  'leads:read': 'قراءة العملاء المحتملين',
+  'leads:write': 'إنشاء العملاء المحتملين وتحديث مراحلهم وملاحظاتهم',
+  'contacts:read': 'قراءة جهات الاتصال',
+  'contacts:write': 'إنشاء جهات الاتصال وتحديثها',
+  'listings:read': 'قراءة العقارات المعروضة',
+  'webhooks:manage': 'إدارة اشتراكات Webhook',
 }
 
 export default function ApiKeysPage() {
@@ -25,7 +40,8 @@ export default function ApiKeysPage() {
   const [keys, setKeys] = useState<ApiKey[]>([])
   const [loading, setLoading] = useState(true)
   const [newKeyName, setNewKeyName] = useState('')
-  const [newKeyScopes, setNewKeyScopes] = useState('lead:create')
+  const [scopes, setScopes] = useState<Scope[]>([])
+  const [newKeyScopes, setNewKeyScopes] = useState<string[]>(['lead:create'])
   const [showNewKey, setShowNewKey] = useState(false)
   const [createdKey, setCreatedKey] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -33,24 +49,28 @@ export default function ApiKeysPage() {
 
   const loadKeys = async () => {
     try {
-      const r = await api.settings.apiKeys.list() as { data: ApiKey[] }
-      setKeys(r.data || [])
+      const r = await api.settings.apiKeys.list() as ApiKey[] | null
+      setKeys(r || [])
     } catch {} finally { setLoading(false) }
   }
 
   useEffect(() => {
     if (user && user.role !== 'admin') { router.push('/dashboard'); return }
     loadKeys()
+    api.settings.apiKeys.scopes().then(s => setScopes(s || [])).catch(() => {})
   }, [user, router])
+
+  const toggleScope = (name: string) =>
+    setNewKeyScopes(cur => cur.includes(name) ? cur.filter(s => s !== name) : [...cur, name])
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!newKeyName.trim()) return
+    if (!newKeyName.trim() || newKeyScopes.length === 0) return
     setSubmitting(true); setError(''); setCreatedKey('')
     try {
-      const r = await api.settings.apiKeys.create({ name: newKeyName, scopes: newKeyScopes }) as { data: { api_key: string } }
-      setCreatedKey(r.data.api_key)
-      setNewKeyName(''); setShowNewKey(false)
+      const r = await api.settings.apiKeys.create({ name: newKeyName, scopes: newKeyScopes.join(',') }) as { plaintext: string }
+      setCreatedKey(r.plaintext)
+      setNewKeyName(''); setNewKeyScopes(['lead:create']); setShowNewKey(false)
       loadKeys()
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to create key')
@@ -64,12 +84,6 @@ export default function ApiKeysPage() {
   }
 
   if (user?.role !== 'admin') return null
-
-  const SCOPE_OPTIONS = [
-    { value: 'lead:create', label: t('إنشاء عميل متوقع', 'Create leads') },
-    { value: 'lead:create,contact:read', label: t('إنشاء عميل متوقع + قراءة جهات الاتصال', 'Create leads + read contacts') },
-    { value: 'lead:create,contact:read,property:read', label: t('كل الصلاحيات', 'All read + lead create') },
-  ]
 
   return (
     <div className="flex flex-col flex-1 min-h-0">
@@ -108,15 +122,23 @@ export default function ApiKeysPage() {
                     placeholder={t('مثلاً: تكامل مع موقعي', 'e.g. Website integration')} />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">{t('الصلاحيات', 'Permissions')}</label>
-                  <select value={newKeyScopes} onChange={e => setNewKeyScopes(e.target.value)}
-                    className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent bg-white">
-                    {SCOPE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-                  </select>
+                  <span className="block text-xs font-medium text-gray-600 mb-1">{t('الصلاحيات', 'Permissions')}</span>
+                  <div className="space-y-1.5">
+                    {scopes.map(s => (
+                      <label key={s.name} className="flex items-start gap-2 text-xs text-gray-700 cursor-pointer">
+                        <input type="checkbox" checked={newKeyScopes.includes(s.name)} onChange={() => toggleScope(s.name)}
+                          className="mt-0.5 rounded border-gray-300 text-brand-600 focus:ring-brand-500" />
+                        <span>
+                          <code className="font-mono text-[11px] text-gray-800">{s.name}</code>
+                          <span className="text-gray-500"> — {t(SCOPE_AR[s.name] || s.description, s.description)}</span>
+                        </span>
+                      </label>
+                    ))}
+                  </div>
                 </div>
                 {error && <p className="text-xs text-red-500 bg-red-50 p-2 rounded">{error}</p>}
                 <div className="flex gap-2">
-                  <button type="submit" disabled={submitting}
+                  <button type="submit" disabled={submitting || newKeyScopes.length === 0}
                     className="flex-1 py-2.5 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700 disabled:opacity-50">
                     {submitting ? t('جارٍ الإنشاء...', 'Creating...') : t('إنشاء', 'Create Key')}
                   </button>
@@ -126,17 +148,17 @@ export default function ApiKeysPage() {
                   </button>
                 </div>
               </form>
+            </div>
+          )}
 
-              {createdKey && (
-                <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
-                  <p className="text-xs font-semibold text-amber-700 mb-1">
-                    {t('تم إنشاء المفتاح! انسخه الآن، لن تتمكن من رؤيته مرة أخرى.', 'Key created! Copy it now — you won\'t be able to see it again.')}
-                  </p>
-                  <code className="text-xs bg-white px-2 py-1 rounded border border-amber-200 block mt-1 break-all select-all font-mono">
-                    {createdKey}
-                  </code>
-                </div>
-              )}
+          {createdKey && (
+            <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
+              <p className="text-xs font-semibold text-amber-700 mb-1">
+                {t('تم إنشاء المفتاح! انسخه الآن، لن تتمكن من رؤيته مرة أخرى.', 'Key created! Copy it now — you won\'t be able to see it again.')}
+              </p>
+              <code className="text-xs bg-white px-2 py-1 rounded border border-amber-200 block mt-1 break-all select-all font-mono">
+                {createdKey}
+              </code>
             </div>
           )}
 
@@ -154,16 +176,13 @@ export default function ApiKeysPage() {
                       <div className="flex items-center gap-2 mt-0.5">
                         <code className="text-xs text-gray-500 font-mono">{key.key_prefix}...</code>
                         <span className="text-[10px] text-gray-400">· {key.scopes}</span>
-                        {!key.is_active && (
-                          <span className="text-[10px] text-red-500 font-medium">{t('ملغي', 'Revoked')}</span>
-                        )}
                       </div>
                       <p className="text-[10px] text-gray-400 mt-0.5">
                         {t('تاريخ الإنشاء:', 'Created:')} {new Date(key.created_at).toLocaleDateString()}
                         {key.last_used_at ? ` · ${t('آخر استخدام:', 'Last used:')} ${new Date(key.last_used_at).toLocaleDateString()}` : ''}
                       </p>
                     </div>
-                    {key.is_active && !isDemo && (
+                    {!isDemo && (
                       <button onClick={() => handleRevoke(key.id)}
                         className="text-xs text-red-500 hover:text-red-700 font-medium px-3 py-1.5 rounded-lg hover:bg-red-50 transition-colors shrink-0">
                         {t('إلغاء', 'Revoke')}

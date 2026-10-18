@@ -145,9 +145,12 @@ func (h *ContactHandler) Create(c *fiber.Ctx) error {
 	if err := h.contacts.Create(c.Context(), &contact); err != nil {
 		return serverError(c, err)
 	}
-	actorID := c.Locals("user_id").(uuid.UUID)
-	recordConsentChoices(c.Context(), h.privacy, contact.ID, extra.Consent, "manual", &actorID, nil)
-	h.audit.Log(c.Context(), actorID, repo.AuditCreate, repo.AuditContact, contact.ID, contact)
+	consentSource := "manual"
+	if actorUserID(c) == nil {
+		consentSource = "api"
+	}
+	recordConsentChoices(c.Context(), h.privacy, contact.ID, extra.Consent, consentSource, actorUserID(c), actorAPIKeyID(c))
+	auditWrite(c, h.audit, repo.AuditCreate, repo.AuditContact, contact.ID, contact)
 	return c.Status(fiber.StatusCreated).JSON(contact)
 }
 
@@ -294,8 +297,7 @@ func (h *ContactHandler) Update(c *fiber.Ctx) error {
 		}
 		existing.Profile, _ = h.profiles.GetProfile(c.Context(), existing.ID)
 	}
-	actorID := c.Locals("user_id").(uuid.UUID)
-	h.audit.Log(c.Context(), actorID, repo.AuditUpdate, repo.AuditContact, existing.ID, existing)
+	auditWrite(c, h.audit, repo.AuditUpdate, repo.AuditContact, existing.ID, existing)
 	return c.JSON(existing)
 }
 

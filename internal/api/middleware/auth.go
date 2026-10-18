@@ -61,6 +61,11 @@ func jwtError(c *fiber.Ctx, err error) error {
 // RequireRole returns 403 if the authenticated user doesn't have one of the given roles.
 func RequireRole(roles ...domain.Role) fiber.Handler {
 	return func(c *fiber.Ctx) error {
+		// An API key carries scopes, not a role. It only reaches a role-gated route that
+		// APIKeyAccess opened to it, after checking the key holds that route's scope.
+		if IsAPIKey(c) {
+			return c.Next()
+		}
 		claims := ClaimsFromCtx(c)
 		if claims == nil {
 			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{

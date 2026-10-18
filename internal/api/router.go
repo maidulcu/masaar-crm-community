@@ -12,6 +12,7 @@ import (
 	_ "github.com/maidulcu/masaar-crm/docs" // swagger generated docs
 	"github.com/maidulcu/masaar-crm/internal/api/handler"
 	"github.com/maidulcu/masaar-crm/internal/api/middleware"
+	"github.com/maidulcu/masaar-crm/internal/apiscope"
 	"github.com/maidulcu/masaar-crm/internal/config"
 	"github.com/maidulcu/masaar-crm/internal/domain"
 	"github.com/maidulcu/masaar-crm/internal/repo"
@@ -165,11 +166,14 @@ func RegisterRoutes(app *fiber.App, h *Handlers, hub *ws.Hub, cfg *config.Config
 
 	// Public lead intake — API key auth (scope: lead:create)
 	apiKeyLimiter := makeAPIKeyLimiter(rdb)
+	idempotency := middleware.Idempotency(middleware.NewRedisIdempotencyStore(rdb))
 	app.Post("/webhooks/leads",
+		middleware.ProblemDetails(),
 		lim.webhook,
 		middleware.ValidateAPIKey(apiKeyRepo),
 		apiKeyLimiter,
-		middleware.RequireAPIKeyScope("lead:create"),
+		middleware.RequireAPIKeyScope(apiscope.LeadCreate),
+		idempotency,
 		h.PublicLead.SubmitLead,
 	)
 
@@ -192,14 +196,20 @@ func RegisterRoutes(app *fiber.App, h *Handlers, hub *ws.Hub, cfg *config.Config
 	)
 
 	// ── Authenticated API ────────────────────────────────────────────────────
+	// A request carries either a session JWT or an API key ("Bearer sk_live_…"). API keys reach
+	// only the routes in apiKeyRoutes and skip the session-only middleware.
 	v1 := app.Group("/api/v1",
+		middleware.ProblemDetails(), // RFC 9457 error bodies for API-key requests
 		lim.api,
-		middleware.JWT(cfg.JWTSecret),
-		middleware.CheckBlacklist(rdb),
-		trialCheck,
-		middleware.ExtractClaims(),
-		middleware.DemoGuard(),         // blocks writes on demo accounts; reads is_demo from JWT
-		middleware.ValidateURLFields(), // reject javascript:/data: etc. in *_url fields (stored XSS)
+		middleware.APIKeyAccess(apiKeyRepo, apiKeyRoutes),
+		middleware.OnlyAPIKey(apiKeyLimiter),
+		middleware.UnlessAPIKey(middleware.JWT(cfg.JWTSecret)),
+		middleware.UnlessAPIKey(middleware.CheckBlacklist(rdb)),
+		middleware.UnlessAPIKey(trialCheck),
+		middleware.UnlessAPIKey(middleware.ExtractClaims()),
+		middleware.UnlessAPIKey(middleware.DemoGuard()), // blocks writes on demo accounts; reads is_demo from JWT
+		middleware.ValidateURLFields(),                  // reject javascript:/data: etc. in *_url fields (stored XSS)
+		idempotency,                                     // Idempotency-Key on API-key POST/PATCH
 	)
 
 	v1.Delete("/auth/logout", h.Auth.Logout)
@@ -406,6 +416,10 @@ func RegisterRoutes(app *fiber.App, h *Handlers, hub *ws.Hub, cfg *config.Config
 	)
 
 	// API Keys — admin only (for external integrations)
+	v1.Get("/settings/api-keys/scopes",
+		middleware.RequireRole(domain.RoleAdmin),
+		h.ApiKey.ListScopes,
+	)
 	v1.Get("/settings/api-keys",
 		middleware.RequireRole(domain.RoleAdmin),
 		h.ApiKey.ListApiKeys,

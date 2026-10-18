@@ -193,10 +193,13 @@ DELETE /api/v1/auth/logout  // invalidates token in Redis`}</Pre>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
               {[
-                { scope: 'lead:create', desc: 'Submit new leads from external sources' },
-                { scope: 'lead:read', desc: 'Read leads data' },
-                { scope: 'contact:create', desc: 'Create contacts' },
-                { scope: 'contact:read', desc: 'Read contacts' },
+                { scope: 'lead:create', desc: 'POST /webhooks/leads (lead intake)' },
+                { scope: 'leads:read', desc: 'GET /leads/search, GET /leads/:id' },
+                { scope: 'leads:write', desc: 'POST /leads, PATCH /leads/:id/stage and /notes; includes lead:create' },
+                { scope: 'contacts:read', desc: 'GET /contacts, GET /contacts/:id' },
+                { scope: 'contacts:write', desc: 'POST /contacts, PATCH /contacts/:id' },
+                { scope: 'listings:read', desc: 'GET /listings, GET /listings/:id' },
+                { scope: 'webhooks:manage', desc: 'List, register and delete webhook subscriptions' },
               ].map(({ scope, desc }) => (
                 <div key={scope} className="border border-gray-200 rounded-lg p-3">
                   <Code>{scope}</Code>
@@ -213,16 +216,24 @@ DELETE /api/v1/auth/logout  // invalidates token in Redis`}</Pre>
               ].map(([m, p, d]) => <Endpoint key={p} method={m} path={p} desc={d} auth="admin" />)}
             </div>
 
+            <p className="text-gray-600 mb-4">
+              Paths above are under <Code>/api/v1</Code>. Every other <Code>/api/v1</Code> route refuses API keys
+              with 403, and data is always limited to the key&apos;s company. Errors to API-key requests are
+              RFC 9457 problem details (<Code>application/problem+json</Code>, with the old <Code>error</Code> field
+              kept). Send an <Code>Idempotency-Key</Code> header on POST and PATCH: a retry with the same key and
+              body returns the first response (<Code>Idempotent-Replayed: true</Code>) instead of acting twice.
+            </p>
+
             <Pre>{`// Generate a key
 POST /api/v1/settings/api-keys
-{ "name": "Website Form", "scopes": "lead:create,contact:create" }
+{ "name": "Website Form", "scopes": "contacts:write,leads:write" }
 
 // Response (plaintext shown ONCE — save it now)
 {
   "id": "uuid",
   "key_prefix": "sk_live_abcd1234",
   "plaintext": "sk_live_a1b2c3d4...",  // SAVE THIS
-  "scopes": "lead:create,contact:create"
+  "scopes": "contacts:write,leads:write"
 }`}</Pre>
           </Section>
 
@@ -488,7 +499,8 @@ POST /api/v1/leads
                   <li>Auth type: Bearer Token</li>
                   <li>Token: your API key (<Code>sk_live_...</Code>)</li>
                   <li>Base URL: <Code>https://crm.yourcompany.ae/api/v1</Code></li>
-                  <li>Create lead: <Code>POST /leads</Code></li>
+                  <li>Create lead: <Code>POST /contacts</Code>, then <Code>POST /leads</Code> (scopes <Code>contacts:write</Code>, <Code>leads:write</Code>)</li>
+                  <li>Header <Code>Idempotency-Key</Code> so retries do not create duplicates</li>
                 </ul>
               </div>
 

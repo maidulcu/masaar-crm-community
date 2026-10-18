@@ -26,6 +26,8 @@ type ApiKey struct {
 	RevokedAt  *time.Time
 	// CompanyActive is set by ValidateKey: false when the key's company is suspended.
 	CompanyActive bool
+	// CompanyDemo is set by ValidateKey: true for the read-only demo company.
+	CompanyDemo bool
 }
 
 type ApiKeyRepo struct {
@@ -71,13 +73,13 @@ func (r *ApiKeyRepo) ValidateKey(ctx context.Context, keyHash string) (*ApiKey, 
 	err := r.db.QueryRow(
 		ctx,
 		`SELECT k.id, k.company_id, k.name, k.key_hash, k.key_prefix, k.scopes, k.last_used_at, k.created_at, k.revoked_at,
-		        c.is_active
+		        c.is_active, c.is_demo
 		 FROM api_keys k
 		 JOIN companies c ON c.id = k.company_id
 		 WHERE k.key_hash = $1 AND k.revoked_at IS NULL`,
 		keyHash,
 	).Scan(&key.ID, &key.CompanyID, &key.Name, &key.KeyHash, &key.KeyPrefix, &key.Scopes, &key.LastUsedAt, &key.CreatedAt, &key.RevokedAt,
-		&key.CompanyActive)
+		&key.CompanyActive, &key.CompanyDemo)
 
 	if err != nil {
 		return nil, fmt.Errorf("api key validation failed: %w", err)
