@@ -8,7 +8,7 @@ Close deals over WhatsApp · AI thread summaries · Full RTL Arabic UI · PDPL-c
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Version](https://img.shields.io/github/v/release/maidulcu/masaar-crm-community)](https://github.com/maidulcu/masaar-crm-community/releases)
-[![Go](https://img.shields.io/badge/Go-1.22+-00ADD8?logo=go)](https://go.dev)
+[![Go](https://img.shields.io/badge/Go-1.26+-00ADD8?logo=go)](https://go.dev)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16+-336791?logo=postgresql)](https://postgresql.org)
 
 **Live Demo:** [masaar.dynamicweblab.com](https://masaar.dynamicweblab.com) &nbsp;·&nbsp; Built by [Dynamic Web Lab FZE LLC](https://dynamicweblab.com)
@@ -38,65 +38,44 @@ Masaar is a **free, open-source CRM designed specifically for UAE businesses**. 
 | **Dashboard Overview** | Real-time stats: total contacts, active leads, open WhatsApp threads, pipeline value, won revenue |
 | **WhatsApp Inbox** | Receive and manage inbound WhatsApp messages from Meta Cloud API |
 | **WhatsApp Outbound** | Send text, media (images/video/documents), and predefined templates via WhatsApp |
-| **AI Draft Reply** | One-click AI-generated draft replies to WhatsApp threads using local Ollama |
-| **AI Buyer Profile** | Extract structured buyer requirements from WhatsApp conversations |
+| **AI Draft Reply** (Pro) | One-click AI-generated draft replies to WhatsApp threads using local Ollama |
+| **AI Buyer Profile** (Pro) | Extract structured buyer requirements from WhatsApp conversations |
 | **Sales Pipeline** | Kanban board with drag-and-drop stage management (New → Won/Lost) |
 | **Lead Notes** | Click any pipeline card to view and edit per-lead notes inline |
-| **AI Thread Summaries** | One-click AI summarization via local Ollama LLM — data never leaves your server |
-| **Deals & VAT Invoicing** | Deal tracking with PDF invoice generation including UAE 5% VAT |
-| **Contact Management** | Unified contact profiles linked to WhatsApp numbers and leads |
+| **AI Thread Summaries** (Pro) | One-click AI summarization via local Ollama LLM — data never leaves your server |
+| **Deals & VAT Invoicing** | FTA-style tax invoices with line items, VAT categories, credit notes and a printable bilingual layout; server-side PDF generation is a Pro feature |
+| **RERA Compliance** | ORN, BRN and trade licence with expiry alerts; Trakheesi/Madhmoun permits required before a Dubai or Abu Dhabi listing is published or shared |
+| **Contact Management** | Unified contact profiles linked to WhatsApp numbers and leads, organisations, custom fields, duplicate detection and merge |
+| **Tasks & Follow-ups** | Tasks linked to leads, contacts, deals and listings, with due-date reminders and an overdue view |
+| **RERA Forms** | Pre-filled Forms A, B, I and F, printable in English and Arabic, signed through the e-signature link |
+| **Property Portals** | Lead webhooks and a listing XML feed per portal (Property Finder, Bayut, Dubizzle, others), lead-source report |
+| **Post-dated Cheques** | Cheque schedule per lease, deposit list, bounced-cheque workflow; cleared cheques mark rent paid |
+| **Lease Alerts & Notices** | Alerts before leases and Ejari registrations expire and before the rent-change notice deadline; bilingual notices to tenants; rent reminders by email and WhatsApp |
+| **Two-factor Authentication** | Authenticator-app codes and backup codes, optional per user or required company-wide |
+| **KYC / AML** | Client identity documents, risk and PEP records, beneficial owners, KYC check before a deal is won, AML review queue and goAML export, compliance role |
+| **WhatsApp Broadcasts** | Approved templates to consenting segments, STOP/إيقاف opt-out, 24-hour window indicator, conversation assignment, business-hours auto-reply |
+| **UAE E-invoicing** | Invoices and credit notes as PINT AE (Peppol) XML, validated against the official rules in CI; provider connector interface with a mock provider and status tracking |
+| **Saudi Arabia** | Country rules (15 % VAT, SAR, weekend, regions), REGA licence on listings, optional Hijri dates |
+| **Calculators** | Purchase costs (DLD fees), mortgage, rental yield and commission with VAT, shareable on WhatsApp |
 | **User Settings** | Per-user password change and language preference (Arabic/English) |
 | **Role-Based Access** | Three roles: Admin, Agent, Viewer — enforced on every API route |
 | **Real-time Notifications** | Personal WebSocket-powered notifications |
+| **Background Jobs** | Viewing, task and rent reminders, offer expiry, licence and lease alerts run automatically; safe with several API replicas |
+| **Country Settings** | Per-company country, emirate, currency and timezone; amounts in 3-decimal currencies (BHD, KWD, OMR) are stored exactly |
 | **Full RTL Support** | Complete Arabic interface — layout, typography, and date direction |
-| **Audit Log** | Immutable activity log for UAE PDPL compliance |
-| **Self-Hosted** | Single Docker binary — deploy to Moro Hub, G42, or any UAE cloud |
+| **PDPL Tools** | Consent per channel with history, opt-out enforcement, data-subject export and erasure, retention clean-up |
+| **Audit Log** | Who created, changed or deleted contacts, leads, deals and documents, for UAE PDPL compliance |
+| **Self-Hosted** | Docker Compose (API, web app, PostgreSQL, Redis) — deploy to Moro Hub, G42, or any UAE cloud |
+
+> **Community and Pro.** Features marked *(Pro)* — AI and PDF generation — are stubs in this repository: the endpoints exist but answer with an upgrade message. Market data is also a stub for now (see below). Everything else is fully implemented here. See [CONTRIBUTING.md](CONTRIBUTING.md#whats-in-scope).
 
 ---
 
-## 🏢 Real Estate Market Data Integration
+## Real Estate Market Data
 
-**Masaar CRM integrates with [Waqov](https://dldapi.waqov.com/#api)** — the UAE's real estate data API — to add market intelligence directly into your CRM workflow.
+The Properties and Map pages and the property report are built for UAE market data — DLD transactions, Ejari rents, buildings, projects and valuations — from Waqov's [DLD data API](https://dldapi.waqov.com/#api).
 
-### What You Get
-- **Property Search** — Natural language queries: "2BR apartments in Marina" returns recent transactions, comparable prices, and market trends
-- **Transaction History** — Filter by area, property type, price range — see all recent sales/rentals in one click
-- **Building Directory** — Quick autocomplete for projects, buildings, and nearby amenities (schools, gyms, metro stations)
-- **Yield Analysis** — Investors get rental vs. sales comparison for ROI calculations
-- **Market Intelligence** — Price trends, transaction volume, per-sqm analytics
-
-### How to Enable
-
-**Step 1: Get Your API Key**
-1. Visit [https://dynamicweblab.com/products/real-estate-data-api/](https://dynamicweblab.com/products/real-estate-data-api/)
-2. View pricing tiers and features
-3. **Contact us** to set up your account (integration form on landing page)
-4. We'll send your API key via Manukaub Bank payment & setup
-
-**Step 2: Configure in Masaar**
-```bash
-# In your .env file:
-BOS24_API_TOKEN=your-api-token-received-from-setup
-```
-
-**Step 3: Start Using**
-- Agents search properties directly in leads: "Market data for 2BR Dubai Marina"
-- Auto-enriched lead cards show comparable sales and price insights
-- Investors analyze rental yields in seconds
-- All data stays in your self-hosted Masaar instance
-
-**Full API Documentation:** [https://dldapi.waqov.com/#api](https://dldapi.waqov.com/#api)
-
-### Pricing & Plans
-- **Masaar Pro users** — Waqov API credits included in your subscription
-- **Open-source users** — Optional integration; contact Dynamic Web Lab for pricing:
-  - **Starter** — Limited monthly queries, great for testing
-  - **Growth** — 5,000+ monthly credits (perfect for 10-50 agents)
-  - **Enterprise** — Custom unlimited credits with dedicated support
-  
-👉 **[Contact Dynamic Web Lab](https://dynamicweblab.com/products/real-estate-data-api/)** to discuss your requirements and get a quote
-
-> 💡 **For Masaar Pro Users:** Your CRM subscription includes API credits for unlimited property searches. Market intelligence without additional cost!
+**In this edition the market-data client is a stub:** those endpoints answer `503` until a dldapi client is added. The rest of the CRM does not depend on it.
 
 ---
 
@@ -104,7 +83,7 @@ BOS24_API_TOKEN=your-api-token-received-from-setup
 
 Try it at **[masaar.dynamicweblab.com](https://masaar.dynamicweblab.com)**
 
-> Resets every 24 hours. Do not enter real customer data.
+> A shared demo: do not enter real customer data.
 
 ---
 
@@ -154,12 +133,12 @@ docker compose up
 │                 │  WS Hub  │◀── Real-time Notifications  │
 │                 └──────────┘                            │
 └─────────────────────────────────────────────────────────┘
-         ↑ Single Docker binary — no external dependencies
+         ↑ Docker Compose: API, web app, PostgreSQL, Redis
 ```
 
 | Layer | Technology |
 |-------|-----------|
-| Backend | Go 1.22 + [Fiber](https://gofiber.io) |
+| Backend | Go 1.26 + [Fiber](https://gofiber.io) |
 | Frontend | Next.js 14 + Tailwind CSS |
 | Database | PostgreSQL 16 + pgvector |
 | AI | [Ollama](https://ollama.ai) (llama3 / mistral) |
@@ -234,6 +213,25 @@ All protected routes require `Authorization: Bearer <token>`. Full interactive d
 | `PATCH` | `/api/v1/notifications/:id/read` | Mark notification read | Auth |
 | `POST` | `/api/v1/ai/summarize/:thread_id` | AI thread summary | Agent, Admin |
 | `GET` | `/ws/notifications` | Real-time notification stream | Auth (WS) |
+| `GET` | `/api/v1/tasks` | List tasks (filters: mine, status, related record, overdue) | Auth |
+| `POST` | `/api/v1/tasks` | Create task | Agent, Admin |
+| `GET` | `/api/v1/contacts/duplicates` | Contacts that look like duplicates | Agent, Admin |
+| `POST` | `/api/v1/contacts/merge` | Merge contacts | Admin |
+| `POST` | `/api/v1/rera-forms` | Create a pre-filled RERA form | Agent, Admin |
+| `POST` | `/api/v1/settings/portals/:portal` | Connect a property portal (returns its URLs once) | Admin |
+| `POST` | `/webhooks/portals/:portal?token=` | Receive a lead from a property portal | Token |
+| `GET` | `/api/public/feeds/:portal/listings.xml?token=` | Listing feed for a portal | Token |
+| `GET` | `/api/v1/reports/lead-sources` | Leads, wins and revenue by source | Admin |
+| `POST` | `/api/v1/auth/verify-totp` | Complete sign-in with a two-factor code | Pending token |
+| `POST` | `/api/v1/users/me/2fa/setup` | Start setting up two-factor | Auth |
+| `GET` | `/api/v1/contacts/:id/kyc` | A contact's KYC record | Agent, Admin, Compliance |
+| `GET` | `/api/v1/compliance/aml` | AML review queue | Admin, Compliance |
+| `POST` | `/api/v1/broadcasts` | Create a WhatsApp broadcast | Admin |
+| `GET` | `/api/v1/cheques` | Cheque register (filters: status, from, to, lease) | Auth |
+| `POST` | `/api/v1/leases/:id/cheques/schedule` | Create a lease's cheque schedule | Agent, Admin |
+| `POST` | `/api/v1/cheques/:id/status` | Deposit, clear, bounce, hold or return a cheque | Agent, Admin |
+| `POST` | `/api/v1/leases/:id/notices/draft` | Draft a bilingual notice to the tenant | Agent, Admin |
+| `PUT` | `/api/v1/settings/property` | Lease alert days, notice period, rent reminders | Admin |
 | | | | |
 | **Real Estate Market Data (Dynamic Web Lab)** | *Optional integration; requires API key* | | |
 | `POST` | `/api/v1/properties/search` | Search properties (natural language) | Agent, Admin |
@@ -275,7 +273,7 @@ Need more for your UAE enterprise? The Enterprise edition adds:
 | Feature | Description |
 |---------|-------------|
 | **Multiple Pipelines** | Sales, HR, Ops — separate pipelines per team |
-| **ZATCA E-Invoicing** | UAE FTA compliant with QR code & tax signing |
+| **ZATCA E-Invoicing** | Saudi Arabia (ZATCA) e-invoicing with QR code & tax signing |
 | **AI Automation** | Auto lead scoring and auto-replies |
 | **WhatsApp Bots** | AI-powered chatbots and auto-replies |
 | **Advanced Templates** | Multi-language template management and analytics |

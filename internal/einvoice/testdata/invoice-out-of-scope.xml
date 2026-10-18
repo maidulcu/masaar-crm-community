@@ -1,0 +1,123 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Invoice xmlns="urn:oasis:names:specification:ubl:schema:xsd:Invoice-2" xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2" xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2">
+  <cbc:CustomizationID>urn:peppol:pint:billing-1@ae-1</cbc:CustomizationID>
+  <cbc:ProfileID>urn:peppol:bis:billing</cbc:ProfileID>
+  <cbc:ProfileExecutionID>00000000</cbc:ProfileExecutionID>
+  <cbc:ID>INV-2026-0044</cbc:ID>
+  <cbc:UUID>3e8f1a27-5c6d-4b9e-a0f1-2b3c4d5e6f70</cbc:UUID>
+  <cbc:IssueDate>2026-10-14</cbc:IssueDate>
+  <cbc:DueDate>2026-11-13</cbc:DueDate>
+  <cbc:InvoiceTypeCode>480</cbc:InvoiceTypeCode>
+  <cbc:DocumentCurrencyCode>AED</cbc:DocumentCurrencyCode>
+  <cac:AccountingSupplierParty>
+    <cac:Party>
+      <cbc:EndpointID schemeID="0235">1000000001</cbc:EndpointID>
+      <cac:PostalAddress>
+        <cbc:StreetName>Office 1201, Marina Plaza</cbc:StreetName>
+        <cbc:CityName>Dubai</cbc:CityName>
+        <cbc:CountrySubentity>DXB</cbc:CountrySubentity>
+        <cac:Country>
+          <cbc:IdentificationCode>AE</cbc:IdentificationCode>
+        </cac:Country>
+      </cac:PostalAddress>
+      <cac:PartyTaxScheme>
+        <cbc:CompanyID>100000000100003</cbc:CompanyID>
+        <cac:TaxScheme>
+          <cbc:ID>VAT</cbc:ID>
+        </cac:TaxScheme>
+      </cac:PartyTaxScheme>
+      <cac:PartyLegalEntity>
+        <cbc:RegistrationName>Example Realty LLC</cbc:RegistrationName>
+        <cbc:CompanyID schemeAgencyID="TL" schemeAgencyName="Dubai Department of Economy and Tourism">CN-1234567</cbc:CompanyID>
+      </cac:PartyLegalEntity>
+      <cac:Contact>
+        <cbc:ElectronicMail>billing@example.ae</cbc:ElectronicMail>
+      </cac:Contact>
+    </cac:Party>
+  </cac:AccountingSupplierParty>
+  <cac:AccountingCustomerParty>
+    <cac:Party>
+      <cbc:EndpointID schemeID="0235">1000000002</cbc:EndpointID>
+      <cac:PostalAddress>
+        <cbc:StreetName>Tower 2, Al Maryah Island</cbc:StreetName>
+        <cbc:CityName>Abu Dhabi</cbc:CityName>
+        <cbc:CountrySubentity>AUH</cbc:CountrySubentity>
+        <cac:Country>
+          <cbc:IdentificationCode>AE</cbc:IdentificationCode>
+        </cac:Country>
+      </cac:PostalAddress>
+      <cac:PartyTaxScheme>
+        <cbc:CompanyID>100000000200003</cbc:CompanyID>
+        <cac:TaxScheme>
+          <cbc:ID>VAT</cbc:ID>
+        </cac:TaxScheme>
+      </cac:PartyTaxScheme>
+      <cac:PartyLegalEntity>
+        <cbc:RegistrationName>Buyer Holdings LLC</cbc:RegistrationName>
+        <cbc:CompanyID schemeAgencyID="TL" schemeAgencyName="Abu Dhabi Department of Economic Development">CN-7654321</cbc:CompanyID>
+      </cac:PartyLegalEntity>
+    </cac:Party>
+  </cac:AccountingCustomerParty>
+  <cac:PaymentMeans>
+    <cbc:PaymentMeansCode>30</cbc:PaymentMeansCode>
+    <cac:PayeeFinancialAccount>
+      <cbc:ID>AE070331234567890123456</cbc:ID>
+    </cac:PayeeFinancialAccount>
+  </cac:PaymentMeans>
+  <cac:TaxTotal>
+    <cbc:TaxAmount currencyID="AED">0.00</cbc:TaxAmount>
+    <cac:TaxSubtotal>
+      <cbc:TaxableAmount currencyID="AED">4200.00</cbc:TaxableAmount>
+      <cbc:TaxAmount currencyID="AED">0.00</cbc:TaxAmount>
+      <cac:TaxCategory>
+        <cbc:ID>O</cbc:ID>
+        <cbc:TaxExemptionReason>Not subject to VAT</cbc:TaxExemptionReason>
+        <cac:TaxScheme>
+          <cbc:ID>VAT</cbc:ID>
+        </cac:TaxScheme>
+      </cac:TaxCategory>
+    </cac:TaxSubtotal>
+  </cac:TaxTotal>
+  <cac:LegalMonetaryTotal>
+    <cbc:LineExtensionAmount currencyID="AED">4200.00</cbc:LineExtensionAmount>
+    <cbc:TaxExclusiveAmount currencyID="AED">4200.00</cbc:TaxExclusiveAmount>
+    <cbc:TaxInclusiveAmount currencyID="AED">4200.00</cbc:TaxInclusiveAmount>
+    <cbc:PayableAmount currencyID="AED">4200.00</cbc:PayableAmount>
+  </cac:LegalMonetaryTotal>
+  <cac:InvoiceLine>
+    <cbc:ID>1</cbc:ID>
+    <cbc:InvoicedQuantity unitCode="C62">1</cbc:InvoicedQuantity>
+    <cbc:LineExtensionAmount currencyID="AED">4200.00</cbc:LineExtensionAmount>
+    <cac:Item>
+      <cbc:Description>Government fees paid on the client's behalf</cbc:Description>
+      <cbc:Name>Government fees paid on the client's behalf</cbc:Name>
+      <cac:AdditionalItemIdentification>
+        <cbc:ID schemeID="SAC">997212</cbc:ID>
+      </cac:AdditionalItemIdentification>
+      <cac:CommodityClassification>
+        <cbc:CommodityCode>S</cbc:CommodityCode>
+      </cac:CommodityClassification>
+      <cac:ClassifiedTaxCategory>
+        <cbc:ID>O</cbc:ID>
+        <cac:TaxScheme>
+          <cbc:ID>VAT</cbc:ID>
+        </cac:TaxScheme>
+      </cac:ClassifiedTaxCategory>
+    </cac:Item>
+    <cac:Price>
+      <cbc:PriceAmount currencyID="AED">4200.00</cbc:PriceAmount>
+      <cbc:BaseQuantity unitCode="C62">1</cbc:BaseQuantity>
+      <cac:AllowanceCharge>
+        <cbc:ChargeIndicator>false</cbc:ChargeIndicator>
+        <cbc:Amount currencyID="AED">0.00</cbc:Amount>
+        <cbc:BaseAmount currencyID="AED">4200.00</cbc:BaseAmount>
+      </cac:AllowanceCharge>
+    </cac:Price>
+    <cac:ItemPriceExtension>
+      <cbc:Amount currencyID="AED">4200.00</cbc:Amount>
+      <cac:TaxTotal>
+        <cbc:TaxAmount currencyID="AED">0.00</cbc:TaxAmount>
+      </cac:TaxTotal>
+    </cac:ItemPriceExtension>
+  </cac:InvoiceLine>
+</Invoice>

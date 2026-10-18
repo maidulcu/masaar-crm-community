@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/maidulcu/masaar-crm/internal/domain"
 )
@@ -31,6 +32,24 @@ func (r *CompanyRepo) Bootstrap(ctx context.Context, id uuid.UUID, name, subdoma
 }
 
 func (r *CompanyRepo) create(ctx context.Context, id uuid.UUID, name, subdomain string, trialDurationDays int, upsert bool) (*domain.Company, error) {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("create company tx begin: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	c, err := insertCompany(ctx, tx, id, name, subdomain, trialDurationDays, upsert)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("create company tx commit: %w", err)
+	}
+	return c, nil
+}
+
+// insertCompany writes the company row and its default company_settings inside tx.
+func insertCompany(ctx context.Context, tx pgx.Tx, id uuid.UUID, name, subdomain string, trialDurationDays int, upsert bool) (*domain.Company, error) {
 	now := time.Now()
 	trialEnd := now.AddDate(0, 0, trialDurationDays)
 	c := &domain.Company{
@@ -46,12 +65,6 @@ func (r *CompanyRepo) create(ctx context.Context, id uuid.UUID, name, subdomain 
 		CreatedAt:      now,
 	}
 
-	tx, err := r.db.Begin(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("create company tx begin: %w", err)
-	}
-	defer tx.Rollback(ctx)
-
 	q := `INSERT INTO companies (id, name, subdomain, plan, trial_started_at, trial_ends_at, on_trial, is_active, is_demo, created_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`
 	if upsert {
@@ -59,9 +72,8 @@ func (r *CompanyRepo) create(ctx context.Context, id uuid.UUID, name, subdomain 
 			trial_started_at = EXCLUDED.trial_started_at, trial_ends_at = EXCLUDED.trial_ends_at,
 			on_trial = EXCLUDED.on_trial, is_active = EXCLUDED.is_active, is_demo = EXCLUDED.is_demo`
 	}
-	_, err = tx.Exec(ctx, q,
-		c.ID, c.Name, c.Subdomain, c.Plan, c.TrialStartedAt, c.TrialEndsAt, c.OnTrial, c.IsActive, c.IsDemo, c.CreatedAt)
-	if err != nil {
+	if _, err := tx.Exec(ctx, q,
+		c.ID, c.Name, c.Subdomain, c.Plan, c.TrialStartedAt, c.TrialEndsAt, c.OnTrial, c.IsActive, c.IsDemo, c.CreatedAt); err != nil {
 		return nil, fmt.Errorf("insert company: %w", err)
 	}
 
@@ -71,13 +83,8 @@ func (r *CompanyRepo) create(ctx context.Context, id uuid.UUID, name, subdomain 
 	if upsert {
 		csq += ` ON CONFLICT (company_id) DO UPDATE SET name = EXCLUDED.name`
 	}
-	_, err = tx.Exec(ctx, csq, c.ID, c.Name)
-	if err != nil {
+	if _, err := tx.Exec(ctx, csq, c.ID, c.Name); err != nil {
 		return nil, fmt.Errorf("insert company_settings: %w", err)
-	}
-
-	if err := tx.Commit(ctx); err != nil {
-		return nil, fmt.Errorf("create company tx commit: %w", err)
 	}
 	return c, nil
 }

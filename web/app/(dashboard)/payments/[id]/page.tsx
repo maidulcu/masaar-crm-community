@@ -9,6 +9,7 @@ import { useAuthStore } from '@/store/auth'
 import { api } from '@/lib/api'
 import type { Payment, PaymentConfirmation } from '@/types'
 import clsx from 'clsx'
+import { companyCurrency } from '@/lib/money'
 
 const statusColor: Record<string, string> = {
   pending: 'bg-yellow-100 text-yellow-700',
@@ -67,7 +68,7 @@ export default function PaymentDetailPage() {
   }
 
   const fmtDate = (d: string | null) => d ? new Date(d).toLocaleDateString(lang === 'ar' ? 'ar-AE' : 'en-AE', { year: 'numeric', month: 'short', day: 'numeric' }) : '—'
-  const fmtAmount = (v: number) => `${payment?.currency || 'AED'} ${v.toLocaleString()}`
+  const fmtAmount = (v: number) => `${payment?.currency || companyCurrency()} ${v.toLocaleString()}`
 
   if (loading) return <div className="flex-1 flex items-center justify-center text-gray-400 text-sm">{t('جاري التحميل...', 'Loading...')}</div>
   if (!payment) return <div className="flex-1 flex items-center justify-center text-gray-400 text-sm">{t('غير موجود', 'Payment not found')}</div>

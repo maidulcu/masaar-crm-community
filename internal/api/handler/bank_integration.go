@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"errors"
 	"strconv"
 
 	"github.com/gofiber/fiber/v2"
@@ -85,13 +86,18 @@ func (h *BankIntegrationHandler) Get(c *fiber.Ctx) error {
 // @Security     BearerAuth
 // @Router       /bank-integrations [post]
 func (h *BankIntegrationHandler) Create(c *fiber.Ctx) error {
-	var bi domain.BankIntegration
-	if err := c.BodyParser(&bi); err != nil {
+	var in domain.BankIntegration
+	if err := c.BodyParser(&in); err != nil {
 		return badRequest(c, err)
 	}
-
-	if bi.BankName == "" || bi.AccountNumber == "" || bi.IntegrationType == "" {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "bank_name, account_number, and integration_type are required"})
+	// Connection and sync state is maintained by the sync job, not the client.
+	bi := domain.BankIntegration{
+		BankName: in.BankName, BankCode: in.BankCode, AccountNumber: in.AccountNumber, AccountName: in.AccountName,
+		IBAN: in.IBAN, IntegrationType: in.IntegrationType, Status: in.Status, APIEndpoint: in.APIEndpoint,
+		AutoSync: in.AutoSync, SyncIntervalHours: in.SyncIntervalHours,
+	}
+	if err := validateBankIntegration(&bi); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 	}
 
 	userID := c.Locals("user_id").(uuid.UUID)
@@ -134,8 +140,18 @@ func (h *BankIntegrationHandler) Update(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "integration not found"})
 	}
 
+	// An id in the body would redirect the update to another integration, and the connection and
+	// sync state belongs to the sync job.
+	keep := *bi
 	if err := c.BodyParser(bi); err != nil {
 		return badRequest(c, err)
+	}
+	bi.ID, bi.CompanyID, bi.CreatedAt, bi.CreatedBy = keep.ID, keep.CompanyID, keep.CreatedAt, keep.CreatedBy
+	bi.APIKeyEncrypted, bi.APISecretEncrypted = keep.APIKeyEncrypted, keep.APISecretEncrypted
+	bi.IsConnected, bi.ConnectionTestDate, bi.LastSyncDate = keep.IsConnected, keep.ConnectionTestDate, keep.LastSyncDate
+	bi.LastSyncError, bi.SyncErrorCount = keep.LastSyncError, keep.SyncErrorCount
+	if err := validateBankIntegration(bi); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 	}
 
 	userID := c.Locals("user_id").(uuid.UUID)
@@ -144,6 +160,7 @@ func (h *BankIntegrationHandler) Update(c *fiber.Ctx) error {
 	if err := h.integrations.Update(c.Context(), bi); err != nil {
 		return serverError(c, err)
 	}
+	bi.APIKeyEncrypted, bi.APISecretEncrypted = "", "" // never leave the process (they are json:"-" anyway)
 	return c.JSON(bi)
 }
 
@@ -164,6 +181,9 @@ func (h *BankIntegrationHandler) Delete(c *fiber.Ctx) error {
 	}
 
 	if err := h.integrations.Delete(c.Context(), id); err != nil {
+		if isForeignKeyViolation(err) || errors.Is(err, repo.ErrBankIntegrationInUse) {
+			return c.Status(fiber.StatusConflict).JSON(fiber.Map{"error": "this integration has statements or transactions and cannot be deleted; mark it inactive instead"})
+		}
 		return serverError(c, err)
 	}
 	return c.SendStatus(fiber.StatusNoContent)
