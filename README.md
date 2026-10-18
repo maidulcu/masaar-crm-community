@@ -60,6 +60,11 @@ Masaar is a **free, open-source CRM designed specifically for UAE businesses**. 
 | **User Settings** | Per-user password change and language preference (Arabic/English) |
 | **Role-Based Access** | Three roles: Admin, Agent, Viewer — enforced on every API route |
 | **Real-time Notifications** | Personal WebSocket-powered notifications |
+| **REST API & OpenAPI** | Documented REST API with an OpenAPI 3.1 description at `/openapi.json` (import into Postman, Zapier, Make or a code generator); interactive docs at `/docs` |
+| **API Keys with Scopes** | Per-company keys limited to `leads:read`/`write`, `contacts:read`/`write`, `listings:read`, `webhooks:manage`; safe retries with `Idempotency-Key`; RFC 9457 error bodies; every write in the audit log |
+| **Lead Intake API** | `POST /webhooks/leads` for website forms and partner systems, with consent capture and de-duplication by `external_source` + `external_ref` |
+| **Outbound Webhooks** | `lead.created`, `lead.stage_changed`, `lead.won`, `lead.lost` pushed to your URLs, signed per [Standard Webhooks](https://www.standardwebhooks.com) and retried |
+| **Market Data** | DLD transactions, Ejari rents, buildings, projects, valuations and map layers from the [Waqov data API](https://dldapi.waqov.com/openapi.json) (needs a Waqov API key) |
 | **Background Jobs** | Viewing, task and rent reminders, offer expiry, licence and lease alerts run automatically; safe with several API replicas |
 | **Country Settings** | Per-company country, emirate, currency and timezone; amounts in 3-decimal currencies (BHD, KWD, OMR) are stored exactly |
 | **Full RTL Support** | Complete Arabic interface — layout, typography, and date direction |
@@ -174,7 +179,7 @@ masaar-crm/
 
 ## API Reference
 
-All protected routes require `Authorization: Bearer <token>`. Full interactive docs at `/docs`.
+All protected routes require `Authorization: Bearer <token>`: a session token from `/api/v1/auth/login`, or an API key (`sk_live_…`) for the routes its scopes allow. The complete, machine-readable description is the OpenAPI 3.1 document at **`/openapi.json`**; interactive docs at `/docs`; integration guide in [DEVELOPER.md](DEVELOPER.md). The table below is a selection.
 
 | Method | Path | Description | Roles |
 |--------|------|-------------|-------|
@@ -209,6 +214,11 @@ All protected routes require `Authorization: Bearer <token>`. Full interactive d
 | `GET` | `/api/v1/invoices/:id` | Get invoice | Auth |
 | `POST` | `/api/v1/invoices` | Create VAT invoice | Agent, Admin |
 | `POST` | `/api/v1/invoices/:id/send` | Send invoice via WhatsApp | Admin |
+| `GET` | `/openapi.json` | OpenAPI 3.1 description of the API | Public |
+| `GET` | `/api/v1/settings/api-keys/scopes` | Scopes an API key can be given | Admin |
+| `POST` | `/api/v1/settings/api-keys` | Create a scoped API key (shown once) | Admin |
+| `POST` | `/api/v1/settings/webhooks` | Register a webhook URL (returns its `whsec_` secret once) | Admin, key with `webhooks:manage` |
+| `POST` | `/webhooks/leads` | Submit a lead from a form or partner system | Key with `lead:create` |
 | `GET` | `/api/v1/notifications` | List notifications | Auth |
 | `PATCH` | `/api/v1/notifications/:id/read` | Mark notification read | Auth |
 | `POST` | `/api/v1/ai/summarize/:thread_id` | AI thread summary | Agent, Admin |
@@ -233,7 +243,7 @@ All protected routes require `Authorization: Bearer <token>`. Full interactive d
 | `POST` | `/api/v1/leases/:id/notices/draft` | Draft a bilingual notice to the tenant | Agent, Admin |
 | `PUT` | `/api/v1/settings/property` | Lease alert days, notice period, rent reminders | Admin |
 | | | | |
-| **Real Estate Market Data (Dynamic Web Lab)** | *Optional integration; requires API key* | | |
+| **Real Estate Market Data (Waqov)** | *Optional integration; requires `BOS24_API_TOKEN`* | | |
 | `POST` | `/api/v1/properties/search` | Search properties (natural language) | Agent, Admin |
 | `GET` | `/api/v1/properties/transactions` | List transactions with filters | Agent, Admin |
 | `GET` | `/api/v1/properties/buildings` | Search/autocomplete buildings | Agent, Admin |
