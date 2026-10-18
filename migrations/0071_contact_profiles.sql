@@ -35,6 +35,9 @@ ALTER TABLE custom_field_definitions
     ALTER COLUMN id SET DEFAULT gen_random_uuid(),
     ADD COLUMN IF NOT EXISTS options TEXT[] NOT NULL DEFAULT '{}';
 UPDATE custom_field_definitions SET field_type = 'text' WHERE field_type IS NULL OR field_type NOT IN ('text','number','date','select','boolean');
+-- 0030 had no entity check and earlier releases created 'property' fields; properties are listings now.
+UPDATE custom_field_definitions SET entity_type = 'listing' WHERE entity_type = 'property';
+UPDATE custom_field_values SET entity_type = 'listing' WHERE entity_type = 'property';
 ALTER TABLE custom_field_definitions
     ALTER COLUMN field_type SET DEFAULT 'text',
     ALTER COLUMN field_type SET NOT NULL,
