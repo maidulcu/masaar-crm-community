@@ -41,8 +41,17 @@ export const KanbanCard = memo(function KanbanCard({ lead, onOpen }: Props) {
     >
       {/* Clickable body — opens notes modal */}
       <div
-        className="p-3.5 cursor-pointer"
+        role="button"
+        tabIndex={0}
+        aria-label={`${t('عرض تفاصيل', 'View details for')} ${lead.contact?.full_name ?? t('جهة اتصال غير معروفة', 'Unknown contact')}`}
+        className="p-3.5 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 rounded-t-xl"
         onClick={() => onOpen?.(lead)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault()
+            onOpen?.(lead)
+          }
+        }}
       >
         {/* Contact name */}
         <p className="font-semibold text-[13.5px] text-surface-900 truncate tracking-tight">
@@ -111,10 +120,11 @@ export const KanbanCard = memo(function KanbanCard({ lead, onOpen }: Props) {
       {/* Drag handle — only this triggers DnD */}
       <div
         {...listeners}
+        aria-label={t('اسحب للنقل', 'Drag to move')}
         className="flex items-center justify-center py-1.5 border-t border-surface-100 cursor-grab active:cursor-grabbing text-surface-300 hover:text-surface-500 transition-colors"
         title={t('اسحب للنقل', 'Drag to move')}
       >
-        <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+        <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
           <path d="M8 6a1.5 1.5 0 110-3 1.5 1.5 0 010 3zm8 0a1.5 1.5 0 110-3 1.5 1.5 0 010 3zM8 13.5a1.5 1.5 0 110-3 1.5 1.5 0 010 3zm8 0a1.5 1.5 0 110-3 1.5 1.5 0 010 3zM8 21a1.5 1.5 0 110-3 1.5 1.5 0 010 3zm8 0a1.5 1.5 0 110-3 1.5 1.5 0 010 3z"/>
         </svg>
       </div>
