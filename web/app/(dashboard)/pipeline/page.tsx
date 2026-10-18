@@ -1,4 +1,5 @@
 'use client'
+import { leadSourceLabel, MANUAL_SOURCES } from '@/lib/leadSource'
 import { useEffect, useState, useCallback, useMemo } from 'react'
 import {
   DndContext, DragEndEvent, DragOverlay, DragStartEvent,
