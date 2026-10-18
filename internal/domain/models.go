@@ -40,6 +40,8 @@ const (
 	RoleAdmin  Role = "admin"
 	RoleAgent  Role = "agent"
 	RoleViewer Role = "viewer"
+	// RoleCompliance reads like a viewer and works the KYC/AML screens (#87).
+	RoleCompliance Role = "compliance"
 )
 
 type User struct {
@@ -72,6 +74,56 @@ type Contact struct {
 	CreatedAt  time.Time  `json:"created_at"`
 	UpdatedAt  time.Time  `json:"updated_at"`
 	ErasedAt   *time.Time `json:"erased_at,omitempty"` // personal data removed (PDPL erasure)
+	// Profile is returned by GET /contacts/:id (not by lists).
+	Profile *ContactProfile `json:"profile,omitempty"`
+}
+
+// ContactProfile holds the optional details of a contact.
+type ContactProfile struct {
+	SecondaryPhones      []string   `json:"secondary_phones"`
+	Nationality          string     `json:"nationality"` // ISO 3166-1 alpha-2
+	Source               string     `json:"source"`
+	PreferredContactTime string     `json:"preferred_contact_time"`
+	Address              string     `json:"address"`
+	Notes                string     `json:"notes"`
+	JobTitle             string     `json:"job_title"`
+	OrganisationID       *uuid.UUID `json:"organisation_id"`
+	OrganisationName     string     `json:"organisation_name,omitempty"`
+}
+
+// Organisation is a company a contact works for (B2B accounts).
+type Organisation struct {
+	ID             uuid.UUID `json:"id"`
+	Name           string    `json:"name"`
+	TradeLicenseNo string    `json:"trade_license_no"`
+	TRN            string    `json:"trn"`
+	Address        string    `json:"address"`
+	Phone          string    `json:"phone"`
+	Email          string    `json:"email"`
+	Website        string    `json:"website"`
+	Notes          string    `json:"notes"`
+	ContactCount   int       `json:"contact_count"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
+}
+
+// CustomField is a company-defined extra field on contacts, leads, deals or listings.
+type CustomField struct {
+	ID           uuid.UUID `json:"id"`
+	EntityType   string    `json:"entity_type"` // contact | lead | deal | listing
+	Name         string    `json:"name"`        // machine name, [a-z0-9_]
+	Label        string    `json:"label"`
+	Type         string    `json:"type"` // text | number | date | select | boolean
+	Options      []string  `json:"options"`
+	Required     bool      `json:"required"`
+	DisplayOrder int       `json:"display_order"`
+}
+
+// DuplicateGroup is a set of contacts that look like the same person.
+type DuplicateGroup struct {
+	Reason   string    `json:"reason"` // "email" | "name" | "phone"
+	Key      string    `json:"key"`
+	Contacts []Contact `json:"contacts"`
 }
 
 // ─── Consent (PDPL) ──────────────────────────────────────────────────────────
@@ -105,6 +157,43 @@ type Consent struct {
 	APIKeyID   *uuid.UUID `json:"api_key_id,omitempty"`
 	Note       string     `json:"note,omitempty"`
 	CreatedAt  time.Time  `json:"created_at"`
+}
+
+// ─── Tasks ───────────────────────────────────────────────────────────────────
+
+// Task is a follow-up, call, meeting or to-do, optionally linked to a CRM record.
+type Task struct {
+	ID          uuid.UUID  `json:"id"`
+	Title       string     `json:"title"`
+	Description string     `json:"description"`
+	Type        string     `json:"type"`     // call | meeting | follow_up | todo
+	Priority    string     `json:"priority"` // low | normal | high
+	Status      string     `json:"status"`   // open | done | cancelled
+	DueAt       *time.Time `json:"due_at"`
+	AssignedTo  *uuid.UUID `json:"assigned_to"`
+	RelatedType *string    `json:"related_type"` // lead | contact | deal | listing | viewing | offer
+	RelatedID   *uuid.UUID `json:"related_id"`
+	CreatedBy   *uuid.UUID `json:"created_by,omitempty"`
+	CompletedAt *time.Time `json:"completed_at,omitempty"`
+	CreatedAt   time.Time  `json:"created_at"`
+	UpdatedAt   time.Time  `json:"updated_at"`
+
+	// Joined for display.
+	AssigneeName string `json:"assignee_name,omitempty"`
+	RelatedLabel string `json:"related_label,omitempty"`
+	Overdue      bool   `json:"overdue"`
+}
+
+// TaskFilter narrows a task list.
+type TaskFilter struct {
+	AssignedTo  *uuid.UUID
+	Status      string // "" = any
+	RelatedType string
+	RelatedID   *uuid.UUID
+	OverdueOnly bool
+	DueBefore   *time.Time
+	Limit       int
+	Offset      int
 }
 
 // ─── Pipeline Stage ─────────────────────────────────────────────────────────────
@@ -142,6 +231,11 @@ const (
 	SourceWeb      LeadSource = "web"
 	SourceReferral LeadSource = "referral"
 	SourceEvent    LeadSource = "event"
+	// Property portals (migration 0073).
+	SourcePropertyFinder LeadSource = "property_finder"
+	SourceBayut          LeadSource = "bayut"
+	SourceDubizzle       LeadSource = "dubizzle"
+	SourcePortal         LeadSource = "portal" // any other portal
 )
 
 type Lead struct {
@@ -186,10 +280,27 @@ type WhatsAppThread struct {
 	MessageCount  int          `json:"message_count"`
 	AISummary     string       `json:"ai_summary"`
 	CreatedAt     time.Time    `json:"created_at"`
+	AssignedTo    *uuid.UUID   `json:"assigned_to,omitempty"`
+	AssigneeName  string       `json:"assignee_name,omitempty"`
+	LastInboundAt *time.Time   `json:"last_inbound_at,omitempty"`
+	// WindowOpen: the customer wrote in the last 24 hours, so free-form messages may be
+	// sent; otherwise only an approved template (WhatsApp Business policy).
+	WindowOpen   bool       `json:"window_open"`
+	WindowEndsAt *time.Time `json:"window_ends_at,omitempty"`
 
 	// Joined
 	Contact  *Contact          `json:"contact,omitempty"`
 	Messages []WhatsAppMessage `json:"messages,omitempty"`
+}
+
+// SetWindow fills WindowOpen and WindowEndsAt from LastInboundAt.
+func (t *WhatsAppThread) SetWindow(now time.Time) {
+	if t.LastInboundAt == nil {
+		return
+	}
+	end := t.LastInboundAt.Add(24 * time.Hour)
+	t.WindowEndsAt = &end
+	t.WindowOpen = now.Before(end)
 }
 
 type MessageDirection string
@@ -386,6 +497,7 @@ type CompanyLocale struct {
 	Region    string    `json:"region"`
 	Currency  string    `json:"currency"`
 	Timezone  string    `json:"timezone"`
+	ShowHijri bool      `json:"show_hijri"`
 }
 
 // ─── Notification ────────────────────────────────────────────────────────────
@@ -666,8 +778,10 @@ type CompanySettings struct {
 	Region             string     `json:"region"`   // ISO 3166-2, e.g. "AE-DU"; may be empty
 	Currency           string     `json:"currency"` // ISO 4217, e.g. "AED"
 	Timezone           string     `json:"timezone"` // IANA, e.g. "Asia/Dubai"
-	UpdatedAt          time.Time  `json:"updated_at"`
-	UpdatedBy          *uuid.UUID `json:"updated_by"`
+	// ShowHijri also shows dates in the Umm al-Qura calendar; nil (not sent) keeps the stored value.
+	ShowHijri *bool      `json:"show_hijri,omitempty"`
+	UpdatedAt time.Time  `json:"updated_at"`
+	UpdatedBy *uuid.UUID `json:"updated_by"`
 }
 
 // ─── Rental Properties ────────────────────────────────────────────────────────
@@ -1048,6 +1162,49 @@ const (
 	TypeCheck    TransactionType = "check"
 )
 
+// Cheque is a post-dated rent cheque (#86).
+type Cheque struct {
+	ID           uuid.UUID  `json:"id"`
+	LeaseID      uuid.UUID  `json:"lease_id"`
+	PaymentID    *uuid.UUID `json:"payment_id,omitempty"`
+	ChequeNumber string     `json:"cheque_number"`
+	BankName     string     `json:"bank_name"`
+	DrawerName   string     `json:"drawer_name"`
+	Amount       float64    `json:"amount"`
+	Currency     string     `json:"currency"`
+	ChequeDate   time.Time  `json:"cheque_date"`
+	Status       string     `json:"status"`
+	HasScan      bool       `json:"has_scan"`
+	DepositedAt  *time.Time `json:"deposited_at,omitempty"`
+	ClearedAt    *time.Time `json:"cleared_at,omitempty"`
+	BouncedAt    *time.Time `json:"bounced_at,omitempty"`
+	BounceReason string     `json:"bounce_reason,omitempty"`
+	ReplacedBy   *uuid.UUID `json:"replaced_by,omitempty"`
+	Notes        string     `json:"notes"`
+	CreatedAt    time.Time  `json:"created_at"`
+	UpdatedAt    time.Time  `json:"updated_at"`
+
+	// Joined, for the register.
+	TenantName   string `json:"tenant_name,omitempty"`
+	PropertyName string `json:"property_name,omitempty"`
+}
+
+// LeaseNotice is a notice served on a tenant (#86).
+type LeaseNotice struct {
+	ID            uuid.UUID  `json:"id"`
+	LeaseID       uuid.UUID  `json:"lease_id"`
+	Kind          string     `json:"kind"` // rent_change | non_renewal | renewal_terms | other
+	CurrentRent   *float64   `json:"current_rent,omitempty"`
+	NewRent       *float64   `json:"new_rent,omitempty"`
+	EffectiveDate *time.Time `json:"effective_date,omitempty"`
+	BodyEN        string     `json:"body_en"`
+	BodyAR        string     `json:"body_ar"`
+	SentAt        *time.Time `json:"sent_at,omitempty"`
+	SentVia       string     `json:"sent_via"`
+	CreatedBy     *uuid.UUID `json:"created_by,omitempty"`
+	CreatedAt     time.Time  `json:"created_at"`
+}
+
 type BankTransaction struct {
 	ID                uuid.UUID       `json:"id"`
 	CompanyID         uuid.UUID       `json:"company_id"`
@@ -1124,6 +1281,7 @@ const (
 	DeliveryPending DeliveryStatus = "pending"
 	DeliverySent    DeliveryStatus = "sent"
 	DeliveryFailed  DeliveryStatus = "failed"
+	DeliverySkipped DeliveryStatus = "skipped" // opted out or no address
 )
 
 type PaymentReminder struct {

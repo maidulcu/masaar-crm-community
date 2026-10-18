@@ -45,11 +45,22 @@ Masaar is a **free, open-source CRM designed specifically for UAE businesses**. 
 | **AI Thread Summaries** (Pro) | One-click AI summarization via local Ollama LLM — data never leaves your server |
 | **Deals & VAT Invoicing** | FTA-style tax invoices with line items, VAT categories, credit notes and a printable bilingual layout; server-side PDF generation is a Pro feature |
 | **RERA Compliance** | ORN, BRN and trade licence with expiry alerts; Trakheesi/Madhmoun permits required before a Dubai or Abu Dhabi listing is published or shared |
-| **Contact Management** | Unified contact profiles linked to WhatsApp numbers and leads |
+| **Contact Management** | Unified contact profiles linked to WhatsApp numbers and leads, organisations, custom fields, duplicate detection and merge |
+| **Tasks & Follow-ups** | Tasks linked to leads, contacts, deals and listings, with due-date reminders and an overdue view |
+| **RERA Forms** | Pre-filled Forms A, B, I and F, printable in English and Arabic, signed through the e-signature link |
+| **Property Portals** | Lead webhooks and a listing XML feed per portal (Property Finder, Bayut, Dubizzle, others), lead-source report |
+| **Post-dated Cheques** | Cheque schedule per lease, deposit list, bounced-cheque workflow; cleared cheques mark rent paid |
+| **Lease Alerts & Notices** | Alerts before leases and Ejari registrations expire and before the rent-change notice deadline; bilingual notices to tenants; rent reminders by email and WhatsApp |
+| **Two-factor Authentication** | Authenticator-app codes and backup codes, optional per user or required company-wide |
+| **KYC / AML** | Client identity documents, risk and PEP records, beneficial owners, KYC check before a deal is won, AML review queue and goAML export, compliance role |
+| **WhatsApp Broadcasts** | Approved templates to consenting segments, STOP/إيقاف opt-out, 24-hour window indicator, conversation assignment, business-hours auto-reply |
+| **UAE E-invoicing** | Invoices and credit notes as PINT AE (Peppol) XML, validated against the official rules in CI; provider connector interface with a mock provider and status tracking |
+| **Saudi Arabia** | Country rules (15 % VAT, SAR, weekend, regions), REGA licence on listings, optional Hijri dates |
+| **Calculators** | Purchase costs (DLD fees), mortgage, rental yield and commission with VAT, shareable on WhatsApp |
 | **User Settings** | Per-user password change and language preference (Arabic/English) |
 | **Role-Based Access** | Three roles: Admin, Agent, Viewer — enforced on every API route |
 | **Real-time Notifications** | Personal WebSocket-powered notifications |
-| **Background Jobs** | Viewing reminders and offer expiry run automatically; safe with several API replicas |
+| **Background Jobs** | Viewing, task and rent reminders, offer expiry, licence and lease alerts run automatically; safe with several API replicas |
 | **Country Settings** | Per-company country, emirate, currency and timezone; amounts in 3-decimal currencies (BHD, KWD, OMR) are stored exactly |
 | **Full RTL Support** | Complete Arabic interface — layout, typography, and date direction |
 | **PDPL Tools** | Consent per channel with history, opt-out enforcement, data-subject export and erasure, retention clean-up |
@@ -240,6 +251,25 @@ All protected routes require `Authorization: Bearer <token>`. Full interactive d
 | `PATCH` | `/api/v1/notifications/:id/read` | Mark notification read | Auth |
 | `POST` | `/api/v1/ai/summarize/:thread_id` | AI thread summary | Agent, Admin |
 | `GET` | `/ws/notifications` | Real-time notification stream | Auth (WS) |
+| `GET` | `/api/v1/tasks` | List tasks (filters: mine, status, related record, overdue) | Auth |
+| `POST` | `/api/v1/tasks` | Create task | Agent, Admin |
+| `GET` | `/api/v1/contacts/duplicates` | Contacts that look like duplicates | Agent, Admin |
+| `POST` | `/api/v1/contacts/merge` | Merge contacts | Admin |
+| `POST` | `/api/v1/rera-forms` | Create a pre-filled RERA form | Agent, Admin |
+| `POST` | `/api/v1/settings/portals/:portal` | Connect a property portal (returns its URLs once) | Admin |
+| `POST` | `/webhooks/portals/:portal?token=` | Receive a lead from a property portal | Token |
+| `GET` | `/api/public/feeds/:portal/listings.xml?token=` | Listing feed for a portal | Token |
+| `GET` | `/api/v1/reports/lead-sources` | Leads, wins and revenue by source | Admin |
+| `POST` | `/api/v1/auth/verify-totp` | Complete sign-in with a two-factor code | Pending token |
+| `POST` | `/api/v1/users/me/2fa/setup` | Start setting up two-factor | Auth |
+| `GET` | `/api/v1/contacts/:id/kyc` | A contact's KYC record | Agent, Admin, Compliance |
+| `GET` | `/api/v1/compliance/aml` | AML review queue | Admin, Compliance |
+| `POST` | `/api/v1/broadcasts` | Create a WhatsApp broadcast | Admin |
+| `GET` | `/api/v1/cheques` | Cheque register (filters: status, from, to, lease) | Auth |
+| `POST` | `/api/v1/leases/:id/cheques/schedule` | Create a lease's cheque schedule | Agent, Admin |
+| `POST` | `/api/v1/cheques/:id/status` | Deposit, clear, bounce, hold or return a cheque | Agent, Admin |
+| `POST` | `/api/v1/leases/:id/notices/draft` | Draft a bilingual notice to the tenant | Agent, Admin |
+| `PUT` | `/api/v1/settings/property` | Lease alert days, notice period, rent reminders | Admin |
 | | | | |
 | **Real Estate Market Data (Dynamic Web Lab)** | *Optional integration; requires API key* | | |
 | `POST` | `/api/v1/properties/search` | Search properties (natural language) | Agent, Admin |

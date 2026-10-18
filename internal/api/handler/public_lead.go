@@ -103,11 +103,12 @@ func (h *PublicLeadHandler) SubmitLead(c *fiber.Ctx) error {
 		req.Source = "web"
 	}
 	if req.Currency == "" {
-		req.Currency = "AED"
+		req.Currency = defaultCurrency(c.Context())
 	}
 
 	// Validate source
-	validSources := map[string]bool{"web": true, "referral": true, "event": true, "whatsapp": true}
+	validSources := map[string]bool{"web": true, "referral": true, "event": true, "whatsapp": true,
+		"property_finder": true, "bayut": true, "dubizzle": true, "portal": true}
 	if !validSources[req.Source] {
 		req.Source = "web"
 	}

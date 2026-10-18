@@ -1,5 +1,5 @@
 import { getToken, saveSession, getUser, clearSession } from './auth'
-import type { AuthUser } from '@/types'
+import type { AuthUser, LoginResponse, Payment } from '@/types'
 
 const BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080'
 
@@ -75,7 +75,52 @@ export interface CompanyLocale {
   currency: string
   currency_decimals: number
   timezone: string
+  show_hijri?: boolean
   rules: JurisdictionRules
+}
+export interface EInvoiceParty {
+  name?: string
+  tin?: string
+  trn?: string
+  legal_id?: string
+  legal_id_type?: string
+  legal_authority?: string
+  street?: string
+  city?: string
+  emirate?: string
+  country?: string
+  email?: string
+}
+export interface EInvoiceRequest {
+  buyer: EInvoiceParty
+  credit_reason?: string
+  due_date?: string // YYYY-MM-DD
+}
+export interface EInvoiceRecord {
+  invoice_id: string
+  provider: string
+  status: 'submitted' | 'accepted' | 'rejected' | 'error'
+  provider_ref: string
+  reason?: string
+  buyer: EInvoiceParty
+  credit_reason?: string
+  due_date?: string
+  submitted_at: string
+  decided_at?: string
+}
+export interface EInvoiceStatus {
+  provider: string
+  einvoice: EInvoiceRecord | null
+  credit_reasons: string[]
+}
+export interface EInvoiceSettings {
+  provider: string
+  tin: string
+  legal_id_type: 'TL' | 'EID' | 'PAS' | 'CD'
+  trade_license_authority: string
+  city: string
+  service_code: string
+  exemption_code: string
 }
 export interface Consent {
   id: number
@@ -85,6 +130,281 @@ export interface Consent {
   source: string
   note?: string
   created_at: string
+}
+
+export interface Task {
+  id: string
+  title: string
+  description: string
+  type: 'call' | 'meeting' | 'follow_up' | 'todo'
+  priority: 'low' | 'normal' | 'high'
+  status: 'open' | 'done' | 'cancelled'
+  due_at: string | null
+  assigned_to: string | null
+  related_type: 'lead' | 'contact' | 'deal' | 'listing' | 'viewing' | 'offer' | null
+  related_id: string | null
+  completed_at?: string
+  created_at: string
+  assignee_name?: string
+  related_label?: string
+  overdue: boolean
+}
+
+export type TaskInput = Partial<Pick<Task, 'title' | 'description' | 'type' | 'priority' | 'due_at' | 'assigned_to' | 'related_type' | 'related_id'>>
+
+export interface ContactProfile {
+  secondary_phones: string[]
+  nationality: string
+  source: string
+  preferred_contact_time: string
+  address: string
+  notes: string
+  job_title: string
+  organisation_id: string | null
+  organisation_name?: string
+}
+
+export interface Organisation {
+  id: string
+  name: string
+  trade_license_no: string
+  trn: string
+  address: string
+  phone: string
+  email: string
+  website: string
+  notes: string
+  contact_count: number
+}
+
+export interface CustomField {
+  id: string
+  entity_type: 'contact' | 'lead' | 'deal' | 'listing'
+  name: string
+  label: string
+  type: 'text' | 'number' | 'date' | 'select' | 'boolean'
+  options: string[]
+  required: boolean
+  display_order: number
+}
+
+export interface DuplicateGroup {
+  reason: 'email' | 'name' | 'phone'
+  key: string
+  contacts: { id: string; full_name: string; phone_wa: string; email: string; created_at: string }[]
+}
+
+export interface ReraField { key: string; en: string; ar: string; long?: boolean }
+export interface ReraDefinition {
+  type: 'A' | 'B' | 'I' | 'F'
+  title_en: string
+  title_ar: string
+  sections: { en: string; ar: string; fields: ReraField[] }[]
+  signers: string[]
+}
+export interface ReraForm {
+  document_id: string
+  form_type: ReraDefinition['type']
+  listing_id?: string
+  contact_id?: string
+  offer_id?: string
+  data: Record<string, string>
+  title: string
+  signature_status: string
+  created_at: string
+}
+
+export interface PortalConnection {
+  portal: string
+  enabled: boolean
+  last_lead_at?: string
+  created_at: string
+}
+
+export interface PortalLinks { portal: string; lead_webhook_url: string; feed_url: string }
+
+export interface LeadSourceRow {
+  source: string
+  leads: number
+  won_leads: number
+  deals: number
+  won_revenue: number
+}
+
+export type ChequeStatus = 'received' | 'on_hold' | 'deposited' | 'cleared' | 'bounced' | 'replaced' | 'returned'
+
+export interface Cheque {
+  id: string
+  lease_id: string
+  payment_id?: string
+  cheque_number: string
+  bank_name: string
+  drawer_name: string
+  amount: number
+  currency: string
+  cheque_date: string
+  status: ChequeStatus
+  has_scan: boolean
+  deposited_at?: string
+  cleared_at?: string
+  bounced_at?: string
+  bounce_reason?: string
+  replaced_by?: string
+  notes: string
+  tenant_name?: string
+  property_name?: string
+}
+
+export interface ChequeInput {
+  cheque_number: string
+  bank_name?: string
+  drawer_name?: string
+  amount: number
+  cheque_date: string
+  payment_id?: string
+  notes?: string
+}
+
+export type NoticeKind = 'rent_change' | 'renewal_terms' | 'non_renewal' | 'other'
+
+export interface LeaseNotice {
+  id: string
+  lease_id: string
+  kind: NoticeKind
+  current_rent?: number
+  new_rent?: number
+  effective_date?: string
+  body_en: string
+  body_ar: string
+  sent_at?: string
+  sent_via: string
+  created_at: string
+}
+
+export interface NoticeDraft {
+  body_en: string
+  body_ar: string
+  current_annual_rent: number
+  currency: string
+  lease_end: string
+  notice_deadline: string
+  notice_days: number
+}
+
+export interface LeaseExtras { agent_id: string | null; agent_name: string; ejari_expiry: string | null; rent_reminders: boolean }
+
+export interface PropertySettings {
+  lease_alert_days: number[]
+  rent_notice_days: number
+  rent_reminders_enabled: boolean
+  rent_reminder_days_before: number
+  rent_reminder_wa_template: string
+  rent_reminder_wa_language: string
+}
+
+export interface PaymentReminderRow {
+  id: string
+  payment_id: string
+  reminder_type: string
+  reminder_date: string
+  sent_at?: string
+  delivery_method: string
+  delivery_status: string
+  delivery_error: string
+}
+
+export interface KYCDocument {
+  id: string
+  contact_id: string
+  doc_type: 'emirates_id' | 'passport' | 'residence_visa' | 'trade_licence' | 'other'
+  number: string
+  issuing_country: string
+  issue_date?: string
+  expiry_date?: string
+  has_file: boolean
+  file_name: string
+  created_at: string
+}
+
+export interface KYCProfile {
+  contact_id: string
+  full_name: string
+  nationality: string
+  date_of_birth: string | null
+  risk: '' | 'low' | 'medium' | 'high'
+  risk_reason: string
+  is_pep: boolean
+  screening: 'not_screened' | 'clear' | 'possible_match' | 'match'
+  screening_source: string
+  screened_at: string | null
+  notes: string
+  reviewed_at: string | null
+  documents: KYCDocument[]
+  missing: string[]
+}
+
+export interface DealKYC {
+  deal_id: string
+  contact_id: string
+  contact_name: string
+  missing: string[]
+  override_reason?: string
+  override_at?: string
+  can_win: boolean
+  payment_method: string
+  cash_amount: number
+  aml_status: string
+  aml_reasons: string[]
+}
+
+export interface AMLCase {
+  deal_id: string
+  title: string
+  stage: string
+  amount: number
+  currency: string
+  payment_method: string
+  cash_amount: number
+  status: 'flagged' | 'no_report' | 'reported'
+  reasons: string[]
+  flagged_at?: string
+  reviewed_at?: string
+  notes: string
+  goaml_reference: string
+  contact_id: string
+  contact_name: string
+  contact_risk: string
+  contact_is_pep: boolean
+  screening: string
+  owner_name: string
+}
+
+export interface BeneficialOwner { contact_id: string; full_name: string; ownership_pct: number | null; role: string; kyc_missing: string[] }
+
+export interface BroadcastSegment { tag?: string; lead_stage?: string; source?: string; listing_id?: string }
+
+export interface Broadcast {
+  id: string
+  name: string
+  template_name: string
+  language: string
+  params: string[]
+  segment: BroadcastSegment
+  status: 'draft' | 'sending' | 'done' | 'cancelled'
+  created_at: string
+  started_at?: string
+  finished_at?: string
+  counts: Record<string, number>
+}
+
+export interface HoursSpan { open: string; close: string }
+export interface HoursSpecial extends HoursSpan { label: string; from: string; to: string }
+export interface InboxSettings {
+  broadcast_per_minute: number
+  auto_reply_enabled: boolean
+  auto_reply_en: string
+  auto_reply_ar: string
+  hours: { week: HoursSpan[]; specials: HoursSpecial[] } | null
 }
 
 export interface JobRun {
@@ -247,6 +567,12 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ token, password }),
       }),
+    verifyTOTP: (pending_token: string, code: string) =>
+      request<LoginResponse>('/api/v1/auth/verify-totp', { method: 'POST', body: JSON.stringify({ pending_token, code }) }),
+    enrollTOTP: (pending_token: string) =>
+      request<{ secret: string; otpauth_url: string }>('/api/v1/auth/totp/enroll', { method: 'POST', body: JSON.stringify({ pending_token }) }),
+    confirmEnrollTOTP: (pending_token: string, code: string) =>
+      request<LoginResponse>('/api/v1/auth/totp/enroll/confirm', { method: 'POST', body: JSON.stringify({ pending_token, code }) }),
     register: (data: { name: string; email: string; password: string; company_name: string; subdomain: string; turnstile_token?: string }) =>
       request('/api/v1/auth/register', {
         method: 'POST',
@@ -255,6 +581,56 @@ export const api = {
   },
 
   // ─── Contacts ───────────────────────────────────────────────────────────────
+
+  organisations: {
+    list: (search = '') => request<{ data: Organisation[]; total: number }>(`/api/v1/organisations?search=${encodeURIComponent(search)}&limit=200`),
+    get: (id: string) => request<{ organisation: Organisation; contacts: { id: string; full_name: string; phone_wa: string; email: string }[] }>(`/api/v1/organisations/${id}`),
+    create: (data: Partial<Organisation>) => request<Organisation>('/api/v1/organisations', { method: 'POST', body: JSON.stringify(data) }),
+    update: (id: string, data: Partial<Organisation>) => request<Organisation>(`/api/v1/organisations/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+    delete: (id: string) => request(`/api/v1/organisations/${id}`, { method: 'DELETE' }),
+  },
+
+  customFields: {
+    list: (entityType = '') => request<CustomField[]>(`/api/v1/custom-fields?entity_type=${entityType}`),
+    create: (data: Partial<CustomField>) => request<CustomField>('/api/v1/custom-fields', { method: 'POST', body: JSON.stringify(data) }),
+    update: (id: string, data: Partial<CustomField>) => request<CustomField>(`/api/v1/custom-fields/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+    delete: (id: string) => request(`/api/v1/custom-fields/${id}`, { method: 'DELETE' }),
+    values: (entityType: string, id: string) => request<Record<string, string>>(`/api/v1/custom-fields/values/${entityType}/${id}`),
+    setValues: (entityType: string, id: string, values: Record<string, string>) =>
+      request(`/api/v1/custom-fields/values/${entityType}/${id}`, { method: 'PUT', body: JSON.stringify(values) }),
+  },
+
+  duplicates: {
+    list: () => request<DuplicateGroup[]>('/api/v1/contacts/duplicates'),
+    merge: (keepId: string, mergeIds: string[]) =>
+      request('/api/v1/contacts/merge', { method: 'POST', body: JSON.stringify({ keep_id: keepId, merge_ids: mergeIds }) }),
+  },
+
+  rera: {
+    definitions: () => request<Record<string, ReraDefinition>>('/api/v1/rera-forms/definitions'),
+    list: (params: { listing_id?: string; contact_id?: string }) => {
+      const q = new URLSearchParams()
+      if (params.listing_id) q.set('listing_id', params.listing_id)
+      if (params.contact_id) q.set('contact_id', params.contact_id)
+      return request<ReraForm[]>(`/api/v1/rera-forms?${q}`)
+    },
+    get: (id: string) => request<{ form: ReraForm; definition: ReraDefinition }>(`/api/v1/rera-forms/${id}`),
+    create: (data: { form_type: string; listing_id?: string; contact_id?: string; offer_id?: string; fields?: Record<string, string> }) =>
+      request<ReraForm>('/api/v1/rera-forms', { method: 'POST', body: JSON.stringify(data) }),
+  },
+
+  tasks: {
+    list: (params: { mine?: boolean; status?: string; overdue?: boolean; related_type?: string; related_id?: string; page?: number; limit?: number } = {}) => {
+      const q = new URLSearchParams()
+      Object.entries(params).forEach(([k, v]) => { if (v !== undefined && v !== '' && v !== false) q.set(k, String(v)) })
+      return request<{ data: Task[]; total: number }>(`/api/v1/tasks?${q}`)
+    },
+    create: (data: TaskInput) => request<Task>('/api/v1/tasks', { method: 'POST', body: JSON.stringify(data) }),
+    update: (id: string, data: TaskInput) => request<Task>(`/api/v1/tasks/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+    setStatus: (id: string, status: Task['status']) =>
+      request(`/api/v1/tasks/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status }) }),
+    delete: (id: string) => request(`/api/v1/tasks/${id}`, { method: 'DELETE' }),
+  },
 
   privacy: {
     consents: (contactId: string) =>
@@ -426,6 +802,23 @@ export const api = {
     creditNotes: (id: string) => request(`/api/v1/invoices/${id}/credit-notes`),
     createCreditNote: (id: string, data: { reason: string; lines?: unknown[] }) =>
       request(`/api/v1/invoices/${id}/credit-notes`, { method: 'POST', body: JSON.stringify(data) }),
+  },
+
+  // ─── E-invoicing (PINT AE) ───────────────────────────────────────────────────
+
+  einvoice: {
+    status: (invoiceId: string) => request<EInvoiceStatus>(`/api/v1/invoices/${invoiceId}/einvoice`),
+    /** Builds the PINT AE XML without submitting it, and saves it as a file. */
+    exportXML: async (invoiceId: string, body: EInvoiceRequest, filename: string) =>
+      saveBlob(await requestBlob(`/api/v1/invoices/${invoiceId}/einvoice/xml`, { method: 'POST', body: JSON.stringify(body) }), filename),
+    submit: (invoiceId: string, body: EInvoiceRequest) =>
+      request<EInvoiceRecord>(`/api/v1/invoices/${invoiceId}/einvoice`, { method: 'POST', body: JSON.stringify(body) }),
+    /** The XML that was submitted. */
+    storedXML: async (invoiceId: string, filename: string) =>
+      saveBlob(await requestBlob(`/api/v1/invoices/${invoiceId}/einvoice.xml`), filename),
+    settings: () => request<{ settings: EInvoiceSettings; providers: string[] }>('/api/v1/settings/einvoicing'),
+    updateSettings: (s: EInvoiceSettings) =>
+      request<EInvoiceSettings>('/api/v1/settings/einvoicing', { method: 'PUT', body: JSON.stringify(s) }),
   },
 
   // ─── Stats ───────────────────────────────────────────────────────────────────
@@ -1028,6 +1421,127 @@ export const api = {
       if (params.page) q.set('page', String(params.page))
       if (params.limit) q.set('limit', String(params.limit))
       return request(`/api/v1/audit-logs?${q}`)
+    },
+  },
+
+  cheques: {
+    list: (params: { status?: string; from?: string; to?: string; lease_id?: string } = {}) => {
+      const q = new URLSearchParams()
+      Object.entries(params).forEach(([k, v]) => { if (v) q.set(k, v) })
+      return request<Cheque[]>(`/api/v1/cheques?${q}`)
+    },
+    forLease: (leaseId: string) => request<Cheque[]>(`/api/v1/leases/${leaseId}/cheques`),
+    schedule: (leaseId: string, data: { count: number; first_date?: string; first_number?: string; bank_name?: string; drawer_name?: string }) =>
+      request<Cheque[]>(`/api/v1/leases/${leaseId}/cheques/schedule`, { method: 'POST', body: JSON.stringify(data) }),
+    create: (leaseId: string, data: ChequeInput) =>
+      request<Cheque>(`/api/v1/leases/${leaseId}/cheques`, { method: 'POST', body: JSON.stringify(data) }),
+    update: (id: string, data: ChequeInput) =>
+      request<Cheque>(`/api/v1/cheques/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+    setStatus: (id: string, data: { status: ChequeStatus; date?: string; reason?: string; penalty_amount?: number }) =>
+      request<Cheque>(`/api/v1/cheques/${id}/status`, { method: 'POST', body: JSON.stringify(data) }),
+    replace: (id: string, data: ChequeInput) =>
+      request<Cheque>(`/api/v1/cheques/${id}/replace`, { method: 'POST', body: JSON.stringify(data) }),
+    uploadScan: (id: string, file: File) => {
+      const fd = new FormData()
+      fd.append('file', file)
+      return request<void>(`/api/v1/cheques/${id}/scan`, { method: 'POST', body: fd })
+    },
+    downloadScan: async (id: string, filename: string) =>
+      saveBlob(await requestBlob(`/api/v1/cheques/${id}/scan`), filename),
+  },
+
+  leaseOps: {
+    extras: (leaseId: string) => request<LeaseExtras>(`/api/v1/leases/${leaseId}/extras`),
+    setExtras: (leaseId: string, data: { agent_id: string | null; ejari_expiry: string; rent_reminders?: boolean }) =>
+      request<void>(`/api/v1/leases/${leaseId}/extras`, { method: 'PATCH', body: JSON.stringify(data) }),
+    payments: (leaseId: string) => request<Payment[]>(`/api/v1/leases/${leaseId}/payments`),
+    reminders: (leaseId: string) => request<PaymentReminderRow[]>(`/api/v1/leases/${leaseId}/reminders`),
+    notices: (leaseId: string) => request<LeaseNotice[]>(`/api/v1/leases/${leaseId}/notices`),
+    draftNotice: (leaseId: string, data: { kind: NoticeKind; new_annual_rent?: number; effective_date?: string }) =>
+      request<NoticeDraft>(`/api/v1/leases/${leaseId}/notices/draft`, { method: 'POST', body: JSON.stringify(data) }),
+    createNotice: (leaseId: string, data: { kind: NoticeKind; new_annual_rent?: number; effective_date?: string; body_en: string; body_ar: string }) =>
+      request<LeaseNotice>(`/api/v1/leases/${leaseId}/notices`, { method: 'POST', body: JSON.stringify(data) }),
+    notice: (id: string) => request<LeaseNotice>(`/api/v1/lease-notices/${id}`),
+    markSent: (id: string, data: { via: string; sent_at?: string }) =>
+      request<void>(`/api/v1/lease-notices/${id}/sent`, { method: 'POST', body: JSON.stringify(data) }),
+    settings: () => request<PropertySettings>('/api/v1/settings/property'),
+    updateSettings: (data: PropertySettings) =>
+      request<PropertySettings>('/api/v1/settings/property', { method: 'PUT', body: JSON.stringify(data) }),
+  },
+
+  broadcasts: {
+    preview: (segment: BroadcastSegment) => request<{ total: number; eligible: number; no_consent: number; opted_out: number }>('/api/v1/broadcasts/preview', { method: 'POST', body: JSON.stringify(segment) }),
+    list: () => request<Broadcast[]>('/api/v1/broadcasts'),
+    get: (id: string) => request<Broadcast>(`/api/v1/broadcasts/${id}`),
+    create: (data: { name: string; template_name: string; language: string; params: string[]; segment: BroadcastSegment }) =>
+      request<Broadcast>('/api/v1/broadcasts', { method: 'POST', body: JSON.stringify(data) }),
+    start: (id: string) => request<Broadcast>(`/api/v1/broadcasts/${id}/start`, { method: 'POST' }),
+    cancel: (id: string) => request<void>(`/api/v1/broadcasts/${id}/cancel`, { method: 'POST' }),
+    recipients: (id: string, status = '') =>
+      request<{ contact_id: string; name: string; phone: string; status: string; skip_reason?: string; error?: string; sent_at?: string }[]>(`/api/v1/broadcasts/${id}/recipients?status=${status}`),
+    assignThread: (threadId: string, userId: string | null) =>
+      request<void>(`/api/v1/threads/${threadId}/assign`, { method: 'PATCH', body: JSON.stringify({ user_id: userId }) }),
+    inboxSettings: () => request<InboxSettings>('/api/v1/settings/inbox'),
+    updateInboxSettings: (data: InboxSettings) => request<InboxSettings>('/api/v1/settings/inbox', { method: 'PUT', body: JSON.stringify(data) }),
+  },
+
+  kyc: {
+    profile: (contactId: string) => request<KYCProfile>(`/api/v1/contacts/${contactId}/kyc`),
+    update: (contactId: string, data: Partial<KYCProfile>) =>
+      request<KYCProfile>(`/api/v1/contacts/${contactId}/kyc`, { method: 'PUT', body: JSON.stringify(data) }),
+    screen: (contactId: string) => request<KYCProfile>(`/api/v1/contacts/${contactId}/kyc/screen`, { method: 'POST' }),
+    addDocument: (contactId: string, form: FormData) =>
+      request<KYCDocument>(`/api/v1/contacts/${contactId}/kyc/documents`, { method: 'POST', body: form }),
+    downloadDocument: async (id: string, filename: string) =>
+      saveBlob(await requestBlob(`/api/v1/kyc-documents/${id}/file`), filename),
+    deleteDocument: (id: string) => request<void>(`/api/v1/kyc-documents/${id}`, { method: 'DELETE' }),
+    owners: (orgId: string) => request<BeneficialOwner[]>(`/api/v1/organisations/${orgId}/owners`),
+    setOwner: (orgId: string, data: { contact_id: string; ownership_pct?: number | null; role: string }) =>
+      request<void>(`/api/v1/organisations/${orgId}/owners`, { method: 'POST', body: JSON.stringify(data) }),
+    removeOwner: (orgId: string, contactId: string) => request<void>(`/api/v1/organisations/${orgId}/owners/${contactId}`, { method: 'DELETE' }),
+    deal: (dealId: string) => request<DealKYC>(`/api/v1/deals/${dealId}/kyc`),
+    override: (dealId: string, reason: string) =>
+      request<void>(`/api/v1/deals/${dealId}/kyc-override`, { method: 'POST', body: JSON.stringify({ reason }) }),
+    setPayment: (dealId: string, payment_method: string, cash_amount: number) =>
+      request<{ aml_status: string; aml_reasons: string[] }>(`/api/v1/deals/${dealId}/payment`, { method: 'PUT', body: JSON.stringify({ payment_method, cash_amount }) }),
+    amlQueue: (status = 'flagged') => request<AMLCase[]>(`/api/v1/compliance/aml?status=${status}`),
+    review: (dealId: string, data: { decision: 'no_report' | 'reported'; notes: string; goaml_reference?: string }) =>
+      request<void>(`/api/v1/compliance/aml/${dealId}/review`, { method: 'POST', body: JSON.stringify(data) }),
+    exportCSV: async (from: string, to: string) =>
+      saveBlob(await requestBlob(`/api/v1/compliance/aml/export.csv?from=${from}&to=${to}`), `aml-cases-${from}.csv`),
+    settings: () => request<{ cash_threshold: number; flag_virtual_asset: boolean }>('/api/v1/settings/aml'),
+    updateSettings: (data: { cash_threshold: number; flag_virtual_asset: boolean }) =>
+      request<{ cash_threshold: number; flag_virtual_asset: boolean }>('/api/v1/settings/aml', { method: 'PUT', body: JSON.stringify(data) }),
+  },
+
+  twoFactor: {
+    status: () => request<{ enabled: boolean; required_by_company: boolean; backup_codes_left: number }>('/api/v1/users/me/2fa'),
+    setup: () => request<{ secret: string; otpauth_url: string }>('/api/v1/users/me/2fa/setup', { method: 'POST' }),
+    enable: (code: string) => request<{ backup_codes: string[] }>('/api/v1/users/me/2fa/enable', { method: 'POST', body: JSON.stringify({ code }) }),
+    disable: (password: string, code: string) =>
+      request<void>('/api/v1/users/me/2fa/disable', { method: 'POST', body: JSON.stringify({ password, code }) }),
+    newBackupCodes: (code: string) =>
+      request<{ backup_codes: string[] }>('/api/v1/users/me/2fa/backup-codes', { method: 'POST', body: JSON.stringify({ code }) }),
+    resetUser: (userId: string) => request<void>(`/api/v1/users/${userId}/2fa/reset`, { method: 'POST' }),
+    companySettings: () => request<{ require_2fa: boolean; users_without_2fa: number }>('/api/v1/settings/security'),
+    setCompanyRequirement: (require_2fa: boolean) =>
+      request<void>('/api/v1/settings/security', { method: 'PUT', body: JSON.stringify({ require_2fa }) }),
+  },
+
+  portals: {
+    list: () => request<{ connections: PortalConnection[]; portals: Record<string, string> }>('/api/v1/settings/portals'),
+    connect: (portal: string) => request<PortalLinks>(`/api/v1/settings/portals/${portal}`, { method: 'POST' }),
+    setEnabled: (portal: string, enabled: boolean) =>
+      request<void>(`/api/v1/settings/portals/${portal}`, { method: 'PATCH', body: JSON.stringify({ enabled }) }),
+    disconnect: (portal: string) => request<void>(`/api/v1/settings/portals/${portal}`, { method: 'DELETE' }),
+  },
+
+  reports: {
+    leadSources: (from?: string, to?: string) => {
+      const q = new URLSearchParams()
+      if (from) q.set('from', from)
+      if (to) q.set('to', to)
+      return request<{ from: string; to: string; rows: LeadSourceRow[] }>(`/api/v1/reports/lead-sources?${q}`)
     },
   },
 

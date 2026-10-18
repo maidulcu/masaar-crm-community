@@ -1,0 +1,3 @@
+# Findings reviewed and accepted (format: commit:file:rule:line).
+# Fixed test-only JWT secret in an already-pushed commit; the test now generates it (#87).
+a79a2348d84491a21b1cfbb3db062deea088cb90:internal/api/handler/two_factor_test.go:generic-api-key:65

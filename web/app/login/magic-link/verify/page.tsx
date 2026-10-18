@@ -4,10 +4,13 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { api } from '@/lib/api'
 import { useAuthStore } from '@/store/auth'
 import { useLang } from '@/context/LangContext'
+import type { LoginResponse, TwoFactorPending } from '@/types'
+import TwoFactorStep from '@/components/auth/TwoFactorStep'
 
 function MagicLinkVerifyContent() {
   const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading')
   const [error, setError] = useState('')
+  const [pending, setPending] = useState<TwoFactorPending | null>(null)
   const router = useRouter()
   const searchParams = useSearchParams()
   const { setSession } = useAuthStore()
@@ -24,6 +27,10 @@ function MagicLinkVerifyContent() {
     const verifyToken = async () => {
       try {
         const res = await api.auth.verifyMagicLink(token) as any
+        if (res.two_factor_required) {
+          setPending(res as TwoFactorPending)
+          return
+        }
         setSession(res.access_token, res.user, res.company)
         if (res.user.lang_pref) setLang(res.user.lang_pref)
         setStatus('success')
@@ -38,6 +45,21 @@ function MagicLinkVerifyContent() {
 
     verifyToken()
   }, [searchParams, setSession, setLang, router])
+
+  if (pending) {
+    const done = (res: LoginResponse) => {
+      setSession(res.access_token, res.user, res.company)
+      if (res.user.lang_pref) setLang(res.user.lang_pref)
+      router.push('/pipeline')
+    }
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
+        <div className="w-full max-w-sm bg-white rounded-2xl shadow-sm border border-gray-100 p-8">
+          <TwoFactorStep pending={pending} onSuccess={done} onCancel={() => router.push('/login')} />
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">

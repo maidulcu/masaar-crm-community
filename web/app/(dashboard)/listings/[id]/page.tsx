@@ -10,6 +10,8 @@ import { api } from '@/lib/api'
 import type { Listing } from '@/types'
 import clsx from 'clsx'
 import { companyCurrency, currencyChoices } from '@/lib/money'
+import TaskList from '@/components/task/TaskList'
+import ReraPanel from '@/components/rera/ReraPanel'
 
 // ── Offer types (local) ────────────────────────────────────────────────────
 interface Offer {
@@ -224,6 +226,16 @@ export default function ListingDetailPage() {
           )}
         </div>
 
+        <div className="bg-white rounded-xl border border-gray-100 p-5">
+          <h2 className="font-semibold text-gray-900 text-sm mb-3">{t('المهام', 'Tasks')}</h2>
+          <TaskList filter={{ related_type: 'listing', related_id: id }} link={{ related_type: 'listing', related_id: id }} canEdit={isAgent} />
+        </div>
+
+        <div className="bg-white rounded-xl border border-gray-100 p-5">
+          <h2 className="font-semibold text-gray-900 text-sm mb-3">{t('نماذج ريرا', 'RERA forms')}</h2>
+          <ReraPanel listingId={id} types={['A', 'I']} canEdit={isAgent} />
+        </div>
+
         {/* Advertising permit */}
         {listing.permit?.required && (
           <div className={clsx('rounded-xl border p-4 flex flex-wrap items-start gap-4',
@@ -232,7 +244,9 @@ export default function ListingDetailPage() {
               <p className="text-xs text-gray-500">
                 {listing.permit.system === 'trakheesi'
                   ? t('تصريح الإعلان (تراخيصي)', 'Advertising permit (Trakheesi)')
-                  : t('رقم الإعلان الموثق (مضمون)', 'Verified listing number (Madhmoun)')}
+                  : listing.permit.system === 'rega'
+                    ? t('ترخيص الإعلان العقاري (الهيئة العامة للعقار)', 'Advertising licence (REGA)')
+                    : t('رقم الإعلان الموثق (مضمون)', 'Verified listing number (Madhmoun)')}
               </p>
               <p className="font-mono font-semibold text-gray-900" dir="ltr">{listing.permit_number || '—'}</p>
               {listing.permit_expiry && <p className="text-xs text-gray-500">{t('ينتهي', 'Expires')} {listing.permit_expiry.slice(0, 10)}</p>}
@@ -272,6 +286,18 @@ export default function ListingDetailPage() {
           <div>
             <p className="text-xs text-gray-400 mb-1">{t('السعر', 'Price')}</p>
             <p className="font-bold text-brand-700 text-lg">{formatPrice(listing.price, listing.currency, listing.listing_type)}</p>
+            <Link
+              href={`/calculators?${new URLSearchParams({
+                // Rents are compared per year; a monthly rent is annualised.
+                [listing.listing_type === 'rent' ? 'rent' : 'price']: String(listing.listing_type === 'rent' && /month/i.test(listing.rent_period || '') ? listing.price * 12 : listing.price),
+                type: listing.listing_type === 'rent' ? 'rent' : 'sale',
+                currency: listing.currency || '',
+                title: listing.title,
+              })}`}
+              className="text-[11px] text-brand-600 hover:underline"
+            >
+              {t('الحاسبات', 'Calculators')} →
+            </Link>
           </div>
           <div>
             <p className="text-xs text-gray-400 mb-1">{t('النوع', 'Type')}</p>
@@ -447,8 +473,27 @@ export default function ListingDetailPage() {
                       {offer.valid_until && ` · valid until ${new Date(offer.valid_until).toLocaleDateString()}`}
                     </p>
                   </div>
+                  <Link
+                    href={`/calculators?${new URLSearchParams({ price: String(offer.offer_amount), amount: String(offer.offer_amount), currency: offer.currency, title: listing.title })}`}
+                    className="text-[11px] text-gray-500 hover:underline shrink-0"
+                  >
+                    {t('التكاليف', 'Costs')}
+                  </Link>
                   {offer.deal_id && (
                     <Link href="/deals" className="text-xs text-green-600 hover:underline shrink-0">Deal →</Link>
+                  )}
+                  {isAgent && offer.status === 'accepted' && (
+                    <button
+                      onClick={async () => {
+                        try {
+                          const f = await api.rera.create({ form_type: 'F', offer_id: offer.id })
+                          window.open(`/rera-forms/${f.document_id}/print`, '_blank', 'noopener')
+                        } catch (e: unknown) { setError(e instanceof Error ? e.message : 'Failed') }
+                      }}
+                      className="text-[11px] font-medium text-brand-600 hover:underline shrink-0"
+                    >
+                      {t('إنشاء مذكرة التفاهم (النموذج و)', 'Generate MOU (Form F)')}
+                    </button>
                   )}
                   {isAgent && !['accepted','rejected','expired'].includes(offer.status) && (
                     <div className="flex items-center gap-1 shrink-0">

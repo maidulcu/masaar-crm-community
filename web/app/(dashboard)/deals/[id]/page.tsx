@@ -12,8 +12,12 @@ import { companyCurrency, formatMoney } from '@/lib/money'
 import { INVOICE_STATUS_COLORS, INVOICE_STATUS_LABELS } from '@/lib/invoice'
 import InvoiceForm from '@/components/invoice/InvoiceForm'
 import Link from 'next/link'
+import TaskList from '@/components/task/TaskList'
+import DealCompliancePanel from '@/components/kyc/DealCompliancePanel'
+import { useAuthStore } from '@/store/auth'
 
 export default function DealDetailPage() {
+  const { user } = useAuthStore()
   const { id } = useParams<{ id: string }>()
   const [deal, setDeal] = useState<Deal | null>(null)
   const [invoices, setInvoices] = useState<VATInvoice[]>([])
@@ -334,6 +338,15 @@ export default function DealDetailPage() {
               )}
             </table>
           )}
+        </div>
+
+        {user && user.role !== 'viewer' && (
+          <DealCompliancePanel dealId={id} isAdmin={user.role === 'admin'} canEdit={user.role === 'admin' || user.role === 'agent'} />
+        )}
+
+        <div className="bg-white rounded-xl border border-gray-100 p-5">
+          <h2 className="font-semibold text-gray-900 text-sm mb-3">{t('المهام', 'Tasks')}</h2>
+          <TaskList filter={{ related_type: 'deal', related_id: id }} link={{ related_type: 'deal', related_id: id }} canEdit />
         </div>
 
         {/* Documents section */}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -132,9 +133,12 @@ func (r *WhatsAppRepo) ListThreads(ctx context.Context, status string, contactID
 	q := fmt.Sprintf(`
 		SELECT t.id, t.contact_id, t.wa_account_id, t.thread_status,
 		       t.last_message_at, t.message_count, COALESCE(t.ai_summary,''), t.created_at,
+		       t.assigned_to, COALESCE(au.name, ''),
+		       (SELECT MAX(m.sent_at) FROM whatsapp_messages m WHERE m.thread_id = t.id AND m.direction = 'inbound'),
 		       c.id, c.phone_wa, c.full_name, c.language
 		FROM whatsapp_threads t
 		JOIN contacts c ON c.id = t.contact_id AND c.company_id = t.company_id
+		LEFT JOIN users au ON au.id = t.assigned_to AND au.company_id = t.company_id
 		WHERE t.company_id = $4 AND ($1 = '' OR t.thread_status = $1) %s
 		ORDER BY t.last_message_at DESC NULLS LAST
 		LIMIT $2 OFFSET $3
@@ -152,11 +156,13 @@ func (r *WhatsAppRepo) ListThreads(ctx context.Context, status string, contactID
 		if err := rows.Scan(
 			&t.ID, &t.ContactID, &t.WAAccountID, &t.ThreadStatus,
 			&t.LastMessageAt, &t.MessageCount, &t.AISummary, &t.CreatedAt,
+			&t.AssignedTo, &t.AssigneeName, &t.LastInboundAt,
 			&c.ID, &c.PhoneWA, &c.FullName, &c.Language,
 		); err != nil {
 			return nil, fmt.Errorf("scan thread: %w", err)
 		}
 		t.Contact = &c
+		t.SetWindow(time.Now())
 		threads = append(threads, t)
 	}
 	return threads, nil
@@ -237,9 +243,12 @@ func (r *WhatsAppRepo) GetThread(ctx context.Context, threadID uuid.UUID) (*doma
 	const q = `
 		SELECT t.id, t.contact_id, t.wa_account_id, t.thread_status,
 		       t.last_message_at, t.message_count, COALESCE(t.ai_summary,''), t.created_at,
+		       t.assigned_to, COALESCE(au.name, ''),
+		       (SELECT MAX(m.sent_at) FROM whatsapp_messages m WHERE m.thread_id = t.id AND m.direction = 'inbound'),
 		       c.id, c.phone_wa, c.full_name, c.language
 		FROM whatsapp_threads t
 		JOIN contacts c ON c.id = t.contact_id AND c.company_id = t.company_id
+		LEFT JOIN users au ON au.id = t.assigned_to AND au.company_id = t.company_id
 		WHERE t.id = $1 AND t.company_id = $2
 	`
 	cid, err := tenant.From(ctx)
@@ -251,12 +260,14 @@ func (r *WhatsAppRepo) GetThread(ctx context.Context, threadID uuid.UUID) (*doma
 	err = r.db.QueryRow(ctx, q, threadID, cid).Scan(
 		&t.ID, &t.ContactID, &t.WAAccountID, &t.ThreadStatus,
 		&t.LastMessageAt, &t.MessageCount, &t.AISummary, &t.CreatedAt,
+		&t.AssignedTo, &t.AssigneeName, &t.LastInboundAt,
 		&c.ID, &c.PhoneWA, &c.FullName, &c.Language,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("get thread: %w", err)
 	}
 	t.Contact = &c
+	t.SetWindow(time.Now())
 	return t, nil
 }
 

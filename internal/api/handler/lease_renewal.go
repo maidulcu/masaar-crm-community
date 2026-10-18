@@ -109,17 +109,16 @@ func (h *LeaseRenewalHandler) Initiate(c *fiber.Ctx) error {
 	}
 
 	renewal := &domain.LeaseRenewalWorkflow{
-		ID:               uuid.New(),
-		CompanyID:        companyID,
-		LeaseID:          leaseID,
-		RenewalDate:      time.Now().AddDate(0, 0, 90),
-		RenewalStatus:    domain.RenewalPending,
-		DaysBeforeExpiry: 90,
-		TenantResponse:   domain.ResponsePending,
+		ID:             uuid.New(),
+		CompanyID:      companyID,
+		LeaseID:        leaseID,
+		RenewalStatus:  domain.RenewalPending,
+		TenantResponse: domain.ResponsePending,
 	}
 
+	// The renewal date is the day after the lease ends (set by the repository).
 	if err := h.renewalRepo.Create(c.Context(), renewal); err != nil {
-		return c.Status(http.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to initiate renewal"})
+		return serverError(c, err)
 	}
 
 	return c.Status(http.StatusCreated).JSON(fiber.Map{"data": renewal})

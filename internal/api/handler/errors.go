@@ -2,6 +2,7 @@ package handler
 
 import (
 	"errors"
+	"github.com/maidulcu/masaar-crm/internal/cheque"
 	"log"
 
 	"github.com/gofiber/fiber/v2"
@@ -24,6 +25,12 @@ func apiError(err error) (int, string) {
 	switch {
 	case errors.As(err, &invalid):
 		return fiber.StatusUnprocessableEntity, invalid.Msg // composed by us, safe to show
+	case errors.Is(err, repo.ErrCustomFieldInvalid):
+		return fiber.StatusUnprocessableEntity, err.Error() // composed by us from field names
+	case errors.Is(err, cheque.ErrBadSchedule):
+		return fiber.StatusUnprocessableEntity, err.Error()
+	case errors.Is(err, repo.ErrScheduleExists):
+		return fiber.StatusConflict, err.Error()
 	case errors.Is(err, repo.ErrInvalidTransition):
 		return fiber.StatusConflict, "status change not allowed"
 	case errors.Is(err, tenant.ErrMissing):

@@ -29,6 +29,24 @@ type ImportExportHandler struct {
 	leadRepo    *repo.LeadRepo
 	listingRepo *repo.ListingRepo
 	privacy     consentStore
+	profiles    *repo.ContactProfileRepo
+}
+
+// UseProfiles imports and exports contact custom fields as cf_<field_name> columns.
+func (h *ImportExportHandler) UseProfiles(p *repo.ContactProfileRepo) *ImportExportHandler {
+	h.profiles = p
+	return h
+}
+
+// customColumns picks cf_<name> cells out of an imported row.
+func customColumns(m map[string]string) map[string]string {
+	out := map[string]string{}
+	for k, v := range m {
+		if name, ok := strings.CutPrefix(k, "cf_"); ok && strings.TrimSpace(v) != "" {
+			out[name] = v
+		}
+	}
+	return out
 }
 
 // UsePrivacy records consent columns (consent_whatsapp, consent_email, consent_sms,
@@ -148,6 +166,12 @@ func (h *ImportExportHandler) ImportContacts(c *fiber.Ctx) error {
 			_ = h.contactRepo.Update(c.Context(), contact)
 		}
 		recordConsentChoices(c.Context(), h.privacy, contact.ID, consentColumns(m), "import", localsUserPtr(c), nil)
+		if cf := customColumns(m); len(cf) > 0 && h.profiles != nil {
+			if err := h.profiles.SetCustomValues(c.Context(), "contact", contact.ID, cf); err != nil {
+				// The contact itself was imported; report the custom-field problem on its row.
+				errors = append(errors, fiber.Map{"row": rowNum, "error": rowError(err)})
+			}
+		}
 		imported++
 	}
 
@@ -185,7 +209,8 @@ func (h *ImportExportHandler) ImportLeads(c *fiber.Ctx) error {
 
 	header := normaliseHeader(records[0])
 	validStages := map[string]bool{"new": true, "contacted": true, "qualified": true, "proposal": true, "won": true, "lost": true}
-	validSources := map[string]bool{"whatsapp": true, "web": true, "referral": true, "event": true, "bos24": true, "": true}
+	validSources := map[string]bool{"whatsapp": true, "web": true, "referral": true, "event": true, "bos24": true, "": true,
+		"property_finder": true, "bayut": true, "dubizzle": true, "portal": true}
 
 	var imported, skipped int
 	var errors []map[string]interface{}
@@ -230,7 +255,7 @@ func (h *ImportExportHandler) ImportLeads(c *fiber.Ctx) error {
 		}
 		currency := strings.TrimSpace(m["currency"])
 		if currency == "" {
-			currency = "AED"
+			currency = defaultCurrency(c.Context())
 		}
 
 		lead := &domain.Lead{
@@ -267,14 +292,34 @@ func (h *ImportExportHandler) ExportContacts(c *fiber.Ctx) error {
 		return serverError(c, err)
 	}
 
+	// Custom fields become cf_<name> columns (the same names the import accepts).
+	var fields []domain.CustomField
+	values := map[uuid.UUID]map[string]string{}
+	if h.profiles != nil {
+		if fields, err = h.profiles.ListCustomFields(c.Context(), "contact"); err != nil {
+			return serverError(c, err)
+		}
+		if values, err = h.profiles.AllCustomValues(c.Context(), "contact"); err != nil {
+			return serverError(c, err)
+		}
+	}
+
 	var buf bytes.Buffer
 	w := csv.NewWriter(&buf)
-	_ = w.Write([]string{"id", "full_name", "phone_wa", "email", "language", "lead_score", "created_at"})
+	header := []string{"id", "full_name", "phone_wa", "email", "language", "lead_score", "created_at"}
+	for _, f := range fields {
+		header = append(header, "cf_"+f.Name)
+	}
+	_ = w.Write(header)
 	for _, ct := range result.Data {
-		_ = w.Write(csvSafeRow([]string{
+		row := []string{
 			ct.ID.String(), ct.FullName, ct.PhoneWA, ct.Email,
 			ct.Language, strconv.Itoa(ct.LeadScore), ct.CreatedAt.Format(time.RFC3339),
-		}))
+		}
+		for _, f := range fields {
+			row = append(row, values[ct.ID][f.Name])
+		}
+		_ = w.Write(csvSafeRow(row))
 	}
 	w.Flush()
 
