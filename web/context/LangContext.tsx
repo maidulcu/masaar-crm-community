@@ -1,5 +1,5 @@
 'use client'
-import { createContext, useContext, useEffect, useState } from 'react'
+import { createContext, useContext, useEffect, useState, useCallback, useMemo } from 'react'
 
 type Lang = 'ar' | 'en'
 
@@ -25,22 +25,35 @@ export function LangProvider({ children }: { children: React.ReactNode }) {
     if (saved) setLangState(saved)
   }, [])
 
-  const setLang = (l: Lang) => {
+  // Memoize setLang to preserve function reference identity
+  const setLang = useCallback((l: Lang) => {
     setLangState(l)
     localStorage.setItem('masaar_lang', l)
     document.documentElement.dir = l === 'ar' ? 'rtl' : 'ltr'
     document.documentElement.lang = l
-  }
+  }, [])
 
   useEffect(() => {
     document.documentElement.dir = lang === 'ar' ? 'rtl' : 'ltr'
     document.documentElement.lang = lang
   }, [lang])
 
-  const t = (ar: string, en: string) => lang === 'ar' ? ar : en
+  // Memoize translation function to prevent recreating function reference on every re-render
+  const t = useCallback((ar: string, en: string) => (lang === 'ar' ? ar : en), [lang])
+
+  // Memoize context value object to prevent cascading re-renders in all consumers across the app
+  const value = useMemo(
+    () => ({
+      lang,
+      setLang,
+      isRtl: lang === 'ar',
+      t,
+    }),
+    [lang, setLang, t]
+  )
 
   return (
-    <LangContext.Provider value={{ lang, setLang, isRtl: lang === 'ar', t }}>
+    <LangContext.Provider value={value}>
       {children}
     </LangContext.Provider>
   )
