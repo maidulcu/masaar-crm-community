@@ -4,9 +4,11 @@ import (
 	"fmt"
 	"html"
 	"strings"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
+	"github.com/maidulcu/masaar-crm/internal/compliance"
 	"github.com/maidulcu/masaar-crm/internal/domain"
 	"github.com/maidulcu/masaar-crm/internal/email"
 	"github.com/maidulcu/masaar-crm/internal/pdf"
@@ -27,6 +29,13 @@ type MarketingHandler struct {
 	userRepo        *repo.UserRepo
 	emailService    *email.Service
 	appURL          string // public web app origin, used for links that leave the system (QR codes)
+	privacy         consentStore
+}
+
+// UsePrivacy makes campaigns skip contacts who opted out of email.
+func (h *MarketingHandler) UsePrivacy(p consentStore) *MarketingHandler {
+	h.privacy = p
+	return h
 }
 
 func NewMarketingHandler(
@@ -66,6 +75,13 @@ func (h *MarketingHandler) PublicListing(c *fiber.Ctx) error {
 	if err != nil {
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "listing not found"})
 	}
+	// A listing whose advertising permit has lapsed is no longer shown publicly.
+	if !compliance.ListingPermit(listing, time.Now()).Advertisable() {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "listing not found"})
+	}
+	// The permit number and QR stay visible (advertisements must show them); the
+	// override is internal.
+	listing.PermitOverrideBy, listing.PermitOverrideAt, listing.PermitOverrideReason = nil, nil, ""
 	// Strip sensitive owner fields before returning publicly
 	listing.OwnerName = ""
 	listing.OwnerEmail = ""
@@ -100,6 +116,9 @@ func (h *MarketingHandler) DownloadBrochure(c *fiber.Ctx) error {
 	listing, err := h.listingRepo.GetByID(c.Context(), id)
 	if err != nil {
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "listing not found"})
+	}
+	if blocked, err := permitBlocked(c, listing); blocked {
+		return err
 	}
 
 	settings, _ := h.companySettings.Get(c.Context())
@@ -210,6 +229,9 @@ func (h *MarketingHandler) EmailCampaign(c *fiber.Ctx) error {
 	if err != nil {
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "listing not found"})
 	}
+	if blocked, err := permitBlocked(c, listing); blocked {
+		return err
+	}
 
 	settings, _ := h.companySettings.Get(c.Context())
 	companyName, businessPhone := "Masaar CRM", ""
@@ -274,7 +296,7 @@ func (h *MarketingHandler) EmailCampaign(c *fiber.Ctx) error {
 		html.EscapeString(companyName), html.EscapeString(businessPhone),
 	)
 
-	sent, failed := 0, 0
+	sent, failed, optedOutCount := 0, 0, 0
 	for _, cidStr := range body.ContactIDs {
 		cid, err := uuid.Parse(cidStr)
 		if err != nil {
@@ -286,6 +308,13 @@ func (h *MarketingHandler) EmailCampaign(c *fiber.Ctx) error {
 			failed++
 			continue
 		}
+		if h.privacy != nil {
+			if ok, err := h.privacy.MayContact(c.Context(), contact.ID, "email"); err != nil || !ok {
+				optedOutCount++
+				continue
+			}
+		}
+
 		emailRecord := &domain.EmailHistory{
 			ToEmail:   contact.Email,
 			Subject:   subject,
@@ -301,9 +330,10 @@ func (h *MarketingHandler) EmailCampaign(c *fiber.Ctx) error {
 	}
 
 	return c.JSON(fiber.Map{
-		"ok":     true,
-		"sent":   sent,
-		"failed": failed,
+		"ok":        true,
+		"sent":      sent,
+		"failed":    failed,
+		"opted_out": optedOutCount,
 	})
 }
 
@@ -318,6 +348,9 @@ func (h *MarketingHandler) GenerateQR(c *fiber.Ctx) error {
 	listing, err := h.listingRepo.GetByID(c.Context(), id)
 	if err != nil {
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "listing not found"})
+	}
+	if blocked, err := permitBlocked(c, listing); blocked {
+		return err
 	}
 
 	png, err := qrcode.Encode(h.publicListingURL(listing.ID), qrcode.Medium, 512)

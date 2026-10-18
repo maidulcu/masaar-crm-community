@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/maidulcu/masaar-crm/internal/domain"
@@ -66,7 +67,7 @@ func (r *MaintenanceTaskRepo) List(ctx context.Context, companyID uuid.UUID, lim
 		SELECT id, company_id, property_id, inspection_id, maintenance_type, description, priority, scheduled_date, due_date, completion_date, contractor_name, contractor_contact, estimated_cost, actual_cost, status, assigned_to, notes, created_by, created_at, updated_at, deleted_at
 		FROM maintenance_tasks
 		WHERE company_id = $1 AND deleted_at IS NULL
-		ORDER BY due_date ASC, priority DESC
+		ORDER BY due_date ASC NULLS LAST, CASE priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END, created_at DESC, id
 		LIMIT $2 OFFSET $3
 	`, companyID, limit, offset)
 	if err != nil {
@@ -100,7 +101,7 @@ func (r *MaintenanceTaskRepo) ListByProperty(ctx context.Context, propertyID uui
 		SELECT id, company_id, property_id, inspection_id, maintenance_type, description, priority, scheduled_date, due_date, completion_date, contractor_name, contractor_contact, estimated_cost, actual_cost, status, assigned_to, notes, created_by, created_at, updated_at, deleted_at
 		FROM maintenance_tasks
 		WHERE property_id = $1 AND company_id = $4 AND deleted_at IS NULL
-		ORDER BY due_date ASC, priority DESC
+		ORDER BY due_date ASC NULLS LAST, CASE priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END, created_at DESC, id
 		LIMIT $2 OFFSET $3
 	`, propertyID, limit, offset, cid)
 	if err != nil {
@@ -130,7 +131,7 @@ func (r *MaintenanceTaskRepo) ListByStatus(ctx context.Context, companyID uuid.U
 		SELECT id, company_id, property_id, inspection_id, maintenance_type, description, priority, scheduled_date, due_date, completion_date, contractor_name, contractor_contact, estimated_cost, actual_cost, status, assigned_to, notes, created_by, created_at, updated_at, deleted_at
 		FROM maintenance_tasks
 		WHERE company_id = $1 AND status = $2 AND deleted_at IS NULL
-		ORDER BY due_date ASC, priority DESC
+		ORDER BY due_date ASC NULLS LAST, CASE priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END, created_at DESC, id
 		LIMIT $3 OFFSET $4
 	`, companyID, status, limit, offset)
 	if err != nil {
@@ -169,12 +170,18 @@ func (r *MaintenanceTaskRepo) Delete(ctx context.Context, id uuid.UUID) error {
 	if err != nil {
 		return err
 	}
-	_, err = r.conn.Exec(ctx, `
+	tag, err := r.conn.Exec(ctx, `
 		UPDATE maintenance_tasks
 		SET deleted_at = CURRENT_TIMESTAMP
 		WHERE id = $1 AND company_id = $2 AND deleted_at IS NULL
 	`, id, cid)
-	return err
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return pgx.ErrNoRows
+	}
+	return nil
 }
 
 func (r *MaintenanceTaskRepo) AddPhoto(ctx context.Context, photo *domain.MaintenancePhoto) error {
@@ -186,7 +193,7 @@ func (r *MaintenanceTaskRepo) AddPhoto(ctx context.Context, photo *domain.Mainte
 	return r.conn.QueryRow(ctx, `
 		INSERT INTO maintenance_photos (id, task_id, photo_url, photo_stage)
 		SELECT $1, $2, $3, $4
-		WHERE EXISTS (SELECT 1 FROM maintenance_tasks WHERE id = $2 AND company_id = $5)
+		WHERE EXISTS (SELECT 1 FROM maintenance_tasks WHERE id = $2 AND company_id = $5 AND deleted_at IS NULL)
 		RETURNING id, uploaded_at
 	`, photo.ID, photo.TaskID, photo.PhotoURL, photo.PhotoStage, cid).Scan(&photo.ID, &photo.UploadedAt)
 }

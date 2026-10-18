@@ -71,7 +71,7 @@ func (r *AuditLogRepo) List(ctx context.Context, f AuditLogFilter) (*domain.Pagi
 
 	args = append(args, f.Limit, f.Offset)
 	q := fmt.Sprintf(`
-		SELECT a.id, a.entity_type, a.entity_id, a.action, a.actor_id, a.diff, a.ts
+		SELECT a.id, a.entity_type, a.entity_id, a.action, a.actor_id, a.api_key_id, a.diff, a.ts
 		FROM audit_logs a
 		%s
 		ORDER BY a.ts DESC
@@ -88,7 +88,7 @@ func (r *AuditLogRepo) List(ctx context.Context, f AuditLogFilter) (*domain.Pagi
 	for rows.Next() {
 		var l domain.AuditLog
 		var rawDiff []byte
-		if err := rows.Scan(&l.ID, &l.EntityType, &l.EntityID, &l.Action, &l.ActorID, &rawDiff, &l.Timestamp); err != nil {
+		if err := rows.Scan(&l.ID, &l.EntityType, &l.EntityID, &l.Action, &l.ActorID, &l.APIKeyID, &rawDiff, &l.Timestamp); err != nil {
 			return nil, fmt.Errorf("scan audit log: %w", err)
 		}
 		if rawDiff != nil {
@@ -126,6 +126,20 @@ func (r *AuditLogRepo) Log(ctx context.Context, actorID uuid.UUID, action, entit
 		SELECT $1, $2, $3, $4, $5, u.company_id FROM users u WHERE u.id = $4
 	`
 	r.db.Exec(ctx, q, entityType, entityID, action, actorID, diffJSON)
+}
+
+// LogAPIKey inserts an audit entry for an action taken with an API key, which has no
+// user actor. The company comes from the key itself. Errors are non-fatal, as in Log.
+func (r *AuditLogRepo) LogAPIKey(ctx context.Context, apiKeyID uuid.UUID, action, entityType string, entityID uuid.UUID, diff any) {
+	var diffJSON []byte
+	if diff != nil {
+		diffJSON, _ = json.Marshal(diff)
+	}
+	const q = `
+		INSERT INTO audit_logs (entity_type, entity_id, action, api_key_id, diff, company_id)
+		SELECT $1, $2, $3, $4, $5, k.company_id FROM api_keys k WHERE k.id = $4
+	`
+	r.db.Exec(ctx, q, entityType, entityID, action, apiKeyID, diffJSON)
 }
 
 // AuditLog constants used across handlers.

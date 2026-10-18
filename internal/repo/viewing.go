@@ -218,6 +218,8 @@ func (r *ViewingRepo) Update(ctx context.Context, v *domain.Viewing) error {
 		UPDATE viewings
 		SET listing_id=$1, agent_id=$2, lead_id=$3,
 		    scheduled_at=$4, duration_min=$5, address=$6, notes=$7,
+		    -- a rescheduled viewing gets a fresh reminder
+		    reminder_sent = reminder_sent AND scheduled_at = $4,
 		    updated_at=NOW()
 		WHERE id=$8 AND company_id=$9
 		  AND ($1::uuid IS NULL OR EXISTS (SELECT 1 FROM listings WHERE id = $1 AND company_id = $9))
@@ -334,6 +336,22 @@ func (r *ViewingRepo) DueForReminder(ctx context.Context, withinMinutes int) ([]
 		viewings = append(viewings, vw)
 	}
 	return viewings, nil
+}
+
+// ClaimReminder marks a viewing's reminder as sent and reports whether this call was the
+// one that did it. Only the claimant sends the reminder, so it goes out once even when
+// several workers see the same due viewing.
+func (r *ViewingRepo) ClaimReminder(ctx context.Context, id uuid.UUID) (bool, error) {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return false, err
+	}
+	tag, err := r.db.Exec(ctx,
+		`UPDATE viewings SET reminder_sent=true WHERE id=$1 AND company_id=$2 AND reminder_sent=false`, id, cid)
+	if err != nil {
+		return false, err
+	}
+	return tag.RowsAffected() == 1, nil
 }
 
 // MarkReminderSent sets reminder_sent = true for a viewing.

@@ -9,6 +9,7 @@ import { useAuthStore } from '@/store/auth'
 import { api } from '@/lib/api'
 import type { Expense, ExpenseApproval } from '@/types'
 import clsx from 'clsx'
+import { companyCurrency } from '@/lib/money'
 
 const payStatusColor: Record<string, string> = {
   pending: 'bg-yellow-100 text-yellow-700',
@@ -87,7 +88,7 @@ export default function ExpenseDetailPage() {
   }
 
   const fmtDate = (d: string) => new Date(d).toLocaleDateString(lang === 'ar' ? 'ar-AE' : 'en-AE', { year: 'numeric', month: 'short', day: 'numeric' })
-  const fmtAmount = (v: number) => `AED ${v.toLocaleString()}`
+  const fmtAmount = (v: number) => `${companyCurrency()} ${v.toLocaleString()}`
 
   const labelCls = 'block text-xs font-medium text-gray-600 mb-1'
   const inputCls = 'w-full text-sm border border-gray-200 rounded-lg px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent'
@@ -224,7 +225,7 @@ export default function ExpenseDetailPage() {
             <h3 className="text-sm font-semibold text-gray-700 mb-4">{t('تحديث المصروف', 'Edit Expense')}</h3>
             <form onSubmit={handleUpdate} className="space-y-4">
               <div>
-                <label className={labelCls}>{t('المبلغ (AED)', 'Amount (AED)')}</label>
+                <label className={labelCls}>{t(`المبلغ (${companyCurrency()})`, `Amount (${companyCurrency()})`)}</label>
                 <input type="number" min={0} step={0.01} required className={inputCls} value={editAmount} onChange={e => setEditAmount(e.target.value)} />
               </div>
               <div>

@@ -1,7 +1,11 @@
 package handler
 
 import (
+	"errors"
+	"net/mail"
 	"regexp"
+	"strings"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -12,14 +16,40 @@ import (
 
 var e164PublicRe = regexp.MustCompile(`^\+[1-9]\d{6,14}$`)
 
+// externalSourceRe names the pushing system: lowercase, short, e.g. "waqov" or "zapier".
+var externalSourceRe = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,31}$`)
+
+// externalRefRe is the pushing system's own id for the lead, e.g. "enquiry:48213".
+var externalRefRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$`)
+
+// publicLeadSources are the sources an API client may set.
+var publicLeadSources = map[string]bool{"web": true, "referral": true, "event": true, "whatsapp": true,
+	"property_finder": true, "bayut": true, "dubizzle": true, "portal": true}
+
 type PublicLeadHandler struct {
 	contacts   *repo.ContactRepo
 	leads      *repo.LeadRepo
+	audit      *repo.AuditLogRepo
 	dispatcher *webhook.Dispatcher
+	privacy    consentStore
+	assigner   NewLeadAssigner
 }
 
-func NewPublicLeadHandler(contacts *repo.ContactRepo, leads *repo.LeadRepo, dispatcher *webhook.Dispatcher) *PublicLeadHandler {
-	return &PublicLeadHandler{contacts: contacts, leads: leads, dispatcher: dispatcher}
+// UsePrivacy records the consent submitted with each lead.
+func (h *PublicLeadHandler) UsePrivacy(p consentStore) *PublicLeadHandler {
+	h.privacy = p
+	return h
+}
+
+// SetAssigner enables automatic assignment of newly created leads (see NewLeadAssigner).
+func (h *PublicLeadHandler) SetAssigner(a NewLeadAssigner) { h.assigner = a }
+
+// duplicateWindow is how long a repeated submission for the same contact and source, sent
+// without an external_ref, is treated as a retry of the first one instead of a new lead.
+const duplicateWindow = 10 * time.Minute
+
+func NewPublicLeadHandler(contacts *repo.ContactRepo, leads *repo.LeadRepo, audit *repo.AuditLogRepo, dispatcher *webhook.Dispatcher) *PublicLeadHandler {
+	return &PublicLeadHandler{contacts: contacts, leads: leads, audit: audit, dispatcher: dispatcher}
 }
 
 type PublicLeadRequest struct {
@@ -27,13 +57,20 @@ type PublicLeadRequest struct {
 	Phone     string  `json:"phone"`
 	Email     string  `json:"email"`
 	Language  string  `json:"language"` // ar | en (default: ar)
-	Source    string  `json:"source"`   // web|referral|event (default: web)
+	Source    string  `json:"source"`   // web|referral|event|whatsapp|property_finder|bayut|dubizzle|portal (default: web)
 	Notes     string  `json:"notes"`
 	DealValue float64 `json:"deal_value"`
 	Currency  string  `json:"currency"` // default: AED
 	// Optional metadata stored in notes
 	PropertyType string `json:"property_type"` // e.g. "2BR", "villa"
 	Area         string `json:"area"`          // e.g. "Marina", "Downtown"
+	// Optional, sent together: the pushing system and its own id for this lead.
+	// A repeat of the same pair returns the existing lead (200) instead of a new one.
+	ExternalSource string `json:"external_source"` // e.g. "waqov"
+	ExternalRef    string `json:"external_ref"`    // e.g. "enquiry:48213"
+	// Consent the person gave on the form, per channel (whatsapp, email, sms, phone):
+	// true = opted in, false = declined. Omitted channels record nothing.
+	Consent map[string]bool `json:"consent"`
 }
 
 // SubmitLead creates a lead from an external source using API key auth.
@@ -45,8 +82,10 @@ type PublicLeadRequest struct {
 // @Produce json
 // @Param request body PublicLeadRequest true "Lead data"
 // @Success 201 {object} map[string]interface{}
+// @Success 200 {object} map[string]interface{} "Duplicate external_ref: the existing lead"
 // @Failure 400 {object} map[string]string
 // @Failure 401 {object} map[string]string
+// @Failure 403 {object} map[string]string
 // @Failure 422 {object} map[string]string
 // @Router /webhooks/leads [post]
 func (h *PublicLeadHandler) SubmitLead(c *fiber.Ctx) error {
@@ -75,6 +114,11 @@ func (h *PublicLeadHandler) SubmitLead(c *fiber.Ctx) error {
 	if len(req.Email) > 254 {
 		return c.Status(fiber.StatusUnprocessableEntity).JSON(fiber.Map{"error": "email is too long (max 254 characters)"})
 	}
+	if req.Email != "" {
+		if _, err := mail.ParseAddress(req.Email); err != nil {
+			return c.Status(fiber.StatusUnprocessableEntity).JSON(fiber.Map{"error": "invalid email format"})
+		}
+	}
 	if len(req.Notes) > 2000 {
 		return c.Status(fiber.StatusUnprocessableEntity).JSON(fiber.Map{"error": "notes are too long (max 2000 characters)"})
 	}
@@ -85,21 +129,47 @@ func (h *PublicLeadHandler) SubmitLead(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusUnprocessableEntity).JSON(fiber.Map{"error": "area is too long (max 100 characters)"})
 	}
 
-	// Defaults
-	if req.Language == "" {
-		req.Language = "ar"
+	// Language: only "ar"/"en" exist, and it is only applied when the caller actually sent it
+	// (an existing contact's preference must not be reset to a default by every submission).
+	lang := strings.ToLower(strings.TrimSpace(req.Language))
+	if lang != "" && lang != "ar" && lang != "en" {
+		return c.Status(fiber.StatusUnprocessableEntity).JSON(fiber.Map{"error": "language must be ar or en"})
 	}
-	if req.Source == "" {
-		req.Source = "web"
-	}
-	if req.Currency == "" {
-		req.Currency = "AED"
+	email := strings.TrimSpace(req.Email)
+	if email != "" {
+		if addr, err := mail.ParseAddress(email); err != nil || addr.Address != email {
+			return c.Status(fiber.StatusUnprocessableEntity).JSON(fiber.Map{"error": "email is not a valid address"})
+		}
 	}
 
-	// Validate source
-	validSources := map[string]bool{"web": true, "referral": true, "event": true, "whatsapp": true}
-	if !validSources[req.Source] {
-		req.Source = "web"
+	source := strings.ToLower(strings.TrimSpace(req.Source))
+	if source == "" {
+		source = "web"
+	}
+	if !publicLeadSources[source] {
+		return c.Status(fiber.StatusUnprocessableEntity).JSON(fiber.Map{
+			"error": "source must be one of: web, referral, event, whatsapp, property_finder, bayut, dubizzle, portal",
+		})
+	}
+	currency := req.Currency
+	if strings.TrimSpace(currency) == "" {
+		currency = defaultCurrency(c.Context())
+	}
+	if (req.ExternalSource == "") != (req.ExternalRef == "") {
+		return c.Status(fiber.StatusUnprocessableEntity).JSON(fiber.Map{"error": "external_source and external_ref must be sent together"})
+	}
+	if req.ExternalSource != "" && !externalSourceRe.MatchString(req.ExternalSource) {
+		return c.Status(fiber.StatusUnprocessableEntity).JSON(fiber.Map{
+			"error": "external_source must be 1-32 lowercase letters, digits, '.', '_' or '-'",
+		})
+	}
+	if req.ExternalRef != "" && !externalRefRe.MatchString(req.ExternalRef) {
+		return c.Status(fiber.StatusUnprocessableEntity).JSON(fiber.Map{
+			"error": "external_ref must be 1-128 letters, digits, '.', '_', ':', '/' or '-'",
+		})
+	}
+	if source == "portal" && req.ExternalSource == "" {
+		return c.Status(fiber.StatusUnprocessableEntity).JSON(fiber.Map{"error": "source portal requires external_source and external_ref"})
 	}
 
 	// Enrich notes with property metadata if provided
@@ -122,7 +192,20 @@ func (h *PublicLeadHandler) SubmitLead(c *fiber.Ctx) error {
 		}
 	}
 
+	lead := &domain.Lead{ContactID: uuid.Nil, Stage: domain.StageNew}
+	if msg := applyLeadInput(lead, string(domain.StageNew), source, currency, req.DealValue, notes); msg != "" {
+		return c.Status(fiber.StatusUnprocessableEntity).JSON(fiber.Map{"error": msg})
+	}
+	lead.ExternalSource, lead.ExternalRef = req.ExternalSource, req.ExternalRef
+
 	ctx := c.Context()
+
+	// A retried push returns the lead it already made, before touching the contact.
+	if req.ExternalRef != "" {
+		if existing, err := h.leads.FindByExternalRef(ctx, req.ExternalSource, req.ExternalRef); err == nil {
+			return duplicateLeadResponse(c, existing)
+		}
+	}
 
 	// Upsert contact — creates if not found; an existing contact keeps the name it already has
 	contact, err := h.contacts.Upsert(ctx, req.Phone, req.Name)
@@ -132,35 +215,72 @@ func (h *PublicLeadHandler) SubmitLead(c *fiber.Ctx) error {
 		})
 	}
 
-	// Patch email/language onto the contact if provided
-	if req.Email != "" || req.Language != "" {
-		if req.Email != "" {
-			contact.Email = req.Email
-		}
-		if req.Language != "" {
-			contact.Language = req.Language
-		}
+	// Fill in what the contact is missing. An integration must not overwrite details people (or
+	// the customer) already set: email only when empty, language only when explicitly sent.
+	changed := false
+	if email != "" && contact.Email == "" {
+		contact.Email, changed = email, true
+	}
+	if lang != "" && contact.Language != lang {
+		contact.Language, changed = lang, true
+	}
+	if changed {
 		_ = h.contacts.Update(ctx, contact)
 	}
 
-	// Create lead
-	lead := &domain.Lead{
-		ContactID: contact.ID,
-		Stage:     domain.StageNew,
-		Source:    domain.LeadSource(req.Source),
-		DealValue: req.DealValue,
-		Currency:  req.Currency,
-		Notes:     notes,
+	if len(req.Consent) > 0 {
+		var keyID *uuid.UUID
+		if id, ok := c.Locals("api_key_id").(uuid.UUID); ok {
+			keyID = &id
+		}
+		recordConsentChoices(ctx, h.privacy, contact.ID, req.Consent, "public_form", nil, keyID)
 	}
 
+	// Without an external_ref, a retry or double submit within a few minutes returns the lead
+	// it already created. With one, the exact ref match above (and in Create) decides.
+	if req.ExternalRef == "" {
+		if dup, err := h.leads.RecentDuplicate(ctx, contact.ID, lead.Source, duplicateWindow); err == nil && dup != nil {
+			return c.Status(fiber.StatusOK).JSON(fiber.Map{
+				"lead_id":    dup.ID,
+				"contact_id": contact.ID,
+				"stage":      dup.Stage,
+				"source":     dup.Source,
+				"duplicate":  true,
+				"message":    "Lead already submitted recently",
+			})
+		}
+	}
+
+	lead.ContactID = contact.ID
 	if err := h.leads.Create(ctx, lead); err != nil {
+		// Two pushes of the same lead raced; the other one won.
+		if errors.Is(err, repo.ErrDuplicateExternalRef) {
+			if existing, findErr := h.leads.FindByExternalRef(ctx, req.ExternalSource, req.ExternalRef); findErr == nil {
+				return duplicateLeadResponse(c, existing)
+			}
+		}
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"error": "failed to create lead",
 		})
 	}
+	if h.assigner != nil {
+		companyID, _ := uuid.Parse(c.Locals("company_id").(string))
+		lead.AssignedTo = h.assigner.AssignNewLead(companyID, lead.ID)
+	}
+
+	if keyID, ok := c.Locals("api_key_id").(uuid.UUID); ok && h.audit != nil {
+		h.audit.LogAPIKey(ctx, keyID, repo.AuditCreate, repo.AuditLead, lead.ID, fiber.Map{
+			"source":          lead.Source,
+			"external_source": lead.ExternalSource,
+			"external_ref":    lead.ExternalRef,
+		})
+	}
 
 	// Fire outbound webhook asynchronously
-	companyID, _ := uuid.Parse(c.Locals("company_id").(string))
+	var companyID uuid.UUID
+	if cidStr, ok := c.Locals("company_id").(string); ok {
+		companyID, _ = uuid.Parse(cidStr)
+	}
 	h.dispatcher.Dispatch(companyID, webhook.EventLeadCreated, fiber.Map{
 		"lead_id":    lead.ID,
 		"contact_id": contact.ID,
@@ -168,6 +288,9 @@ func (h *PublicLeadHandler) SubmitLead(c *fiber.Ctx) error {
 		"stage":      lead.Stage,
 		"source":     lead.Source,
 		"deal_value": lead.DealValue,
+
+		"external_source": lead.ExternalSource,
+		"external_ref":    lead.ExternalRef,
 	})
 
 	return c.Status(fiber.StatusCreated).JSON(fiber.Map{
@@ -176,5 +299,23 @@ func (h *PublicLeadHandler) SubmitLead(c *fiber.Ctx) error {
 		"stage":      lead.Stage,
 		"source":     lead.Source,
 		"message":    "Lead created successfully",
+
+		"external_source": lead.ExternalSource,
+		"external_ref":    lead.ExternalRef,
+		"duplicate":       false,
+	})
+}
+
+// duplicateLeadResponse answers a repeated push with the lead the first push made.
+func duplicateLeadResponse(c *fiber.Ctx, l *domain.Lead) error {
+	return c.Status(fiber.StatusOK).JSON(fiber.Map{
+		"lead_id":         l.ID,
+		"contact_id":      l.ContactID,
+		"stage":           l.Stage,
+		"source":          l.Source,
+		"message":         "Lead already exists for this external_ref",
+		"external_source": l.ExternalSource,
+		"external_ref":    l.ExternalRef,
+		"duplicate":       true,
 	})
 }

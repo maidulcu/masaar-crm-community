@@ -9,7 +9,7 @@ export default function DemoBanner() {
   if (!company?.is_demo) return null
 
   return (
-    <div className="w-full bg-amber-400 text-amber-950 px-4 py-2 flex items-center justify-between gap-4 text-sm font-medium z-50 shrink-0">
+    <div className="w-full bg-amber-400 text-amber-950 px-4 py-2 flex items-center justify-between gap-4 text-sm font-medium z-50 shrink-0 print:hidden">
       <div className="flex items-center gap-2">
         {/* warning icon */}
         <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>

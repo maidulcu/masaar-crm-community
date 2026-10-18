@@ -1,8 +1,10 @@
 package repo
 
 import (
+	"cmp"
 	"context"
 	"errors"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -412,24 +414,12 @@ func computeBadges(k *AgentKPIs) []Badge {
 }
 
 func sortLeaderboard(board []AgentKPIs, metric string) {
-	// Simple insertion sort — small N (agents per company)
-	for i := 1; i < len(board); i++ {
-		for j := i; j > 0; j-- {
-			if metricValue(&board[j]) > metricValue(&board[j-1]) {
-				board[j], board[j-1] = board[j-1], board[j]
-			} else {
-				break
-			}
-		}
-	}
-	_ = metric // field-specific sorting below if needed in future
+	SortLeaderboardByMetric(board, metric)
 }
 
-func metricValue(k *AgentKPIs) float64 {
-	return k.Revenue // default sort; handler passes metric to pick column
-}
-
-// sortLeaderboardByMetric sorts using the caller-specified metric.
+// SortLeaderboardByMetric sorts using the caller-specified metric in descending order.
+// Performance Optimization: Replaced O(N²) nested insertion sort loops with Go's standard library
+// O(N log N) slices.SortStableFunc. Preserves relative stability for tied metric scores.
 func SortLeaderboardByMetric(board []AgentKPIs, metric string) {
 	key := func(k *AgentKPIs) float64 {
 		switch metric {
@@ -445,13 +435,7 @@ func SortLeaderboardByMetric(board []AgentKPIs, metric string) {
 			return k.Revenue
 		}
 	}
-	for i := 1; i < len(board); i++ {
-		for j := i; j > 0; j-- {
-			if key(&board[j]) > key(&board[j-1]) {
-				board[j], board[j-1] = board[j-1], board[j]
-			} else {
-				break
-			}
-		}
-	}
+	slices.SortStableFunc(board, func(a, b AgentKPIs) int {
+		return cmp.Compare(key(&b), key(&a))
+	})
 }

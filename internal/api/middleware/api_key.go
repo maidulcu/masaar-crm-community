@@ -1,7 +1,6 @@
 package middleware
 
 import (
-	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -42,6 +41,9 @@ func ValidateAPIKey(apiKeyRepo *repo.ApiKeyRepo) fiber.Handler {
 		if err != nil {
 			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "invalid or revoked api key"})
 		}
+		if !apiKey.CompanyActive {
+			return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "account_suspended"})
+		}
 
 		// Store in locals
 		c.Locals("api_key_id", apiKey.ID)
@@ -59,12 +61,15 @@ func ValidateAPIKey(apiKeyRepo *repo.ApiKeyRepo) fiber.Handler {
 // Uses atomic Lua script to prevent race condition between INCR and EXPIRE.
 func APIKeyRateLimit(rdb *redis.Client, maxReq int, window time.Duration) fiber.Handler {
 	return func(c *fiber.Ctx) error {
+		if rdb == nil {
+			return c.Next()
+		}
 		keyID := c.Locals("api_key_id")
 		if keyID == nil {
 			return c.Next()
 		}
 		redisKey := fmt.Sprintf("ratelimit:apikey:%v", keyID)
-		ctx := context.Background()
+		ctx := c.Context()
 
 		// Lua script: atomically increment counter and set expiry on first request
 		script := `
@@ -80,7 +85,10 @@ end
 			return c.Next() // fail open — don't block on Redis errors
 		}
 
-		count := result.(int64)
+		count, ok := result.(int64)
+		if !ok {
+			return c.Next()
+		}
 		if count > int64(maxReq) {
 			c.Set("Retry-After", fmt.Sprintf("%.0f", window.Seconds()))
 			return c.Status(fiber.StatusTooManyRequests).JSON(fiber.Map{
@@ -99,9 +107,14 @@ func RequireAPIKeyScope(requiredScope string) fiber.Handler {
 			return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "missing api key scopes"})
 		}
 
-		scopesStr := scopes.(string)
+		scopesStr, ok := scopes.(string)
+		if !ok {
+			return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "invalid api key scopes format"})
+		}
+
 		for _, scope := range strings.Split(scopesStr, ",") {
-			if strings.TrimSpace(scope) == requiredScope {
+			s := strings.TrimSpace(scope)
+			if s == requiredScope || s == "*" || (strings.HasSuffix(s, ":*") && strings.HasPrefix(requiredScope, strings.TrimSuffix(s, "*"))) {
 				return c.Next()
 			}
 		}

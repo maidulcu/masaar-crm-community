@@ -10,6 +10,7 @@ type NavItem = {
   label: { en: string; ar: string }
   icon: React.ReactNode
   adminOnly?: boolean
+  roles?: string[] // shown only to these roles
 }
 
 type NavSection = {
@@ -38,6 +39,43 @@ const sections: NavSection[] = [
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2" />
           </svg>
         ),
+      },
+      {
+        href: '/organisations',
+        label: { en: 'Organisations', ar: 'الشركات' },
+        icon: (
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 21h18M5 21V7l7-4 7 4v14M9 9h1m-1 4h1m4-4h1m-1 4h1M10 21v-4h4v4" />
+          </svg>
+        ),
+      },
+      {
+        href: '/tasks',
+        label: { en: 'Tasks', ar: 'المهام' },
+        icon: (
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+          </svg>
+        ),
+      },
+      {
+        href: '/calculators',
+        label: { en: 'Calculators', ar: 'الحاسبات' },
+        icon: (
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+          </svg>
+        ),
+      },
+      {
+        href: '/broadcasts',
+        label: { en: 'Broadcasts', ar: 'الرسائل الجماعية' },
+        icon: (
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M11 5.9V19a1 1 0 01-1.7.7L5.6 16H3a1 1 0 01-1-1V9a1 1 0 011-1h2.6l3.7-3.7A1 1 0 0111 5.9zM15.5 8.5a5 5 0 010 7M18.4 5.6a9 9 0 010 12.8" />
+          </svg>
+        ),
+        adminOnly: true,
       },
       {
         href: '/inbox',
@@ -208,6 +246,15 @@ const sections: NavSection[] = [
         ),
       },
       {
+        href: '/cheques',
+        label: { en: 'Cheques', ar: 'الشيكات' },
+        icon: (
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 7h18v10H3zM7 11h6m-6 3h3m8-3h.01" />
+          </svg>
+        ),
+      },
+      {
         href: '/viewings',
         label: { en: 'Viewings', ar: 'الزيارات' },
         icon: (
@@ -284,6 +331,26 @@ const sections: NavSection[] = [
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
           </svg>
         ),
+      },
+      {
+        href: '/compliance',
+        label: { en: 'Compliance (AML)', ar: 'الامتثال' },
+        icon: (
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m5.6-4A11.9 11.9 0 0112 3a11.9 11.9 0 01-8.6 3A12 12 0 0012 21a12 12 0 008.6-15z" />
+          </svg>
+        ),
+        roles: ['admin', 'compliance'],
+      },
+      {
+        href: '/reports/lead-sources',
+        label: { en: 'Lead Sources', ar: 'مصادر العملاء' },
+        icon: (
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M11 3.055A9.001 9.001 0 1020.945 13H11V3.055zM20.488 9H15V3.512A9.025 9.025 0 0120.488 9z" />
+          </svg>
+        ),
+        adminOnly: true,
       },
       {
         href: '/map',
@@ -387,6 +454,76 @@ const sections: NavSection[] = [
         adminOnly: true,
       },
       {
+        href: '/settings/einvoicing',
+        label: { en: 'E-invoicing', ar: 'الفوترة الإلكترونية' },
+        icon: (
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6M7 3h7l5 5v13a1 1 0 01-1 1H7a1 1 0 01-1-1V4a1 1 0 011-1z" />
+          </svg>
+        ),
+        adminOnly: true,
+      },
+      {
+        href: '/settings/inbox',
+        label: { en: 'WhatsApp Inbox', ar: 'صندوق واتساب' },
+        icon: (
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8v4l3 3M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+        ),
+        adminOnly: true,
+      },
+      {
+        href: '/settings/security',
+        label: { en: 'Security', ar: 'الأمان' },
+        icon: (
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 3l7 4v5c0 4.5-3 8-7 9-4-1-7-4.5-7-9V7l7-4z" />
+          </svg>
+        ),
+        adminOnly: true,
+      },
+      {
+        href: '/settings/property',
+        label: { en: 'Property Management', ar: 'إدارة العقارات' },
+        icon: (
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 12l9-9 9 9M5 10v10h14V10" />
+          </svg>
+        ),
+        adminOnly: true,
+      },
+      {
+        href: '/settings/portals',
+        label: { en: 'Property Portals', ar: 'البوابات العقارية' },
+        icon: (
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+          </svg>
+        ),
+        adminOnly: true,
+      },
+      {
+        href: '/settings/custom-fields',
+        label: { en: 'Custom Fields', ar: 'الحقول المخصصة' },
+        icon: (
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 6h16M4 12h10M4 18h7" />
+          </svg>
+        ),
+        adminOnly: true,
+      },
+      {
+        href: '/settings/jobs',
+        label: { en: 'Background Jobs', ar: 'المهام الخلفية' },
+        icon: (
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+        ),
+        adminOnly: true,
+      },
+      {
         href: '/import-export',
         label: { en: 'Import / Export', ar: 'استيراد/تصدير' },
         icon: (
@@ -444,16 +581,6 @@ const sections: NavSection[] = [
         ),
         adminOnly: true,
       },
-      {
-        href: '/settings/bos24',
-        label: { en: 'BOS24 Sync', ar: 'مزامنة BOS24' },
-        icon: (
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-          </svg>
-        ),
-        adminOnly: true,
-      },
     ],
   },
 ]
@@ -466,7 +593,7 @@ export function Sidebar() {
   const isAdmin = user?.role === 'admin'
 
   return (
-    <aside className="flex flex-col w-60 min-h-screen bg-white border-e border-surface-200/70 shrink-0 overflow-y-auto">
+    <aside className="flex flex-col w-60 min-h-screen bg-white border-e border-surface-200/70 shrink-0 overflow-y-auto print:hidden">
       {/* Logo */}
       <div className="flex items-center gap-2.5 px-5 h-16 shrink-0">
         <span className="inline-flex items-center justify-center w-8 h-8 rounded-xl bg-primary-600 text-white text-sm font-bold shadow-card">
@@ -485,11 +612,11 @@ export function Sidebar() {
               {isAr ? section.title.ar : section.title.en}
             </p>
             <div className="space-y-0.5">
-              {section.items.filter(item => !item.adminOnly || isAdmin).map((item) => {
+              {section.items.filter(item => (!item.adminOnly || isAdmin) && (!item.roles || item.roles.includes(user?.role ?? ''))).map((item) => {
 const active = item.href === '/analytics'
   ? pathname.startsWith('/analytics')
     : item.href === '/settings'
-      ? pathname === '/settings' || pathname.startsWith('/settings/api') || pathname.startsWith('/settings/company') || pathname.startsWith('/settings/api-keys') || pathname.startsWith('/settings/webhooks') || pathname.startsWith('/settings/bos24') || pathname.startsWith('/settings/lead-rotation') || pathname.startsWith('/settings/pipeline') || pathname.startsWith('/settings/approvals')
+      ? pathname === '/settings' || pathname.startsWith('/settings/api') || pathname.startsWith('/settings/company') || pathname.startsWith('/settings/api-keys') || pathname.startsWith('/settings/webhooks') || pathname.startsWith('/settings/lead-rotation') || pathname.startsWith('/settings/pipeline') || pathname.startsWith('/settings/approvals')
     : item.href === '/admin/users'
       ? pathname.startsWith('/admin')
       : pathname.startsWith(item.href)
