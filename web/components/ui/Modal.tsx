@@ -2,7 +2,6 @@
 import { useEffect, useRef, useId } from 'react'
 import { useLang } from '@/context/LangContext'
 import clsx from 'clsx'
-import { useLang } from '@/context/LangContext'
 
 interface ModalProps {
   open: boolean

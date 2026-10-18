@@ -15,18 +15,18 @@ func TestLeadExternalRefIdempotentPerCompany(t *testing.T) {
 	e := setup(t)
 	leads := NewLeadRepo(e.pool)
 
-	push := func(c company, contactID uuid.UUID) (*domain.Lead, error) {
+	push := func(c company, contactID uuid.UUID, ref string) (*domain.Lead, error) {
 		l := &domain.Lead{ContactID: contactID, Stage: domain.StageNew, Source: domain.SourcePortal, Currency: "AED",
-			ExternalSource: "waqov", ExternalRef: "enquiry:42"}
+			ExternalSource: "waqov", ExternalRef: ref}
 		return l, leads.Create(c.ctx, l)
 	}
 
 	ca := e.contact(t, e.a, testPhone("97153"))
-	first, err := push(e.a, ca.ID)
+	first, err := push(e.a, ca.ID, "enquiry:42")
 	if err != nil {
 		t.Fatalf("first push: %v", err)
 	}
-	if _, err := push(e.a, ca.ID); !errors.Is(err, ErrDuplicateExternalRef) {
+	if _, err := push(e.a, ca.ID, "enquiry:42"); !errors.Is(err, ErrDuplicateExternalRef) {
 		t.Fatalf("second push in A: want ErrDuplicateExternalRef, got %v", err)
 	}
 	got, err := leads.FindByExternalRef(e.a.ctx, "waqov", "enquiry:42")
@@ -39,12 +39,12 @@ func TestLeadExternalRefIdempotentPerCompany(t *testing.T) {
 		t.Fatalf("B found A's lead by ref: %v", err)
 	}
 	cb := e.contact(t, e.b, testPhone("97154"))
-	if _, err := push(e.b, cb.ID); err != nil {
+	if _, err := push(e.b, cb.ID, "enquiry:42"); err != nil {
 		t.Fatalf("same ref in B: %v", err)
 	}
 
 	// A lead on a foreign contact still fails as not found, not as a duplicate.
-	if _, err := push(e.b, ca.ID); errors.Is(err, ErrDuplicateExternalRef) || !isNotFound(err) {
+	if _, err := push(e.b, ca.ID, "enquiry:43"); errors.Is(err, ErrDuplicateExternalRef) || !isNotFound(err) {
 		t.Fatalf("B lead on A's contact: want not found, got %v", err)
 	}
 }
