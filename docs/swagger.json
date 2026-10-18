@@ -18,6 +18,26 @@
     "host": "localhost:8080",
     "basePath": "/api/v1",
     "paths": {
+        "/.well-known/oauth-authorization-server": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "OAuth"
+                ],
+                "summary": "OAuth 2.0 authorization server metadata (RFC 8414)",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
         "/api/public/feeds/{portal}/listings.xml": {
             "get": {
                 "description": "Published listings as XML (format \"masaar-listings/1\"). Listings whose advertising permit is missing or expired are left out, unless an admin overrode the check. Portals that need their own XML schema can map this feed; the portals' schemas are not public.",
@@ -10185,6 +10205,132 @@
                 }
             }
         },
+        "/oauth/revoke": {
+            "post": {
+                "description": "Revokes a token issued to the authenticating client. Answers 200 whether or not the token was known.",
+                "consumes": [
+                    "application/x-www-form-urlencoded"
+                ],
+                "tags": [
+                    "OAuth"
+                ],
+                "summary": "Revoke an access token (RFC 7009)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "The access token",
+                        "name": "token",
+                        "in": "formData",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK"
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "error": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/oauth/token": {
+            "post": {
+                "description": "Client credentials grant for partner clients. Authenticate with HTTP Basic (client_id:client_secret) or client_id and client_secret in the form. Returns a Bearer token for the Partner API, valid one hour.",
+                "consumes": [
+                    "application/x-www-form-urlencoded"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "OAuth"
+                ],
+                "summary": "Get an access token (OAuth 2.0)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "client_credentials",
+                        "name": "grant_type",
+                        "in": "formData",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Space-separated scopes (default: all the client holds)",
+                        "name": "scope",
+                        "in": "formData"
+                    },
+                    {
+                        "type": "string",
+                        "description": "With client_secret, when not using HTTP Basic",
+                        "name": "client_id",
+                        "in": "formData"
+                    },
+                    {
+                        "type": "string",
+                        "description": "With client_id, when not using HTTP Basic",
+                        "name": "client_secret",
+                        "in": "formData"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "access_token": {
+                                    "type": "string"
+                                },
+                                "expires_in": {
+                                    "type": "integer"
+                                },
+                                "scope": {
+                                    "type": "string"
+                                },
+                                "token_type": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "error": {
+                                    "type": "string"
+                                },
+                                "error_description": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "error": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/organisations": {
             "get": {
                 "security": [
@@ -10447,6 +10593,387 @@
                 "responses": {
                     "204": {
                         "description": "No Content"
+                    }
+                }
+            }
+        },
+        "/partner/v1/companies/{ref}": {
+            "get": {
+                "security": [
+                    {
+                        "PartnerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Partner"
+                ],
+                "summary": "Get a provisioned company",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Your reference for the company",
+                        "name": "ref",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/repo.PartnerCompany"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "error": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "PartnerAuth": []
+                    }
+                ],
+                "description": "Creates the company with your reference, its first admin and an API key for POST /webhooks/leads (returned once, on creation only), or updates name, plan, seats and active status. Setting active to false suspends the company: its users and keys are refused until it is reactivated.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Partner"
+                ],
+                "summary": "Create or update a company",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Your reference for the company",
+                        "name": "ref",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "admin is required on creation",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "active": {
+                                    "type": "boolean"
+                                },
+                                "admin": {
+                                    "type": "object",
+                                    "properties": {
+                                        "email": {
+                                            "type": "string"
+                                        },
+                                        "lang_pref": {
+                                            "type": "string"
+                                        },
+                                        "name": {
+                                            "type": "string"
+                                        },
+                                        "ref": {
+                                            "type": "string"
+                                        }
+                                    }
+                                },
+                                "max_users": {
+                                    "type": "integer"
+                                },
+                                "name": {
+                                    "type": "string"
+                                },
+                                "plan": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "company": {
+                                    "$ref": "#/definitions/repo.PartnerCompany"
+                                }
+                            }
+                        }
+                    },
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "admin": {
+                                    "$ref": "#/definitions/repo.PartnerUser"
+                                },
+                                "company": {
+                                    "$ref": "#/definitions/repo.PartnerCompany"
+                                },
+                                "lead_api_key": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "error": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "error": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/partner/v1/companies/{ref}/api-keys": {
+            "post": {
+                "security": [
+                    {
+                        "PartnerAuth": []
+                    }
+                ],
+                "description": "A new key with lead:create for POST /webhooks/leads, shown once. Older keys keep working until the company's admin revokes them.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Partner"
+                ],
+                "summary": "Create an API key for a company",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Your reference for the company",
+                        "name": "ref",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "lead_api_key": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/partner/v1/companies/{ref}/users/{user_ref}": {
+            "put": {
+                "security": [
+                    {
+                        "PartnerAuth": []
+                    }
+                ],
+                "description": "Creates the user with your reference in the company, or updates name, role, language and active status. Creating or reactivating a user fails with 409 seat_limit when the company has max_users active users.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Partner"
+                ],
+                "summary": "Create or update a user",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Your reference for the company",
+                        "name": "ref",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Your reference for the user",
+                        "name": "user_ref",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "email is required on creation; role admin, agent (default) or viewer",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "active": {
+                                    "type": "boolean"
+                                },
+                                "email": {
+                                    "type": "string"
+                                },
+                                "lang_pref": {
+                                    "type": "string"
+                                },
+                                "name": {
+                                    "type": "string"
+                                },
+                                "role": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "user": {
+                                    "$ref": "#/definitions/repo.PartnerUser"
+                                }
+                            }
+                        }
+                    },
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "user": {
+                                    "$ref": "#/definitions/repo.PartnerUser"
+                                }
+                            }
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "error": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "error": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/partner/v1/companies/{ref}/users/{user_ref}/login-link": {
+            "post": {
+                "security": [
+                    {
+                        "PartnerAuth": []
+                    }
+                ],
+                "description": "A single-use link that signs the user in to the CRM, valid two minutes. Open it in the user's browser right away (e.g. redirect to it); do not email it. Two-factor authentication still applies if the user turned it on.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Partner"
+                ],
+                "summary": "Create a one-click login link",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Your reference for the company",
+                        "name": "ref",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Your reference for the user",
+                        "name": "user_ref",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "expires_in": {
+                                    "type": "integer"
+                                },
+                                "url": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "error": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "error": {
+                                    "type": "string"
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -20977,6 +21504,61 @@
                 "rent_reminders": {
                     "description": "RentReminders is the tenant's choice to receive rent reminders.",
                     "type": "boolean"
+                }
+            }
+        },
+        "repo.PartnerCompany": {
+            "type": "object",
+            "properties": {
+                "active": {
+                    "type": "boolean"
+                },
+                "active_users": {
+                    "type": "integer"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "external_ref": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "max_users": {
+                    "type": "integer"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "plan": {
+                    "type": "string"
+                }
+            }
+        },
+        "repo.PartnerUser": {
+            "type": "object",
+            "properties": {
+                "active": {
+                    "type": "boolean"
+                },
+                "email": {
+                    "type": "string"
+                },
+                "external_ref": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "lang_pref": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "role": {
+                    "$ref": "#/definitions/domain.Role"
                 }
             }
         },

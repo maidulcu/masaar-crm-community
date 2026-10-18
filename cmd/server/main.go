@@ -33,6 +33,7 @@ import (
 	"github.com/maidulcu/masaar-crm/internal/email"
 	"github.com/maidulcu/masaar-crm/internal/jobs"
 	"github.com/maidulcu/masaar-crm/internal/mediastore"
+	"github.com/maidulcu/masaar-crm/internal/partner"
 	"github.com/maidulcu/masaar-crm/internal/repo"
 	"github.com/maidulcu/masaar-crm/internal/sms"
 	"github.com/maidulcu/masaar-crm/internal/totp"
@@ -108,6 +109,10 @@ func main() {
 	renewalLogRepo := repo.NewRenewalCommunicationLogRepo(pool)
 	documentRepo := repo.NewDocumentRepo(pool)
 	apiKeyRepo := repo.NewApiKeyRepo(pool)
+	partnerClients, err := partner.Parse(cfg.PartnerClients)
+	if err != nil {
+		log.Fatalf("config: %v", err)
+	}
 	webhookRepo := repo.NewWebhookRepo(pool)
 	billingRepo := repo.NewBillingRepo(pool)
 	messageTemplateRepo := repo.NewMessageTemplateRepo(pool)
@@ -256,6 +261,8 @@ func main() {
 		LeaseRenewal:        handler.NewLeaseRenewalHandler(leaseRenewalRepo, renewalTemplateRepo, renewalLogRepo, leaseRepo),
 		Document:            handler.NewDocumentHandler(documentRepo, auditRepo, dsClient).UseRera(reraRepo),
 		ApiKey:              handler.NewApiKeyHandler(apiKeyRepo),
+		OAuth:               handler.NewOAuthHandler(partnerClients, repo.NewPartnerTokenRepo(pool), cfg.PublicAPIURL),
+		Partner:             handler.NewPartnerHandler(repo.NewPartnerRepo(pool), apiKeyRepo, auditRepo, rdb, cfg.MagicLinkBaseURL),
 		PublicLead:          handler.NewPublicLeadHandler(contactRepo, leadRepo, auditRepo, dispatcher).UsePrivacy(privacyRepo),
 		WebhookSub:          handler.NewWebhookSubHandler(webhookRepo, dispatcher).UseAudit(auditRepo),
 		Billing:             handler.NewBillingHandler(billingRepo, companySettingsRepo, stripeCfg),

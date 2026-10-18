@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [v0.4.0] - Unreleased
 
+### Partner API: provision companies, users, seats and one-click logins (integration standards, step 4a) — migration `0083`
+
+- **OAuth 2.0 client credentials** (`POST /oauth/token`, RFC 6749 §4.4) for partner clients configured in `PARTNER_CLIENTS` (client id + SHA-256 of the secret), with revocation (`POST /oauth/revoke`, RFC 7009) and metadata (`GET /.well-known/oauth-authorization-server`, RFC 8414). Tokens (`mpt_…`) last one hour and are stored hashed.
+- **`/partner/v1`**: `PUT /companies/{ref}` creates a company with its first admin and a `lead:create` API key (or updates name, plan, seats, active); `PUT /companies/{ref}/users/{user_ref}` keeps users in step; `POST …/api-keys`; `POST …/users/{user_ref}/login-link` returns a single-use, two-minute login URL (the magic-link mechanism). Keyed by the partner's own references, so calls can be retried; a partner sees only its own companies.
+- **Seats**: `companies.max_users`, enforced by a database trigger on every path (partner, admin screens, invitations) under a company row lock; going beyond it answers `409 seat_limit`. Deactivating or demoting a user through the partner ends their current sessions.
+- **Suspension**: `active: false` turns the company off; its users, API keys and login links are refused.
+- Migration `0083`: `companies.external_source/external_ref/max_users`, `users.external_ref`, `partner_tokens`, `audit_logs.partner_client_id` (partner actions are audited under the client id). The down migration removes only that metadata and the tokens.
+- Documented in DEVELOPER.md (Partner API) and in `/openapi.json` (`PartnerAuth`, OAuth 2.0 client credentials with scopes).
+
 ### Outbound webhooks signed per Standard Webhooks (integration standards, step 3)
 
 - **Every delivery carries `webhook-id`, `webhook-timestamp` and `webhook-signature`** ([Standard Webhooks](https://www.standardwebhooks.com)): `v1,` + base64 HMAC-SHA256 of `id.timestamp.body`. Receivers can verify with any Standard Webhooks library; signatures match the spec's reference vector.

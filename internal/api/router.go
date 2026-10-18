@@ -58,6 +58,8 @@ type Handlers struct {
 	LeaseRenewal        *handler.LeaseRenewalHandler
 	Document            *handler.DocumentHandler
 	ApiKey              *handler.ApiKeyHandler
+	OAuth               *handler.OAuthHandler
+	Partner             *handler.PartnerHandler
 	PublicLead          *handler.PublicLeadHandler
 	WebhookSub          *handler.WebhookSubHandler
 	Billing             *handler.BillingHandler
@@ -176,6 +178,26 @@ func RegisterRoutes(app *fiber.App, h *Handlers, hub *ws.Hub, cfg *config.Config
 		idempotency,
 		h.PublicLead.SubmitLead,
 	)
+
+	// ── OAuth 2.0 and the Partner API ───────────────────────────────────────
+	// Partner clients (PARTNER_CLIENTS) get client-credentials tokens and provision companies,
+	// users, lead API keys and one-click login links for their customers.
+	app.Get("/.well-known/oauth-authorization-server", lim.api, h.OAuth.Metadata)
+	app.Post("/oauth/token", lim.login, h.OAuth.Token)
+	app.Post("/oauth/revoke", lim.login, h.OAuth.Revoke)
+
+	provision := middleware.RequirePartnerScope(apiscope.PartnerProvision)
+	pg := app.Group("/partner/v1",
+		middleware.ProblemDetails(),
+		lim.webhook, // server-to-server, may provision many companies at once
+		middleware.PartnerAuth(repo.NewPartnerTokenRepo(pool), h.OAuth.Clients()),
+		idempotency,
+	)
+	pg.Get("/companies/:ref", provision, h.Partner.GetCompany)
+	pg.Put("/companies/:ref", provision, h.Partner.PutCompany)
+	pg.Put("/companies/:ref/users/:user_ref", provision, h.Partner.PutUser)
+	pg.Post("/companies/:ref/api-keys", provision, h.Partner.CreateAPIKey)
+	pg.Post("/companies/:ref/users/:user_ref/login-link", middleware.RequirePartnerScope(apiscope.PartnerLogin), h.Partner.LoginLink)
 
 	// ── WebSocket — authenticated upgrade ────────────────────────────────────
 	app.Use("/ws", func(c *fiber.Ctx) error {

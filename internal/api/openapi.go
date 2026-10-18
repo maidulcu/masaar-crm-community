@@ -133,7 +133,8 @@ func BuildOpenAPI(swagger2 []byte) ([]byte, OpenAPIReport, error) {
 		}
 	}
 	for k, r := range served {
-		if !documented[k] && (strings.HasPrefix(r.Path, "/api/v1/") || strings.HasPrefix(r.Path, "/webhooks/")) {
+		if !documented[k] && (strings.HasPrefix(r.Path, "/api/v1/") || strings.HasPrefix(r.Path, "/webhooks/") ||
+			strings.HasPrefix(r.Path, "/partner/") || strings.HasPrefix(r.Path, "/oauth/") || strings.HasPrefix(r.Path, "/.well-known/")) {
 			rep.Undocumented = append(rep.Undocumented, r.Method+" "+r.Path)
 		}
 	}
@@ -159,6 +160,14 @@ func BuildOpenAPI(swagger2 []byte) ([]byte, OpenAPIReport, error) {
 		"BearerAuth": map[string]any{
 			"type": "http", "scheme": "bearer", "bearerFormat": "JWT",
 			"description": "Session token from POST /api/v1/auth/login.",
+		},
+		"PartnerAuth": map[string]any{
+			"type":        "oauth2",
+			"description": "Partner clients (configured in PARTNER_CLIENTS) get a token with the client credentials grant.",
+			"flows": map[string]any{"clientCredentials": map[string]any{
+				"tokenUrl": "/oauth/token",
+				"scopes":   map[string]any{apiscope.PartnerProvision: apiscope.PartnerScopes[apiscope.PartnerProvision], apiscope.PartnerLogin: apiscope.PartnerScopes[apiscope.PartnerLogin]},
+			}},
 		},
 		"ApiKeyAuth": map[string]any{
 			"type": "http", "scheme": "bearer",
@@ -209,6 +218,14 @@ var publicV1Routes = map[string]bool{
 // "BearerAuth"): every /api/v1 operation outside publicV1Routes needs a session; operations
 // elsewhere (/api/public, /webhooks) carry none unless API-key access is added later.
 func fixSecurity(op map[string]any, path string) {
+	if strings.HasPrefix(path, "/partner/") {
+		scope := apiscope.PartnerProvision
+		if strings.HasSuffix(path, "/login-link") {
+			scope = apiscope.PartnerLogin
+		}
+		op["security"] = []any{map[string]any{"PartnerAuth": []any{scope}}}
+		return
+	}
 	if strings.HasPrefix(path, "/api/v1/") && !publicV1Routes[path] {
 		op["security"] = []any{map[string]any{"BearerAuth": []any{}}}
 	} else {

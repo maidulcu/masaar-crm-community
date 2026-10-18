@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
@@ -55,13 +56,14 @@ func Idempotency(store IdempotencyStore) fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		key := c.Get("Idempotency-Key")
 		m := c.Method()
-		if key == "" || store == nil || !IsAPIKey(c) || (m != fiber.MethodPost && m != fiber.MethodPatch) {
+		owner := idempotencyOwner(c)
+		if key == "" || store == nil || owner == "" || (m != fiber.MethodPost && m != fiber.MethodPatch) {
 			return c.Next()
 		}
 		if !validIdempotencyKey(key) {
 			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Idempotency-Key must be 1-255 printable ASCII characters"})
 		}
-		scoped := fmt.Sprintf("idem:%v:%s", c.Locals("api_key_id"), key)
+		scoped := fmt.Sprintf("idem:%s:%s", owner, key)
 		sum := sha256.Sum256([]byte(m + " " + c.Path() + "?" + string(c.Request().URI().QueryString()) + "\n" + string(c.Body())))
 		fp := hex.EncodeToString(sum[:])
 
@@ -96,6 +98,11 @@ func Idempotency(store IdempotencyStore) fiber.Handler {
 		if herr != nil || status >= 500 {
 			return herr
 		}
+		// A response carrying a secret (a new key, a login link) is marked no-store and is not
+		// kept for replay; the key is released and a retry runs again.
+		if strings.Contains(string(c.Response().Header.Peek(fiber.HeaderCacheControl)), "no-store") {
+			return nil
+		}
 		if store.Complete(c.Context(), scoped, IdempotentResponse{
 			Fingerprint: fp,
 			Done:        true,
@@ -108,6 +115,18 @@ func Idempotency(store IdempotencyStore) fiber.Handler {
 		}
 		return nil
 	}
+}
+
+// idempotencyOwner is who the key belongs to: the API key, or a partner client. Session requests
+// get no idempotency handling.
+func idempotencyOwner(c *fiber.Ctx) string {
+	if id := c.Locals("api_key_id"); id != nil {
+		return fmt.Sprint(id)
+	}
+	if p, ok := c.Locals("partner_client_id").(string); ok && p != "" {
+		return "partner:" + p
+	}
+	return ""
 }
 
 func validIdempotencyKey(k string) bool {

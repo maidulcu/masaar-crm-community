@@ -121,6 +121,47 @@ Import it into Postman, Insomnia, Zapier, Make or an OpenAPI code generator. It 
 
 The document is generated from the swag annotations on the handlers (`scripts/openapi.sh`) and checked against the router in CI. The Swagger UI at `/docs` shows the same annotations in Swagger 2.0 form (in production only behind `DOCS_PASSWORD`).
 
+## Partner API
+
+For a system that sells the CRM as part of its own plans (for example a property portal that gives every paying agency a CRM): it creates a company per customer, keeps users and seats in step with its billing, receives an API key to push the customer's leads, and opens the CRM for a user with one click. Billing stays with the partner.
+
+**Setup (operator).** Give the partner a client id and a random secret, and put the secret's SHA-256 in `PARTNER_CLIENTS`:
+
+```bash
+secret=$(openssl rand -hex 32)            # hand this to the partner, once
+printf %s "$secret" | sha256sum           # PARTNER_CLIENTS=portal:<this hash>
+```
+
+Scopes: `partner:provision` (companies, users, keys) and `partner:login` (login links). A client listed without scopes gets both; `portal:<hash>:partner:login` limits it.
+
+**1. Get a token** (OAuth 2.0 client credentials, RFC 6749 §4.4; valid one hour; metadata at `/.well-known/oauth-authorization-server`):
+
+```bash
+curl -u portal:$SECRET -d grant_type=client_credentials https://crm.example.com/oauth/token
+# {"access_token":"mpt_…","token_type":"Bearer","expires_in":3600,"scope":"partner:login partner:provision"}
+```
+
+Revoke with `POST /oauth/revoke` (`token=…`, same client authentication).
+
+**2. Provision** with `Authorization: Bearer mpt_…`. Every call is keyed by *your* references, so retries are safe; a partner only sees companies it created.
+
+| Call | Does |
+|------|------|
+| `PUT /partner/v1/companies/{ref}` | Creates the company with its first admin and returns `lead_api_key` (once, `201`); later calls update `name`, `plan`, `max_users` (seats, `null` = no limit) and `active` (`false` suspends: users and keys are refused within 15 seconds) |
+| `GET /partner/v1/companies/{ref}` | Company status, including `active_users` |
+| `PUT /partner/v1/companies/{ref}/users/{user_ref}` | Creates or updates a user (`name`, `email` on creation, `role` admin/agent/viewer, `lang_pref`, `active`); `409 seat_limit` when the seats are used up |
+| `POST /partner/v1/companies/{ref}/api-keys` | Another `lead:create` key for `POST /webhooks/leads` |
+| `POST /partner/v1/companies/{ref}/users/{user_ref}/login-link` | A single-use login URL valid two minutes: redirect the user's browser to it ("Open CRM"); never email it |
+
+```bash
+curl -X PUT https://crm.example.com/partner/v1/companies/agency-1042 \
+  -H "Authorization: Bearer mpt_…" -H "Content-Type: application/json" \
+  -d '{"name":"Marina Homes","plan":"pro","max_users":5,
+       "admin":{"ref":"user-77","name":"Sara","email":"sara@marinahomes.ae","lang_pref":"ar"}}'
+```
+
+Errors are RFC 9457 problem details; `email_taken` (`409`) means the email already has a CRM account. The CRM trusts the emails a partner sends, so send only addresses you have verified: the person at that address can sign in to the company (magic link, password reset). Responses carrying a secret (`lead_api_key`, a login URL) are marked `Cache-Control: no-store` and are never replayed by `Idempotency-Key`. Partner-created companies have no trial; their users have no password and sign in through login links (or set one with "forgot password"). Seats also apply when the company's own admin adds users. Every partner action is in the company's audit log under the client id.
+
 ## API Keys
 
 For external integrations (website forms, Zapier, automation tools) that can't go through the user login flow, use API keys.
@@ -383,6 +424,8 @@ Authorization: Bearer <jwt_token>
 | `GEMINI_API_KEY` | AI (Gemini) | — | Google Gemini API key |
 | `GEMINI_MODEL` | — | `gemini-2.0-flash` | Gemini model name |
 | `BOS24_API_TOKEN` | Real estate | — | Waqov data API token |
+| `PARTNER_CLIENTS` | Partner API | — | `client_id:sha256hex(secret)[:scopes]`, comma-separated; see [Partner API](#partner-api) |
+| `MAGIC_LINK_BASE_URL` | — | `http://localhost:3000` | Web app URL used in magic links and partner login links |
 | `SMTP_HOST` | Email | — | SMTP server host |
 | `SMTP_PORT` | — | `587` | SMTP port |
 | `SMTP_USER` | Email | — | SMTP username |

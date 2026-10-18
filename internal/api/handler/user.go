@@ -252,7 +252,13 @@ func (h *UserHandler) CreateUser(c *fiber.Ctx) error {
 		LangPref:     body.LangPref,
 		WANumber:     body.WANumber,
 	}
+	if full, err := h.seatLimitReached(c, companyID, uuid.Nil); full || err != nil {
+		return err
+	}
 	if err := h.users.Create(c.Context(), user); err != nil {
+		if repo.IsSeatLimit(err) {
+			return c.Status(fiber.StatusConflict).JSON(fiber.Map{"error": "seat_limit", "detail": "all seats of your plan are in use; deactivate a user or upgrade the plan"})
+		}
 		if strings.Contains(err.Error(), "unique") || strings.Contains(err.Error(), "duplicate") {
 			return c.Status(fiber.StatusConflict).JSON(fiber.Map{"error": "email already in use"})
 		}
@@ -310,8 +316,14 @@ func (h *UserHandler) InviteUser(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "invalid session"})
 	}
 
+	if full, err := h.seatLimitReached(c, companyID, uuid.Nil); full || err != nil {
+		return err
+	}
 	user, token, err := h.users.InviteUser(c.Context(), body.Email, body.Name, companyID, body.Role)
 	if err != nil {
+		if repo.IsSeatLimit(err) {
+			return c.Status(fiber.StatusConflict).JSON(fiber.Map{"error": "seat_limit", "detail": "all seats of your plan are in use; deactivate a user or upgrade the plan"})
+		}
 		if strings.Contains(err.Error(), "unique") || strings.Contains(err.Error(), "duplicate") {
 			return c.Status(fiber.StatusConflict).JSON(fiber.Map{"error": "email already in use"})
 		}
@@ -480,6 +492,11 @@ func (h *UserHandler) SetActive(c *fiber.Ctx) error {
 	if !ok {
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "unauthorized"})
 	}
+	if body.Active {
+		if full, err := h.seatLimitReached(c, companyID, targetID); full || err != nil {
+			return err
+		}
+	}
 	if err := h.users.SetActive(c.Context(), companyID, targetID, body.Active); err != nil {
 		return userMutationError(c, err, "failed to update status")
 	}
@@ -544,6 +561,9 @@ func userMutationError(c *fiber.Ctx, err error, fallback string) error {
 	if errors.Is(err, repo.ErrUserNotFound) {
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "user not found"})
 	}
+	if repo.IsSeatLimit(err) {
+		return c.Status(fiber.StatusConflict).JSON(fiber.Map{"error": "seat_limit", "detail": "all seats of your plan are in use; deactivate a user or upgrade the plan"})
+	}
 	return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": fallback})
 }
 
@@ -563,4 +583,19 @@ func (h *UserHandler) revokeSessions(c *fiber.Ctx, userID uuid.UUID) {
 	if err := session.RevokeAll(c.Context(), h.redis, userID); err != nil {
 		log.Printf("revoke sessions for %s: %v", userID, err)
 	}
+}
+
+// seatLimitReached answers 409 seat_limit when the company already has max_users active users
+// (seats set by the partner that provisioned it). full is true when it wrote a response.
+func (h *UserHandler) seatLimitReached(c *fiber.Ctx, companyID, exclude uuid.UUID) (full bool, err error) {
+	ok, err := h.users.SeatAvailable(c.Context(), companyID, exclude)
+	if err != nil {
+		return true, serverError(c, err)
+	}
+	if !ok {
+		return true, c.Status(fiber.StatusConflict).JSON(fiber.Map{
+			"error": "seat_limit", "detail": "all seats of your plan are in use; deactivate a user or upgrade the plan",
+		})
+	}
+	return false, nil
 }

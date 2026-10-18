@@ -13,7 +13,8 @@ Masaar CRM, community edition: a multi-company real-estate CRM for the UAE. Go A
 | `internal/repo/` | All SQL. Only place that touches `pgxpool` |
 | `internal/domain/models.go` | All domain structs (67 KB — grep for the type you need) |
 | `internal/tenant/` | `tenant.From(ctx)` / `tenant.With(ctx, id)`: the company of the request |
-| `internal/webhook/` | Outbound webhooks (`lead.*` events, HMAC-signed) |
+| `internal/webhook/` | Outbound webhooks (`lead.*` events, Standard Webhooks signatures) |
+| `internal/partner/`, `handler/partner.go`, `handler/oauth.go` | Partner API (`/partner/v1`): OAuth client credentials, company/user/seat provisioning, login links. Partner methods in `repo/partner.go` filter by `external_source` (the partner), not `tenant.From` |
 | `migrations/` | goose SQL, `NNNN_name.sql`, next number = highest + 1, also above any open PR's migrations (`gh pr list`); goose refuses duplicate numbers. 0035 and 0041 are unused |
 | `web/app/`, `web/lib/api.ts` | Next.js pages; API client (56 KB — grep it) |
 

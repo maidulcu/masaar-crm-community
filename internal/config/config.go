@@ -81,6 +81,10 @@ type Config struct {
 	// PublicAPIURL is the API's public origin, used in URLs handed to third parties (portal
 	// webhooks and feeds). Empty means: derive it from the request.
 	PublicAPIURL string
+	// PartnerClients are the partner systems allowed to provision companies through the
+	// Partner API (OAuth 2.0 client credentials): "client_id:sha256hex(secret)[:scope scope],…".
+	// Without scopes a client gets every partner scope. Empty disables the Partner API.
+	PartnerClients string
 	// TwoFactorKey encrypts users' authenticator secrets. Empty: derived from JWT_SECRET
 	// (then rotating JWT_SECRET means everyone sets two-factor up again).
 	TwoFactorKey string
@@ -182,6 +186,7 @@ func Load() *Config {
 		AppEnv:                 getEnv("APP_ENV", "development"),
 		AppURL:                 getEnv("APP_URL", "http://localhost:3000"),
 		PublicAPIURL:           getEnv("PUBLIC_API_URL", ""),
+		PartnerClients:         getEnv("PARTNER_CLIENTS", ""),
 		TwoFactorKey:           getEnv("TWO_FACTOR_KEY", ""),
 		AllowRegistration:      getEnv("ALLOW_REGISTRATION", "false") == "true",
 		JobsEnabled:            getEnv("JOBS_ENABLED", "true") != "false",

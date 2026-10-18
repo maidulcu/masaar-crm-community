@@ -71,6 +71,13 @@ func IsAPIKey(c *fiber.Ctx) bool { return c.Locals("api_key_id") != nil }
 
 func hasAPIKeyBearer(c *fiber.Ctx) bool { return strings.HasPrefix(BearerToken(c), apiKeyPrefix) }
 
+// hasMachineBearer reports a bearer that is an API key or a partner token, the requests that
+// get RFC 9457 error bodies.
+func hasMachineBearer(c *fiber.Ctx) bool {
+	t := BearerToken(c)
+	return strings.HasPrefix(t, apiKeyPrefix) || strings.HasPrefix(t, PartnerTokenPrefix)
+}
+
 // authenticateAPIKey validates the bearer key and stores api_key_id, company_id, api_key_scopes
 // and api_key_name in locals, and reports whether the key belongs to the demo company. On failure
 // it has already written the response.
@@ -154,7 +161,7 @@ func OnlyAPIKey(h fiber.Handler) fiber.Handler {
 // "error" field and any other fields are kept, so existing clients keep working.
 func ProblemDetails() fiber.Handler {
 	return func(c *fiber.Ctx) error {
-		if err := c.Next(); err != nil || !hasAPIKeyBearer(c) {
+		if err := c.Next(); err != nil || !hasMachineBearer(c) {
 			return err
 		}
 		toProblem(c)
