@@ -41,6 +41,9 @@ func ValidateAPIKey(apiKeyRepo *repo.ApiKeyRepo) fiber.Handler {
 		if err != nil {
 			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "invalid or revoked api key"})
 		}
+		if !apiKey.CompanyActive {
+			return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "account_suspended"})
+		}
 
 		// Store in locals
 		c.Locals("api_key_id", apiKey.ID)

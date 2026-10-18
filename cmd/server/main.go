@@ -233,7 +233,7 @@ func main() {
 		LeaseRenewal:        handler.NewLeaseRenewalHandler(leaseRenewalRepo, renewalTemplateRepo, renewalLogRepo),
 		Document:            handler.NewDocumentHandler(documentRepo, auditRepo, dsClient),
 		ApiKey:              handler.NewApiKeyHandler(apiKeyRepo),
-		PublicLead:          handler.NewPublicLeadHandler(contactRepo, leadRepo, dispatcher),
+		PublicLead:          handler.NewPublicLeadHandler(contactRepo, leadRepo, auditRepo, dispatcher),
 		WebhookSub:          handler.NewWebhookSubHandler(webhookRepo, dispatcher),
 		Billing:             handler.NewBillingHandler(billingRepo, companySettingsRepo, stripeCfg),
 		MessageTemplate:     handler.NewMessageTemplateHandler(messageTemplateRepo),

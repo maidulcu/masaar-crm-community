@@ -105,6 +105,9 @@ const (
 	SourceWeb      LeadSource = "web"
 	SourceReferral LeadSource = "referral"
 	SourceEvent    LeadSource = "event"
+	SourceBOS24    LeadSource = "bos24"
+	// SourcePortal is a lead from a listing portal or marketplace; ExternalSource names which one.
+	SourcePortal LeadSource = "portal"
 )
 
 type Lead struct {
@@ -120,9 +123,12 @@ type Lead struct {
 	AssignedTo      *uuid.UUID `json:"assigned_to,omitempty"`
 	ClosedReason    string     `json:"closed_reason,omitempty"`
 	LastContactedAt *time.Time `json:"last_contacted_at,omitempty"`
-	DeletedAt       *time.Time `json:"deleted_at,omitempty"`
-	CreatedAt       time.Time  `json:"created_at"`
-	UpdatedAt       time.Time  `json:"updated_at"`
+	// ExternalSource and ExternalRef identify a lead pushed by another system; unique per company.
+	ExternalSource string     `json:"external_source,omitempty"`
+	ExternalRef    string     `json:"external_ref,omitempty"`
+	DeletedAt      *time.Time `json:"deleted_at,omitempty"`
+	CreatedAt      time.Time  `json:"created_at"`
+	UpdatedAt      time.Time  `json:"updated_at"`
 
 	// Joined
 	Contact      *Contact `json:"contact,omitempty"`
@@ -265,6 +271,7 @@ type AuditLog struct {
 	EntityID   uuid.UUID  `json:"entity_id"`
 	Action     string     `json:"action"`
 	ActorID    *uuid.UUID `json:"actor_id"`
+	APIKeyID   *uuid.UUID `json:"api_key_id,omitempty"`
 	Diff       any        `json:"diff"`
 	Timestamp  time.Time  `json:"ts"`
 }
