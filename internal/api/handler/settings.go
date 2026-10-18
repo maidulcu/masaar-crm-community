@@ -24,8 +24,8 @@ func NewSettingsHandler(apiSettingsRepo *repo.SettingsRepo, companySettingsRepo 
 }
 
 // GetBOS24Settings retrieves the BOS24 API token configuration
-// @Summary Get BuyOrSell24 API settings
-// @Description Retrieve BuyOrSell24 API token (admin only). Used to check if integration is configured.
+// @Summary Get Waqov data API settings
+// @Description Retrieve Waqov data API token (admin only). Used to check if integration is configured.
 // @Tags Settings
 // @Produce json
 // @Success 200 {object} domain.APISetting
@@ -46,8 +46,8 @@ func (h *SettingsHandler) GetBOS24Settings(c *fiber.Ctx) error {
 }
 
 // UpdateBOS24Settings updates the BOS24 API token
-// @Summary Update BuyOrSell24 API token
-// @Description Update BuyOrSell24 API token (admin only). Token is required to enable real estate features.
+// @Summary Update Waqov data API token
+// @Description Update Waqov data API token (admin only). Token is required to enable real estate features.
 // @Tags Settings
 // @Accept json
 // @Produce json
