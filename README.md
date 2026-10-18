@@ -67,7 +67,7 @@ Masaar is a **free, open-source CRM designed specifically for UAE businesses**. 
 | **Audit Log** | Who created, changed or deleted contacts, leads, deals and documents, for UAE PDPL compliance |
 | **Self-Hosted** | Docker Compose (API, web app, PostgreSQL, Redis) — deploy to Moro Hub, G42, or any UAE cloud |
 
-> **Community and Pro.** Features marked *(Pro)* — AI and PDF generation — are stubs in this repository: the endpoints exist but answer with an upgrade message. Market data is also a stub for now (see below). Everything else is fully implemented here. See [CONTRIBUTING.md](CONTRIBUTING.md#whats-in-scope).
+> **Community and Pro.** Features marked *(Pro)* — AI and PDF generation — are stubs in this repository: the endpoints exist but answer with an upgrade message. Everything else is fully implemented here. See [CONTRIBUTING.md](CONTRIBUTING.md#whats-in-scope).
 
 ---
 
@@ -75,7 +75,7 @@ Masaar is a **free, open-source CRM designed specifically for UAE businesses**. 
 
 The Properties and Map pages and the property report are built for UAE market data — DLD transactions, Ejari rents, buildings, projects and valuations — from Waqov's [DLD data API](https://dldapi.waqov.com/#api).
 
-**In this edition the market-data client is a stub:** those endpoints answer `503` until a dldapi client is added. The rest of the CRM does not depend on it.
+Set `BOS24_API_TOKEN` to an API key for that API to turn them on; without it those endpoints answer `503` and the rest of the CRM works as normal. Responses are cached in Redis (10 minutes to 24 hours by endpoint) and each company's calls count against its plan's market-data quota.
 
 ---
 

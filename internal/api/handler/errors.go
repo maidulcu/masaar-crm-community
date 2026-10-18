@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
+	"github.com/maidulcu/masaar-crm/internal/bos24"
 	"github.com/maidulcu/masaar-crm/internal/invoice"
 	"github.com/maidulcu/masaar-crm/internal/repo"
 	"github.com/maidulcu/masaar-crm/internal/tenant"
@@ -73,6 +74,12 @@ func badRequest(c *fiber.Ctx, err error) error {
 
 // upstreamError is for failures of an external dependency (AI, email, WhatsApp, ...).
 func upstreamError(c *fiber.Ctx, err error) error {
+	switch {
+	case errors.Is(err, bos24.ErrNotFound):
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "not found"})
+	case errors.Is(err, bos24.ErrRateLimited):
+		return c.Status(fiber.StatusTooManyRequests).JSON(fiber.Map{"error": "market data rate limit reached, try again shortly"})
+	}
 	log.Printf("upstream error: %s %s: %v", c.Method(), c.Path(), err)
 	return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"error": "upstream service unavailable"})
 }

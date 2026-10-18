@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [v0.4.0] - Unreleased
 
+### Market data works: client for the Waqov DLD data API (build plan PR 8)
+
+- **`internal/bos24` is now a real client** for the Waqov real-estate data API ([OpenAPI spec](https://dldapi.waqov.com/openapi.json)), replacing the stub. The Properties and Map pages and the 47 `/api/v1/properties/*` endpoints work once `BOS24_API_TOKEN` is set; without it they still answer `503`.
+- Filters are translated to the API's names (`trans_type` → `trans_group`, `limit` → `per_page` on paged lists); path segments are escaped; responses are capped at 10 MB.
+- GET responses are cached in Redis (10 min to 24 h by endpoint). Upstream "not found" now answers `404` and rate limiting `429` instead of `503`.
+- `POST /api/v1/properties/ai/describe` forwards only the fields the API accepts (`property_id`, `property_data`, `tone`, `language`) and returns `{"description": "..."}` as documented.
+
 ### API keys reach the REST API, with scopes (integration standards, step 1)
 
 - **API keys can call `/api/v1`**, limited by scope: `leads:read`, `leads:write`, `contacts:read`, `contacts:write`, `listings:read`, `webhooks:manage` (plus `lead:create` for `POST /webhooks/leads`). Only the routes listed in `internal/api/apikey_routes.go` accept a key; every other `/api/v1` route answers `403`. Data stays limited to the key's company, writes are audited under the key (`audit_logs.api_key_id`), and each key keeps its 300 requests/minute limit. The demo company's keys are read-only. No migration.
