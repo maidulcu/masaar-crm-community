@@ -118,7 +118,7 @@ export const KanbanCard = memo(function KanbanCard({ lead, onOpen }: Props) {
             {lead.notes}
           </div>
         )}
-      </button>
+      </div>
 
       {/* Drag handle — only this triggers DnD */}
       <div
