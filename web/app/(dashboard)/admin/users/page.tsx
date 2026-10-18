@@ -8,7 +8,7 @@ import { useAuthStore } from '@/store/auth'
 import { api } from '@/lib/api'
 import type { User } from '@/types'
 
-const ROLES = ['agent', 'viewer', 'admin'] as const
+const ROLES = ['agent', 'viewer', 'compliance', 'admin'] as const
 const inputCls = 'w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-500'
 
 const roleBadge = (role: string) => {
@@ -202,6 +202,15 @@ export default function AdminUsersPage() {
                                 className={`text-xs ${u.is_active ? 'text-yellow-600' : 'text-green-600'} hover:underline`}
                               >
                                 {u.is_active ? t('تعطيل', 'Deactivate') : t('تفعيل', 'Activate')}
+                              </button>
+                              <button
+                                onClick={async () => {
+                                  if (!confirm(t(`إعادة تعيين التحقق بخطوتين لـ ${u.name}؟ سيحتاج إلى إعداده مجدداً.`, `Reset two-step verification for ${u.name}? They will need to set it up again.`))) return
+                                  try { await api.twoFactor.resetUser(u.id); alert(t('تمت إعادة التعيين', 'Reset done')) } catch (e) { alert(e instanceof Error ? e.message : 'Failed') }
+                                }}
+                                className="text-xs text-gray-600 hover:underline"
+                              >
+                                {t('إعادة تعيين 2FA', 'Reset 2FA')}
                               </button>
                               <button
                                 onClick={() => setDeleteTarget(u)}

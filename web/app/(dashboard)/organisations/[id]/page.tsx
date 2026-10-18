@@ -6,6 +6,7 @@ import { Header } from '@/components/layout/Header'
 import { api, type Organisation } from '@/lib/api'
 import { useLang } from '@/context/LangContext'
 import { useAuthStore } from '@/store/auth'
+import BeneficialOwnersPanel from '@/components/kyc/BeneficialOwnersPanel'
 
 const FIELDS: { key: keyof Organisation; en: string; ar: string; ltr?: boolean }[] = [
   { key: 'name', en: 'Name', ar: 'الاسم' },
@@ -96,6 +97,9 @@ export default function OrganisationPage() {
               </ul>
             )}
           </div>
+          {(canEdit || user?.role === 'compliance') && (
+            <BeneficialOwnersPanel orgId={id} contacts={contacts} canEdit={canEdit || user?.role === 'compliance'} />
+          )}
         </div>
       </main>
     </div>

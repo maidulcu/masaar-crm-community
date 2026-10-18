@@ -12,6 +12,12 @@ const JOB_LABELS: Record<string, { en: string; ar: string }> = {
   offer_expiry: { en: 'Offer expiry', ar: 'انتهاء صلاحية العروض' },
   expiry_alerts: { en: 'Licence & permit expiry alerts', ar: 'تنبيهات انتهاء التراخيص والتصاريح' },
   retention: { en: 'Data retention clean-up', ar: 'تنظيف البيانات بعد مدة الاحتفاظ' },
+  task_reminders: { en: 'Task reminders', ar: 'تذكيرات المهام' },
+  cheque_deposits: { en: 'Cheques to deposit', ar: 'الشيكات المستحقة للإيداع' },
+  lease_alerts: { en: 'Lease, Ejari and rent-notice alerts', ar: 'تنبيهات العقود وإيجاري وإشعارات الإيجار' },
+  rent_reminders: { en: 'Rent reminders to tenants', ar: 'تذكيرات الإيجار للمستأجرين' },
+  whatsapp_broadcasts: { en: 'WhatsApp broadcasts', ar: 'رسائل واتساب الجماعية' },
+  einvoice_status: { en: 'E-invoice status', ar: 'حالة الفواتير الإلكترونية' },
 }
 
 export default function JobRunsPage() {

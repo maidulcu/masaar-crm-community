@@ -40,6 +40,8 @@ const (
 	RoleAdmin  Role = "admin"
 	RoleAgent  Role = "agent"
 	RoleViewer Role = "viewer"
+	// RoleCompliance reads like a viewer and works the KYC/AML screens (#87).
+	RoleCompliance Role = "compliance"
 )
 
 type User struct {
@@ -278,10 +280,27 @@ type WhatsAppThread struct {
 	MessageCount  int          `json:"message_count"`
 	AISummary     string       `json:"ai_summary"`
 	CreatedAt     time.Time    `json:"created_at"`
+	AssignedTo    *uuid.UUID   `json:"assigned_to,omitempty"`
+	AssigneeName  string       `json:"assignee_name,omitempty"`
+	LastInboundAt *time.Time   `json:"last_inbound_at,omitempty"`
+	// WindowOpen: the customer wrote in the last 24 hours, so free-form messages may be
+	// sent; otherwise only an approved template (WhatsApp Business policy).
+	WindowOpen   bool       `json:"window_open"`
+	WindowEndsAt *time.Time `json:"window_ends_at,omitempty"`
 
 	// Joined
 	Contact  *Contact          `json:"contact,omitempty"`
 	Messages []WhatsAppMessage `json:"messages,omitempty"`
+}
+
+// SetWindow fills WindowOpen and WindowEndsAt from LastInboundAt.
+func (t *WhatsAppThread) SetWindow(now time.Time) {
+	if t.LastInboundAt == nil {
+		return
+	}
+	end := t.LastInboundAt.Add(24 * time.Hour)
+	t.WindowEndsAt = &end
+	t.WindowOpen = now.Before(end)
 }
 
 type MessageDirection string
@@ -478,6 +497,7 @@ type CompanyLocale struct {
 	Region    string    `json:"region"`
 	Currency  string    `json:"currency"`
 	Timezone  string    `json:"timezone"`
+	ShowHijri bool      `json:"show_hijri"`
 }
 
 // ─── Notification ────────────────────────────────────────────────────────────
@@ -758,8 +778,10 @@ type CompanySettings struct {
 	Region             string     `json:"region"`   // ISO 3166-2, e.g. "AE-DU"; may be empty
 	Currency           string     `json:"currency"` // ISO 4217, e.g. "AED"
 	Timezone           string     `json:"timezone"` // IANA, e.g. "Asia/Dubai"
-	UpdatedAt          time.Time  `json:"updated_at"`
-	UpdatedBy          *uuid.UUID `json:"updated_by"`
+	// ShowHijri also shows dates in the Umm al-Qura calendar; nil (not sent) keeps the stored value.
+	ShowHijri *bool      `json:"show_hijri,omitempty"`
+	UpdatedAt time.Time  `json:"updated_at"`
+	UpdatedBy *uuid.UUID `json:"updated_by"`
 }
 
 // ─── Rental Properties ────────────────────────────────────────────────────────
@@ -1140,6 +1162,49 @@ const (
 	TypeCheck    TransactionType = "check"
 )
 
+// Cheque is a post-dated rent cheque (#86).
+type Cheque struct {
+	ID           uuid.UUID  `json:"id"`
+	LeaseID      uuid.UUID  `json:"lease_id"`
+	PaymentID    *uuid.UUID `json:"payment_id,omitempty"`
+	ChequeNumber string     `json:"cheque_number"`
+	BankName     string     `json:"bank_name"`
+	DrawerName   string     `json:"drawer_name"`
+	Amount       float64    `json:"amount"`
+	Currency     string     `json:"currency"`
+	ChequeDate   time.Time  `json:"cheque_date"`
+	Status       string     `json:"status"`
+	HasScan      bool       `json:"has_scan"`
+	DepositedAt  *time.Time `json:"deposited_at,omitempty"`
+	ClearedAt    *time.Time `json:"cleared_at,omitempty"`
+	BouncedAt    *time.Time `json:"bounced_at,omitempty"`
+	BounceReason string     `json:"bounce_reason,omitempty"`
+	ReplacedBy   *uuid.UUID `json:"replaced_by,omitempty"`
+	Notes        string     `json:"notes"`
+	CreatedAt    time.Time  `json:"created_at"`
+	UpdatedAt    time.Time  `json:"updated_at"`
+
+	// Joined, for the register.
+	TenantName   string `json:"tenant_name,omitempty"`
+	PropertyName string `json:"property_name,omitempty"`
+}
+
+// LeaseNotice is a notice served on a tenant (#86).
+type LeaseNotice struct {
+	ID            uuid.UUID  `json:"id"`
+	LeaseID       uuid.UUID  `json:"lease_id"`
+	Kind          string     `json:"kind"` // rent_change | non_renewal | renewal_terms | other
+	CurrentRent   *float64   `json:"current_rent,omitempty"`
+	NewRent       *float64   `json:"new_rent,omitempty"`
+	EffectiveDate *time.Time `json:"effective_date,omitempty"`
+	BodyEN        string     `json:"body_en"`
+	BodyAR        string     `json:"body_ar"`
+	SentAt        *time.Time `json:"sent_at,omitempty"`
+	SentVia       string     `json:"sent_via"`
+	CreatedBy     *uuid.UUID `json:"created_by,omitempty"`
+	CreatedAt     time.Time  `json:"created_at"`
+}
+
 type BankTransaction struct {
 	ID                uuid.UUID       `json:"id"`
 	CompanyID         uuid.UUID       `json:"company_id"`
@@ -1216,6 +1281,7 @@ const (
 	DeliveryPending DeliveryStatus = "pending"
 	DeliverySent    DeliveryStatus = "sent"
 	DeliveryFailed  DeliveryStatus = "failed"
+	DeliverySkipped DeliveryStatus = "skipped" // opted out or no address
 )
 
 type PaymentReminder struct {

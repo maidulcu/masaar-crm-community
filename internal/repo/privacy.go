@@ -155,6 +155,26 @@ func (r *PrivacyRepo) EmailOptedOut(ctx context.Context, email string) (bool, er
 	return out, err
 }
 
+// PhoneOptedOut reports whether a contact of the company with this WhatsApp or secondary
+// phone number withdrew consent for the channel, or was erased. Used for people who are
+// not contacts themselves, such as tenants.
+func (r *PrivacyRepo) PhoneOptedOut(ctx context.Context, phone, channel string) (bool, error) {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return false, err
+	}
+	var out bool
+	err = r.db.QueryRow(ctx, `
+		SELECT EXISTS (
+		  SELECT 1 FROM contacts c
+		   WHERE c.company_id = $1 AND (c.phone_wa = $2 OR $2 = ANY(c.secondary_phones))
+		     AND (c.erased_at IS NOT NULL OR
+		          (SELECT status FROM contact_consents
+		            WHERE contact_id = c.id AND channel = $3 ORDER BY created_at DESC, id DESC LIMIT 1) = 'withdrawn'))`,
+		cid, phone, channel).Scan(&out)
+	return out, err
+}
+
 // exportQueries lists what a data-subject export contains. Each query selects rows for
 // ($1 company, $2 contact) and is returned as JSON.
 var exportQueries = []struct{ key, q string }{
@@ -163,6 +183,7 @@ var exportQueries = []struct{ key, q string }{
 	{"leads", `SELECT * FROM leads WHERE company_id = $1 AND contact_id = $2`},
 	{"deals", `SELECT d.* FROM deals d JOIN leads l ON l.id = d.lead_id WHERE d.company_id = $1 AND l.contact_id = $2`},
 	{"offers", `SELECT * FROM offers WHERE company_id = $1 AND contact_id = $2`},
+	{"kyc_documents", `SELECT doc_type, number, issuing_country, issue_date, expiry_date, file_name, created_at FROM kyc_documents WHERE company_id = $1 AND contact_id = $2`},
 	{"viewings", `SELECT * FROM viewings WHERE company_id = $1 AND contact_id = $2`},
 	{"whatsapp_threads", `SELECT id, thread_status, last_message_at, message_count, ai_summary, created_at FROM whatsapp_threads WHERE company_id = $1 AND contact_id = $2`},
 	{"whatsapp_messages", `SELECT m.id, m.thread_id, m.direction, m.body, m.media_mime, m.media_filename, m.sent_at

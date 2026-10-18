@@ -222,9 +222,10 @@ func (h *UserHandler) CreateUser(c *fiber.Ctx) error {
 	}
 
 	validRoles := map[domain.Role]bool{
-		domain.RoleAdmin:  true,
-		domain.RoleAgent:  true,
-		domain.RoleViewer: true,
+		domain.RoleAdmin:      true,
+		domain.RoleAgent:      true,
+		domain.RoleViewer:     true,
+		domain.RoleCompliance: true,
 	}
 	if !validRoles[body.Role] {
 		body.Role = domain.RoleAgent
@@ -295,7 +296,7 @@ func (h *UserHandler) InviteUser(c *fiber.Ctx) error {
 	}
 
 	validRoles := map[domain.Role]bool{
-		domain.RoleAdmin: true, domain.RoleAgent: true, domain.RoleViewer: true,
+		domain.RoleAdmin: true, domain.RoleAgent: true, domain.RoleViewer: true, domain.RoleCompliance: true,
 	}
 	if !validRoles[body.Role] {
 		body.Role = domain.RoleAgent
@@ -392,7 +393,7 @@ func (h *UserHandler) UpdateUser(c *fiber.Ctx) error {
 	}
 
 	validRoles := map[domain.Role]bool{
-		domain.RoleAdmin: true, domain.RoleAgent: true, domain.RoleViewer: true,
+		domain.RoleAdmin: true, domain.RoleAgent: true, domain.RoleViewer: true, domain.RoleCompliance: true,
 	}
 	if !validRoles[body.Role] {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid role"})

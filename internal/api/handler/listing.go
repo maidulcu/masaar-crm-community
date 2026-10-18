@@ -122,7 +122,7 @@ func (h *ListingHandler) Create(c *fiber.Ctx) error {
 	// which applies the approval and advertising-permit rules.
 	l.Status = domain.ListingStatusDraft
 	if l.Currency == "" {
-		l.Currency = "AED"
+		l.Currency = defaultCurrency(c.Context())
 	}
 	l.PermitNumber = strings.TrimSpace(l.PermitNumber)
 	l.PermitOverrideBy, l.PermitOverrideAt, l.PermitOverrideReason = nil, nil, ""
@@ -140,6 +140,7 @@ func (h *ListingHandler) Create(c *fiber.Ctx) error {
 	if err := h.repo.Create(c.Context(), &l); err != nil {
 		return serverError(c, err)
 	}
+	l.Country = defaultCountry(c.Context()) // the permit rules are the company's country's
 	compliance.Decorate(&l, time.Now())
 	return c.Status(fiber.StatusCreated).JSON(l)
 }
@@ -167,12 +168,12 @@ func (h *ListingHandler) Update(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "listing not found"})
 	}
 
-	status := l.Status
+	status, country := l.Status, l.Country
 	if err := c.BodyParser(l); err != nil {
 		return badRequest(c, err)
 	}
 	// Status changes go through UpdateStatus (approval and permit rules apply there).
-	l.Status = status
+	l.Status, l.Country = status, country
 	l.PermitNumber = strings.TrimSpace(l.PermitNumber)
 
 	userID := c.Locals("user_id").(uuid.UUID)

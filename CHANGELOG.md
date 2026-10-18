@@ -9,6 +9,78 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [v0.4.0] - Unreleased
 
+### UAE e-invoicing and Saudi groundwork (#88) — migration `0078`
+
+**UAE e-invoicing (PINT AE)** — off by default; see [docs/einvoicing.md](docs/einvoicing.md)
+- Tax invoices and credit notes can be exported as **PINT AE** XML (UBL 2.1, the UAE Peppol specification), including mixed standard/exempt/out-of-scope lines and credit note reason codes. Missing data (TIN, legal registration, buyer address…) is listed instead of producing an invalid file.
+- The generated XML is checked in CI against the UBL 2.1 schema and the official PINT AE Schematron (`scripts/pint-ae/validate.sh`).
+- Submission through a provider **connector** interface, with a status job that records accepted and rejected e-invoices and notifies the issuer of a rejection. Only a **mock** provider ships; a real accredited service provider needs its own connector.
+- Settings → E-invoicing (provider, TIN, legal registration, exemption code); an E-invoice panel on each invoice for the buyer details, XML download and submission.
+- AED invoices only for now.
+
+**Saudi Arabia groundwork** — see [docs/adr/0001-ksa-groundwork.md](docs/adr/0001-ksa-groundwork.md)
+- Country **SA**: 15 % VAT, SAR, Asia/Riyadh, Friday–Saturday weekend, the 13 regions.
+- Listings in Saudi regions require a **REGA** advertising licence, enforced like Trakheesi/Madhmoun.
+- Optional **Hijri (Umm al-Qura)** dates next to Gregorian dates (Settings → Company).
+- Money defaults (new leads, deals, offers, expenses, listings, imports) follow the company currency instead of AED.
+- ZATCA e-invoicing, Ejar and Nafath are not part of the community edition.
+
+#### Upgrade notes
+- Nothing changes until an admin enables e-invoicing; existing invoices are unaffected.
+
+### KYC/AML, WhatsApp broadcasts and two-factor authentication (#87) — migrations `0075`–`0077`
+
+**Two-factor authentication**
+- Optional per user, with an authenticator app (TOTP, RFC 6238): turn on from Settings with a QR code; 8 single-use backup codes (stored hashed); turning it off needs the password and a code.
+- Every sign-in path (password, magic link, SMS code) answers with a short-lived pending token instead of a session when a second factor is needed; `POST /auth/verify-totp` exchanges it with a code or a backup code. A code cannot be used twice. Five wrong codes lock the account for 15 minutes (the same lock as wrong passwords).
+- Admins can require two-factor for the whole company (Settings → Security); users without it set it up at their next sign-in. Admins can reset a user's two-factor (lost phone).
+- Secrets are encrypted at rest with AES-GCM; set `TWO_FACTOR_KEY` (otherwise derived from `JWT_SECRET`).
+
+**KYC and AML (record keeping and workflow; no automatic compliance decisions)**
+- Identity documents per contact (Emirates ID, passport, residence visa, trade licence; number, issuing country, dates, a private copy), risk rating with reason, PEP flag, and screening result entered by hand. A screening-provider interface (`kyc.Screener`) is available; none is bundled.
+- Beneficial owners of corporate clients (organisations), with their KYC status.
+- Alerts before a client's identity document expires.
+- **A deal cannot be marked won** while the buyer has no valid Emirates ID or passport on file, unless an admin overrides it with a reason (audit-logged).
+- Deals record their payment method (cash, cheque, transfer, virtual assets, mixed) and cash part. Cash at or above the configured threshold (AED 55,000 by default) or payment in virtual assets sends the deal to the **AML review queue** (Compliance page), where the decision (no report / reported, with the goAML reference) is recorded. A CSV export gathers what a goAML report needs; it is not a goAML XML submission.
+- A **compliance** role: reads like a viewer, plus the KYC and AML screens. Viewing identity documents and the AML queue is audit-logged.
+
+**WhatsApp**
+- **Broadcasts** of an approved template to a segment (lead tag, stage, source, listing interest), only to contacts who granted WhatsApp consent; the others are recorded as skipped. Sent by a background job at a configurable rate per minute, with per-recipient delivery status from Meta's receipts. Consent is checked again just before each message.
+- Replying **STOP / إيقاف** (or UNSUBSCRIBE, إلغاء الاشتراك) records a WhatsApp opt-out and confirms it; **START / اشتراك** opts back in. Only whole-message replies count.
+- Inbox: the **24-hour customer-service window** is shown on each conversation, and free-form messages outside it are refused with a clear message (an approved template is needed); conversations can be **assigned** to an agent.
+- **Business-hours auto-reply**: weekly hours in the company timezone plus special periods (Ramadan hours, holidays); outside them a customer's message gets the auto-reply, at most once every 12 hours per conversation. Settings → WhatsApp Inbox.
+
+#### Upgrade notes
+- Set `TWO_FACTOR_KEY` to a long random value before anyone turns on two-factor, and keep it stable.
+- Existing deals have no payment method recorded and are not flagged until one is set.
+
+### Property management (#86) — migration `0074`
+
+**Post-dated cheque register**
+- Cheques per lease: number, bank, drawer, amount, date, and an optional scan (JPEG, PNG or PDF, kept in the bank statement store). Status: in hand (`received`) → `deposited` → `cleared`, or `bounced`; also `on_hold`, `returned` and `replaced`. Every change is audit-logged.
+- **Cheque schedule:** `POST /leases/:id/cheques/schedule` (or `cheque_schedule` in the lease-creation body) splits the rent for the lease term over N cheques at equal month intervals, numbered upwards from the first cheque number, and creates a pending payment for each. A 12-cheque lease gets 12 cheques and 12 payments; rounding goes to the last cheque.
+- A cleared cheque marks its payment received (with the clearing date); a bounced cheque marks it failed, notifies the lease's agent and the admins, and can add a returned-cheque charge as a new payment. A replacement cheque pays the same payment.
+- **Cheque register** (`/cheques`): cheques to deposit today, in the next 30 days, awaiting clearance, or bounced, with totals and bulk "mark deposited". A daily digest of the cheques to deposit goes to each lease's agent and the admins (`cheque_deposits` job).
+
+**Lease alerts and notices**
+- Leases have an **agent** (defaults to whoever created the lease) and an **Ejari expiry**.
+- Alerts to the agent and the admins, once per threshold: before a lease ends (by default 120, 90, 60 and 30 days, configurable), two weeks before the last day to serve a rent-change notice when none has been recorded (90 days before the end by default, configurable), and 30 and 7 days before (and once after) the Ejari registration expires (`lease_alerts` job). Clicking the notification opens the lease.
+- **Notices to the tenant** (rent change, renewal terms, non-renewal, other): drafted in English and Arabic from the lease, edited, saved, printed side by side, and recorded as served (when and how: email, WhatsApp, by hand, registered mail, notary). The drafts are a starting point, not legal advice.
+- "Start renewal" on the lease page opens the existing renewal workflow. Its renewal date is now the day after the lease ends (it was "today + 90 days").
+
+**Rent reminders**
+- When switched on (Settings → Property Management), tenants are reminded by email and WhatsApp a few days before rent is due (3 by default) and once when it is late, between 9:00 and 20:00 local time (`rent_reminders` job). WhatsApp uses an approved template with four parameters (tenant name, amount, due date, property).
+- Not sent for payments covered by a cheque in hand, to tenants switched off on the lease page, or on a channel the tenant opted out of as a contact (matched by phone or email). Skipped and failed reminders are recorded and shown on the lease page.
+- This replaces the no-op `PaymentReminderService` stub; the `payment_reminders` table it expected is created by this migration.
+
+**Other**
+- The lease page loads its own payments (`GET /leases/:id/payments`); it used to filter the first 100 payments of the company.
+- Notifications open the record they are about (lease, task, listing…).
+
+#### Upgrade notes
+- Existing leases get their creator as agent. Rent reminders are off until an admin switches them on.
+- Notice periods and alert days are defaults for Dubai: check the rules that apply to your emirate.
+
 ### Brokerage workflow (#85) — migrations `0070`–`0073`
 
 **Tasks and follow-ups**
