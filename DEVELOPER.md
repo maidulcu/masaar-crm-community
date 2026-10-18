@@ -326,7 +326,7 @@ POST  /api/v1/settings/api-keys
 DELETE /api/v1/settings/api-keys/:id
 ```
 
-### Real Estate Market Data (BOS24)
+### Real Estate Market Data (Waqov)
 
 ```http
 POST /api/v1/properties/search             # NL search ("2BR in Marina")
@@ -512,13 +512,15 @@ Get API key: https://aistudio.google.com/app/apikey
 
 ## Real Estate Data
 
-The market-data integration ([Waqov](https://waqov.com/)) provides UAE market data. Optional — all endpoints return 503 if not configured.
+The market-data integration ([Waqov](https://waqov.com/)) provides UAE market data (DLD transactions, Ejari rents, buildings, projects, valuations, maps) from the [Waqov DLD data API](https://dldapi.waqov.com/openapi.json). Optional — all `/api/v1/properties/*` endpoints return 503 if not configured. GET responses are cached in Redis for 10 minutes (listings, transactions) to 24 hours (map config); each call counts against the company's market-data quota.
 
 **Setup:**
 1. Get an API token from [Waqov](https://waqov.com/)
-2. Set `BOS24_API_TOKEN` in `.env` or via `PATCH /api/v1/settings/bos24`
+2. Set `BOS24_API_TOKEN` in `.env` and restart the API (`BOS24_BASE_URL` defaults to `https://dldapi.waqov.com`). The token saved through `PATCH /api/v1/settings/bos24` is not read by the client yet.
 
-**API Docs:** https://dldapi.waqov.com/#api
+Upstream errors map to `404` (not found), `429` (rate limited) and `503` (anything else, including a rejected key).
+
+**API Docs:** https://dldapi.waqov.com/#api · spec: https://dldapi.waqov.com/openapi.json
 
 ---
 

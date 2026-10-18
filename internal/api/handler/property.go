@@ -766,7 +766,7 @@ func (h *PropertyHandler) DescribeProperty(c *fiber.Ctx) error {
 		return upstreamError(c, err)
 	}
 
-	return c.JSON(result)
+	return c.JSON(fiber.Map{"description": result})
 }
 
 // GetUnits godoc
