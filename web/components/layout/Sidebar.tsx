@@ -581,16 +581,6 @@ const sections: NavSection[] = [
         ),
         adminOnly: true,
       },
-      {
-        href: '/settings/bos24',
-        label: { en: 'BOS24 Sync', ar: 'مزامنة BOS24' },
-        icon: (
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-          </svg>
-        ),
-        adminOnly: true,
-      },
     ],
   },
 ]
@@ -626,7 +616,7 @@ export function Sidebar() {
 const active = item.href === '/analytics'
   ? pathname.startsWith('/analytics')
     : item.href === '/settings'
-      ? pathname === '/settings' || pathname.startsWith('/settings/api') || pathname.startsWith('/settings/company') || pathname.startsWith('/settings/api-keys') || pathname.startsWith('/settings/webhooks') || pathname.startsWith('/settings/bos24') || pathname.startsWith('/settings/lead-rotation') || pathname.startsWith('/settings/pipeline') || pathname.startsWith('/settings/approvals')
+      ? pathname === '/settings' || pathname.startsWith('/settings/api') || pathname.startsWith('/settings/company') || pathname.startsWith('/settings/api-keys') || pathname.startsWith('/settings/webhooks') || pathname.startsWith('/settings/lead-rotation') || pathname.startsWith('/settings/pipeline') || pathname.startsWith('/settings/approvals')
     : item.href === '/admin/users'
       ? pathname.startsWith('/admin')
       : pathname.startsWith(item.href)

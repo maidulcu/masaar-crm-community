@@ -112,7 +112,6 @@ func main() {
 	billingRepo := repo.NewBillingRepo(pool)
 	messageTemplateRepo := repo.NewMessageTemplateRepo(pool)
 	listingRepo := repo.NewListingRepo(pool)
-	bos24Repo := repo.NewBOS24IntegrationRepo(pool)
 	offerRepo := repo.NewOfferRepo(pool)
 	leadRotationRepo := repo.NewLeadRotationRepo(pool)
 	commissionRepo := repo.NewCommissionRepo(pool)
@@ -185,7 +184,6 @@ func main() {
 	}
 
 	bos24Client := bos24.NewClient(cfg.BOS24Token, cfg.BOS24BaseURL, rdb)
-	bos24Sync := bos24.NewSyncService(bos24Repo, contactRepo, hub)
 
 	var dsClient *docusign.Client
 	if cfg.DocusignIntegrationKey != "" {
@@ -264,7 +262,6 @@ func main() {
 		MessageTemplate:     handler.NewMessageTemplateHandler(messageTemplateRepo),
 		AuditLog:            handler.NewAuditHandler(auditRepo),
 		Listing:             handler.NewListingHandler(listingRepo, approvalRepo, auditRepo),
-		BOS24Integration:    handler.NewBOS24IntegrationHandler(bos24Repo, bos24Sync, cfg),
 		Offer:               handler.NewOfferHandler(offerRepo, contactRepo, leadRepo, dealRepo, hub),
 		LeadRotation:        leadRotation,
 		Commission:          handler.NewCommissionHandler(commissionRepo),

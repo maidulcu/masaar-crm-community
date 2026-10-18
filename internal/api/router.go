@@ -63,7 +63,6 @@ type Handlers struct {
 	MessageTemplate     *handler.MessageTemplateHandler
 	AuditLog            *handler.AuditHandler
 	Listing             *handler.ListingHandler
-	BOS24Integration    *handler.BOS24IntegrationHandler
 	Offer               *handler.OfferHandler
 	LeadRotation        *handler.LeadRotationHandler
 	Commission          *handler.CommissionHandler
@@ -151,9 +150,6 @@ func RegisterRoutes(app *fiber.App, h *Handlers, hub *ws.Hub, cfg *config.Config
 	if h.DocusignWebhook != nil {
 		app.Post("/webhooks/docusign", h.DocusignWebhook.Handle)
 	}
-
-	// BOS24 inbound webhook — company identified by ?token=<secret>, HMAC-verified
-	app.Post("/webhooks/bos24", lim.webhook, h.BOS24Integration.ReceiveWebhook)
 
 	// Public listing page — no auth required (for shareable links)
 	// These unauthenticated routes hit the database, so they share the per-IP API limiter.
@@ -349,24 +345,6 @@ func RegisterRoutes(app *fiber.App, h *Handlers, hub *ws.Hub, cfg *config.Config
 	v1.Post("/leads/:id/auto-assign",
 		middleware.RequireRole(domain.RoleAdmin, domain.RoleAgent),
 		h.LeadRotation.AutoAssign,
-	)
-
-	// BOS24 Integration — admin only (marketplace listing + inquiry sync)
-	v1.Get("/settings/bos24-integration",
-		middleware.RequireRole(domain.RoleAdmin),
-		h.BOS24Integration.GetSettings,
-	)
-	v1.Patch("/settings/bos24-integration",
-		middleware.RequireRole(domain.RoleAdmin),
-		h.BOS24Integration.UpdateSettings,
-	)
-	v1.Post("/settings/bos24-integration/register",
-		middleware.RequireRole(domain.RoleAdmin),
-		h.BOS24Integration.RegisterWebhook,
-	)
-	v1.Post("/settings/bos24-integration/sync",
-		middleware.RequireRole(domain.RoleAdmin),
-		h.BOS24Integration.SyncNow,
 	)
 
 	// Approval Workflows — admin only (config + review)

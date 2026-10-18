@@ -231,7 +231,7 @@ const (
 	SourceWeb      LeadSource = "web"
 	SourceReferral LeadSource = "referral"
 	SourceEvent    LeadSource = "event"
-	SourceBOS24    LeadSource = "bos24"
+	SourceBOS24    LeadSource = "bos24" // leads imported by the retired BOS24 integration; never set on new leads
 
 	SourcePropertyFinder LeadSource = "property_finder"
 	SourceBayut          LeadSource = "bayut"
@@ -669,29 +669,6 @@ type LeadRotationSettings struct {
 	RotationIndex int       `json:"rotation_index"` // internal counter
 	MaxPerAgent   int       `json:"max_per_agent"`  // 0 = unlimited
 	UpdatedAt     time.Time `json:"updated_at"`
-}
-
-// ─── BOS24 Integration ───────────────────────────────────────────────────────
-
-// BOS24Settings holds per-company BOS24 integration configuration.
-type BOS24Settings struct {
-	ID            uuid.UUID  `json:"id"`
-	CompanyID     uuid.UUID  `json:"company_id"`
-	APIKey        string     `json:"api_key"`        // bos24_live_xxx — integration API key
-	WebhookSecret string     `json:"webhook_secret"` // HMAC secret + URL token
-	WebhookID     string     `json:"webhook_id"`     // ID returned by BOS24 on registration
-	LastSyncAt    *time.Time `json:"last_sync_at"`
-	UpdatedAt     time.Time  `json:"updated_at"`
-}
-
-// IsConfigured returns true when an API key has been set.
-func (s *BOS24Settings) IsConfigured() bool {
-	return s != nil && s.APIKey != ""
-}
-
-// IsWebhookRegistered returns true when BOS24 has acknowledged our webhook.
-func (s *BOS24Settings) IsWebhookRegistered() bool {
-	return s != nil && s.WebhookID != ""
 }
 
 // ─── Email ────────────────────────────────────────────────────────────────────

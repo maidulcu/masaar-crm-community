@@ -14,8 +14,10 @@ var currencyRE = regexp.MustCompile(`^[A-Za-z]{3}$`)
 // maxDealValue is the largest amount the leads.deal_value column (numeric(12,2)) can hold.
 const maxDealValue = 9_999_999_999.99
 
-// leadSources are the values allowed by the leads_source_check constraint.
-var leadSources = map[string]bool{"whatsapp": true, "web": true, "referral": true, "event": true, "bos24": true,
+// leadSources are the sources a new lead may be created with. "bos24" is still allowed by the
+// leads_source_check constraint for leads the retired BOS24 integration imported, but no new
+// lead gets it.
+var leadSources = map[string]bool{"whatsapp": true, "web": true, "referral": true, "event": true,
 	"property_finder": true, "bayut": true, "dubizzle": true, "portal": true}
 
 // normalizeCurrency upper-cases a 3-letter currency code ("" means the AED default). The column
@@ -42,7 +44,7 @@ func applyLeadInput(l *domain.Lead, stage, source, currency string, dealValue fl
 		source = "web" // the column is NOT NULL with a CHECK: an empty source used to be rejected
 	}
 	if !leadSources[source] {
-		return "source must be one of: whatsapp, web, referral, event, bos24, property_finder, bayut, dubizzle, portal"
+		return "source must be one of: whatsapp, web, referral, event, property_finder, bayut, dubizzle, portal"
 	}
 	l.Source = domain.LeadSource(source)
 
