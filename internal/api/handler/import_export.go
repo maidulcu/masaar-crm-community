@@ -28,7 +28,52 @@ type ImportExportHandler struct {
 	contactRepo *repo.ContactRepo
 	leadRepo    *repo.LeadRepo
 	listingRepo *repo.ListingRepo
+	privacy     consentStore
+	assigner    NewLeadAssigner
+	profiles    *repo.ContactProfileRepo
 }
+
+// UseProfiles imports and exports contact custom fields as cf_<field_name> columns.
+func (h *ImportExportHandler) UseProfiles(p *repo.ContactProfileRepo) *ImportExportHandler {
+	h.profiles = p
+	return h
+}
+
+// customColumns picks cf_<name> cells out of an imported row.
+func customColumns(m map[string]string) map[string]string {
+	out := map[string]string{}
+	for k, v := range m {
+		if name, ok := strings.CutPrefix(k, "cf_"); ok && strings.TrimSpace(v) != "" {
+			out[name] = v
+		}
+	}
+	return out
+}
+
+// UsePrivacy records consent columns (consent_whatsapp, consent_email, consent_sms,
+// consent_phone) found in imported contact files.
+func (h *ImportExportHandler) UsePrivacy(p consentStore) *ImportExportHandler {
+	h.privacy = p
+	return h
+}
+
+// consentColumns reads consent_<channel> cells: yes/true/1 = granted, no/false/0 =
+// withdrawn, anything else (or empty) = no choice recorded.
+func consentColumns(m map[string]string) map[string]bool {
+	out := map[string]bool{}
+	for _, ch := range domain.ConsentChannels {
+		switch strings.ToLower(strings.TrimSpace(m["consent_"+ch])) {
+		case "yes", "y", "true", "1", "granted":
+			out[ch] = true
+		case "no", "n", "false", "0", "withdrawn":
+			out[ch] = false
+		}
+	}
+	return out
+}
+
+// SetAssigner enables automatic assignment of imported leads (see NewLeadAssigner).
+func (h *ImportExportHandler) SetAssigner(a NewLeadAssigner) { h.assigner = a }
 
 func NewImportExportHandler(
 	contactRepo *repo.ContactRepo,
@@ -72,12 +117,19 @@ func (h *ImportExportHandler) Template(c *fiber.Ctx) error {
 
 // ── Import ────────────────────────────────────────────────────────────────────
 
+// maxImportFileSize caps imported CSV files to 5 MB to prevent memory exhaustion DoS attacks.
+const maxImportFileSize = 5 << 20
+
 // ImportContacts handles POST /api/v1/import/contacts (multipart file upload).
 // Max 500 rows per request.
 func (h *ImportExportHandler) ImportContacts(c *fiber.Ctx) error {
 	file, err := c.FormFile("file")
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "file is required (multipart field: file)"})
+	}
+	// Limit file size to 5MB to prevent DoS via unbounded memory allocation during CSV parsing
+	if file.Size > maxImportFileSize {
+		return c.Status(fiber.StatusRequestEntityTooLarge).JSON(fiber.Map{"error": "file is too large (max 5 MB)"})
 	}
 	f, err := file.Open()
 	if err != nil {
@@ -124,6 +176,13 @@ func (h *ImportExportHandler) ImportContacts(c *fiber.Ctx) error {
 			contact.Email = email
 			_ = h.contactRepo.Update(c.Context(), contact)
 		}
+		recordConsentChoices(c.Context(), h.privacy, contact.ID, consentColumns(m), "import", localsUserPtr(c), nil)
+		if cf := customColumns(m); len(cf) > 0 && h.profiles != nil {
+			if err := h.profiles.SetCustomValues(c.Context(), "contact", contact.ID, cf); err != nil {
+				// The contact itself was imported; report the custom-field problem on its row.
+				errors = append(errors, fiber.Map{"row": rowNum, "error": rowError(err)})
+			}
+		}
 		imported++
 	}
 
@@ -141,6 +200,10 @@ func (h *ImportExportHandler) ImportLeads(c *fiber.Ctx) error {
 	file, err := c.FormFile("file")
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "file is required"})
+	}
+	// Limit file size to 5MB to prevent DoS via unbounded memory allocation during CSV parsing
+	if file.Size > maxImportFileSize {
+		return c.Status(fiber.StatusRequestEntityTooLarge).JSON(fiber.Map{"error": "file is too large (max 5 MB)"})
 	}
 	f, err := file.Open()
 	if err != nil {
@@ -161,10 +224,12 @@ func (h *ImportExportHandler) ImportLeads(c *fiber.Ctx) error {
 
 	header := normaliseHeader(records[0])
 	validStages := map[string]bool{"new": true, "contacted": true, "qualified": true, "proposal": true, "won": true, "lost": true}
-	validSources := map[string]bool{"whatsapp": true, "web": true, "referral": true, "event": true, "bos24": true, "": true}
+	validSources := map[string]bool{"whatsapp": true, "web": true, "referral": true, "event": true, "": true,
+		"property_finder": true, "bayut": true, "dubizzle": true, "portal": true}
 
 	var imported, skipped int
 	var errors []map[string]interface{}
+	companyID, companyErr := uuid.Parse(localsCompanyID(c))
 
 	for i, row := range records[1:] {
 		rowNum := i + 2
@@ -177,14 +242,8 @@ func (h *ImportExportHandler) ImportLeads(c *fiber.Ctx) error {
 			continue
 		}
 
-		// Upsert contact
-		contact, err := h.contactRepo.Upsert(c.Context(), phone, phone) // name = phone as fallback
-		if err != nil {
-			errors = append(errors, fiber.Map{"row": rowNum, "error": safeMsg("contact lookup failed", err)})
-			skipped++
-			continue
-		}
-
+		// Validate the whole row before touching the database: a row that is going to be rejected
+		// must not leave a contact behind.
 		stage := strings.ToLower(strings.TrimSpace(m["stage"]))
 		if stage == "" {
 			stage = "new"
@@ -202,25 +261,41 @@ func (h *ImportExportHandler) ImportLeads(c *fiber.Ctx) error {
 
 		var dealValue float64
 		if v := strings.TrimSpace(m["deal_value"]); v != "" {
-			dealValue, _ = strconv.ParseFloat(v, 64)
+			parsed, perr := strconv.ParseFloat(v, 64)
+			if perr != nil {
+				errors = append(errors, fiber.Map{"row": rowNum, "error": "deal_value is not a number: " + v})
+				skipped++
+				continue
+			}
+			dealValue = parsed
 		}
 		currency := strings.TrimSpace(m["currency"])
 		if currency == "" {
-			currency = "AED"
+			currency = defaultCurrency(c.Context())
 		}
 
-		lead := &domain.Lead{
-			ContactID: contact.ID,
-			Stage:     domain.LeadStage(stage),
-			Source:    domain.LeadSource(source),
-			DealValue: dealValue,
-			Currency:  currency,
-			Notes:     strings.TrimSpace(m["notes"]),
+		lead := &domain.Lead{}
+		if msg := applyLeadInput(lead, stage, source, currency, dealValue, strings.TrimSpace(m["notes"])); msg != "" {
+			errors = append(errors, fiber.Map{"row": rowNum, "error": msg})
+			skipped++
+			continue
 		}
+
+		// Upsert contact
+		contact, err := h.contactRepo.Upsert(c.Context(), phone, phone) // name = phone as fallback
+		if err != nil {
+			errors = append(errors, fiber.Map{"row": rowNum, "error": rowError(err)})
+			skipped++
+			continue
+		}
+		lead.ContactID = contact.ID
 		if err := h.leadRepo.Create(c.Context(), lead); err != nil {
 			errors = append(errors, fiber.Map{"row": rowNum, "error": rowError(err)})
 			skipped++
 			continue
+		}
+		if h.assigner != nil && companyErr == nil {
+			h.assigner.AssignNewLead(companyID, lead.ID)
 		}
 		imported++
 	}
@@ -243,14 +318,34 @@ func (h *ImportExportHandler) ExportContacts(c *fiber.Ctx) error {
 		return serverError(c, err)
 	}
 
+	// Custom fields become cf_<name> columns (the same names the import accepts).
+	var fields []domain.CustomField
+	values := map[uuid.UUID]map[string]string{}
+	if h.profiles != nil {
+		if fields, err = h.profiles.ListCustomFields(c.Context(), "contact"); err != nil {
+			return serverError(c, err)
+		}
+		if values, err = h.profiles.AllCustomValues(c.Context(), "contact"); err != nil {
+			return serverError(c, err)
+		}
+	}
+
 	var buf bytes.Buffer
 	w := csv.NewWriter(&buf)
-	_ = w.Write([]string{"id", "full_name", "phone_wa", "email", "language", "lead_score", "created_at"})
+	header := []string{"id", "full_name", "phone_wa", "email", "language", "lead_score", "created_at"}
+	for _, f := range fields {
+		header = append(header, "cf_"+f.Name)
+	}
+	_ = w.Write(header)
 	for _, ct := range result.Data {
-		_ = w.Write(csvSafeRow([]string{
+		row := []string{
 			ct.ID.String(), ct.FullName, ct.PhoneWA, ct.Email,
 			ct.Language, strconv.Itoa(ct.LeadScore), ct.CreatedAt.Format(time.RFC3339),
-		}))
+		}
+		for _, f := range fields {
+			row = append(row, values[ct.ID][f.Name])
+		}
+		_ = w.Write(csvSafeRow(row))
 	}
 	w.Flush()
 
@@ -340,16 +435,17 @@ func (h *ImportExportHandler) ExportListings(c *fiber.Ctx) error {
 var numericLike = regexp.MustCompile(`^[+-]?[0-9][0-9 ().-]*$`)
 
 // csvSafeCell neutralises spreadsheet formula injection ("CSV injection"): a cell that starts
-// with = + - @ (or tab/CR) is executed as a formula by Excel/Sheets, so user-supplied text like
+// with = + - @ % (or tab/CR) is executed as a formula by Excel/Sheets, so user-supplied text like
 // `=HYPERLINK("http://evil",...)` in a contact name could run when an admin opens an export.
 // Such cells are prefixed with a single quote, which spreadsheets render as plain text.
 func csvSafeCell(v string) string {
-	if v == "" {
+	trimmed := strings.TrimSpace(v)
+	if trimmed == "" {
 		return v
 	}
-	switch v[0] {
-	case '=', '+', '-', '@', '\t', '\r':
-		if !numericLike.MatchString(v) {
+	switch trimmed[0] {
+	case '=', '+', '-', '@', '\t', '\r', '%':
+		if !numericLike.MatchString(trimmed) {
 			return "'" + v
 		}
 	}

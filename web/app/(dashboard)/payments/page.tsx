@@ -5,6 +5,7 @@ import { Modal, FormField, FormError } from '@/components/ui/Modal'
 import { useLang } from '@/context/LangContext'
 import { api } from '@/lib/api'
 import type { Payment, Lease, PaginatedResult } from '@/types'
+import { companyCurrency } from '@/lib/money'
 
 const PAYMENT_METHODS = ['bank_transfer', 'cash', 'cheque', 'credit_card', 'online']
 
@@ -21,7 +22,7 @@ export default function PaymentsPage() {
   const [page, setPage] = useState(1)
   const [total, setTotal] = useState(0)
   const [open, setOpen] = useState(false)
-  const [form, setForm] = useState(blank)
+  const [form, setForm] = useState(() => ({ ...blank, currency: companyCurrency() }))
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const limit = 20
@@ -50,7 +51,7 @@ export default function PaymentsPage() {
     try {
       await api.payments.create(form)
       setOpen(false)
-      setForm(blank)
+      setForm({ ...blank, currency: companyCurrency() })
       load()
     } catch (err: any) {
       setError(err.message || t('حدث خطأ', 'Something went wrong'))
@@ -148,7 +149,7 @@ export default function PaymentsPage() {
           </FormField>
 
           <div className="grid grid-cols-2 gap-3">
-            <FormField label={t('المبلغ (AED)', 'Amount (AED)')}>
+            <FormField label={t(`المبلغ (${companyCurrency()})`, `Amount (${companyCurrency()})`)}>
               <input type="number" min={0} required className={inputCls} value={form.amount} onChange={e => set('amount', +e.target.value)} />
             </FormField>
             <FormField label={t('تاريخ الاستحقاق', 'Due Date')}>

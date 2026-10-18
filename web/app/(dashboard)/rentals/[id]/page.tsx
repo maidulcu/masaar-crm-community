@@ -9,6 +9,7 @@ import { useAuthStore } from '@/store/auth'
 import { api } from '@/lib/api'
 import type { RentalProperty } from '@/types'
 import clsx from 'clsx'
+import { companyCurrency } from '@/lib/money'
 
 const EMIRATES = ['Abu Dhabi', 'Dubai', 'Sharjah', 'Ajman', 'Umm Al Quwain', 'Ras Al Khaimah', 'Fujairah']
 const PROPERTY_TYPES = ['apartment', 'villa', 'commercial', 'townhouse', 'studio', 'warehouse', 'land', 'office']
@@ -23,7 +24,7 @@ export default function RentalPropertyDetailPage() {
   const [property, setProperty] = useState<RentalProperty | null>(null)
   const [loading, setLoading] = useState(true)
   const [editOpen, setEditOpen] = useState(false)
-  const [form, setForm] = useState({ name: '', property_type: 'apartment', area: '', city: '', emirate: 'Dubai', street_address: '', building_number: '', unit_number: '', units_count: 1, bedrooms: 1, bathrooms: 1, total_sqft: 0, parking_spaces: 0, description: '', purchase_price: 0, market_value: 0, currency: 'AED', title_deed_number: '', municipality_registration: '' })
+  const [form, setForm] = useState({ name: '', property_type: 'apartment', area: '', city: '', emirate: 'Dubai', street_address: '', building_number: '', unit_number: '', units_count: 1, bedrooms: 1, bathrooms: 1, total_sqft: 0, parking_spaces: 0, description: '', purchase_price: 0, market_value: 0, currency: companyCurrency(), title_deed_number: '', municipality_registration: '' })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
@@ -61,12 +62,12 @@ export default function RentalPropertyDetailPage() {
 
   const handleDelete = async () => {
     if (!confirm(t('حذف هذا العقار؟', 'Delete this property? This cannot be undone.'))) return
-    try { await api.rentalProperties.delete(id); router.push('/rentals') } catch {}
+    try { await api.rentalProperties.delete(id); router.push('/rentals') } catch (err) { alert((err as Error).message || t('فشل الحذف', 'Delete failed')) } // e.g. 409: has leases/expenses
   }
 
   const set = (k: string, v: unknown) => setForm(f => ({ ...f, [k]: v }))
 
-  const fmtAmount = (v: number) => `${property?.currency || 'AED'} ${v.toLocaleString()}`
+  const fmtAmount = (v: number) => `${property?.currency || companyCurrency()} ${v.toLocaleString()}`
   const inputCls = 'w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-500'
   const labelCls = 'block text-xs font-medium text-gray-600 mb-1'
 

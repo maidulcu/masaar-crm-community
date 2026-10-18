@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"math"
 	"os"
 	"time"
 
@@ -300,13 +301,30 @@ func main() {
 		{id("inv", "4"), deals[3].ID, "INV-2026-004", 523809.52, 0.05, "draft", now},
 	}
 	for _, inv := range invoices {
+		vat := math.Round(inv.Subtotal*inv.VATRate*100) / 100
 		exec(ctx, pool, `
-			INSERT INTO vat_invoices (id,deal_id,invoice_no,subtotal,vat_rate,status,issued_at,company_id)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+			INSERT INTO vat_invoices (id,deal_id,invoice_no,subtotal,vat_rate,vat_amount,total,status,issued_at,company_id,
+				currency,supplier_name,supplier_address,customer_name)
+			SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'AED',s.name,s.business_address,COALESCE(c.full_name,'')
+			  FROM deals d
+			  JOIN leads l ON l.id = d.lead_id
+			  JOIN contacts c ON c.id = l.contact_id
+			  LEFT JOIN company_settings s ON s.company_id = $10
+			 WHERE d.id = $2
 			ON CONFLICT (company_id, invoice_no) DO NOTHING
-		`, inv.ID, inv.DealID, inv.InvNo, inv.Subtotal, inv.VATRate, inv.Status, inv.IssuedAt, companyID)
+		`, inv.ID, inv.DealID, inv.InvNo, inv.Subtotal, inv.VATRate, vat, inv.Subtotal+vat, inv.Status, inv.IssuedAt, companyID)
+		exec(ctx, pool, `
+			INSERT INTO vat_invoice_lines (invoice_id,company_id,position,description,quantity,unit_price,vat_category,vat_rate,net_amount,vat_amount)
+			SELECT $1,$2,1,'Agency commission',1,$3,'standard',$4,$3,$5
+			ON CONFLICT (invoice_id, position) DO NOTHING
+		`, inv.ID, companyID, inv.Subtotal, inv.VATRate, vat)
 		logged("Invoice", fmt.Sprintf("%s (%s)", inv.InvNo, inv.Status))
 	}
+	// New invoices continue after the seeded numbers.
+	exec(ctx, pool, `
+		INSERT INTO invoice_sequences (company_id, kind, year, last_no) VALUES ($1, 'invoice', 2026, $2)
+		ON CONFLICT (company_id, kind, year) DO UPDATE SET last_no = GREATEST(invoice_sequences.last_no, EXCLUDED.last_no)
+	`, companyID, len(invoices))
 
 	// ══════════════════════════════════════════════════════════════════════════
 	//  11. WHATSAPP THREADS + MESSAGES
@@ -471,7 +489,7 @@ func main() {
 		exec(ctx, pool, `
 			INSERT INTO tenants (id,company_id,full_name_en,full_name_ar,email,phone,phone_wa,id_type,id_number,nationality,status,is_verified,verification_status,created_by)
 			VALUES ($1,$2,$3,$4,$5,$6,$7,'Emirates ID','784-'||$8,$9,$10,true,'verified',$11)
-			ON CONFLICT (id_number) DO NOTHING
+			ON CONFLICT (company_id, id_number) WHERE id_number IS NOT NULL AND id_number <> '' DO NOTHING
 		`, t.ID, companyID, t.NameEN, t.NameAR, t.Email, t.Phone, t.PhoneWA,
 			t.ID.String()[:8], t.Nationality, t.Status, users[0].ID)
 		logged("Tenant", fmt.Sprintf("%s / %s", t.NameEN, t.NameAR))
@@ -1056,7 +1074,7 @@ func main() {
 		exec(ctx, pool, `
 			INSERT INTO bank_transactions (id,company_id,bank_integration_id,external_id,transaction_date,amount,currency,from_name,to_name,reference,transaction_type,status)
 			VALUES ($1,$2,$3,$4,$5,$6,'AED',$7,$8,$9,'credit','posted')
-			ON CONFLICT (external_id) DO NOTHING
+			ON CONFLICT (company_id, external_id) WHERE external_id IS NOT NULL AND external_id <> '' DO NOTHING
 		`, t.id, companyID, bankID, "ext-"+t.id.String(), t.date, t.amount, t.fromName, t.toName, t.ref)
 		logged("BankTransaction", fmt.Sprintf("AED %.0f from %s", t.amount, t.fromName))
 	}

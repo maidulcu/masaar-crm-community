@@ -6,6 +6,7 @@ import { useLang } from '@/context/LangContext'
 import { useRouter } from 'next/navigation'
 import { api } from '@/lib/api'
 import type { ApprovalConfig } from '@/types'
+import { companyCurrency } from '@/lib/money'
 
 export default function ApprovalSettingsPage() {
   const { user, company } = useAuthStore()
@@ -92,7 +93,7 @@ export default function ApprovalSettingsPage() {
                   <span className="text-gray-400 font-normal ml-1">({t('0 = لا يوجد حد', '0 = no threshold')})</span>
                 </label>
                 <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-gray-400">AED</span>
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-gray-400">{companyCurrency()}</span>
                   <input type="number" min={0} step={1000} value={config.deal_approval_above}
                     onChange={e => setConfig(s => ({ ...s, deal_approval_above: parseFloat(e.target.value) || 0 }))}
                     disabled={isDemo}
@@ -110,7 +111,7 @@ export default function ApprovalSettingsPage() {
                   <span className="text-gray-400 font-normal ml-1">({t('0 = لا يوجد حد', '0 = no threshold')})</span>
                 </label>
                 <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-gray-400">AED</span>
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-gray-400">{companyCurrency()}</span>
                   <input type="number" min={0} step={1000} value={config.offer_approval_above}
                     onChange={e => setConfig(s => ({ ...s, offer_approval_above: parseFloat(e.target.value) || 0 }))}
                     disabled={isDemo}

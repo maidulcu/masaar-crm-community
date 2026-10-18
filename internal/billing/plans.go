@@ -10,7 +10,7 @@ const (
 
 // Quotas defines monthly limits for a plan. -1 means unlimited, 0 means blocked.
 type Quotas struct {
-	BOS24Monthly int // BuyOrSell24 API calls per month
+	BOS24Monthly int // Waqov data API calls per month
 	AIMonthly    int // AI (Gemini/Ollama) requests per month
 	PDFMonthly   int // PDF report exports per month
 	AIUserDaily  int // per-user daily AI cap (prevents one agent draining quota)

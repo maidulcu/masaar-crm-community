@@ -9,6 +9,7 @@ import { useAuthStore } from '@/store/auth'
 import { api } from '@/lib/api'
 import type { Tenant } from '@/types'
 import clsx from 'clsx'
+import { companyCurrency } from '@/lib/money'
 
 const statusColor: Record<string, string> = {
   active: 'bg-green-100 text-green-700',
@@ -57,7 +58,7 @@ export default function TenantDetailPage() {
   }
 
   const fmtDate = (d: string | null) => d ? new Date(d).toLocaleDateString(lang === 'ar' ? 'ar-AE' : 'en-AE', { year: 'numeric', month: 'short', day: 'numeric' }) : '—'
-  const fmtAmount = (v: number) => v ? `AED ${v.toLocaleString()}` : '—'
+  const fmtAmount = (v: number) => v ? `${companyCurrency()} ${v.toLocaleString()}` : '—'
 
   if (loading) return <div className="flex-1 flex items-center justify-center text-gray-400 text-sm">{t('جاري التحميل...', 'Loading...')}</div>
   if (!tenant) return <div className="flex-1 flex items-center justify-center text-gray-400 text-sm">{t('غير موجود', 'Tenant not found')}</div>

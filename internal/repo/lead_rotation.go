@@ -36,7 +36,9 @@ func (r *LeadRotationRepo) GetSettings(ctx context.Context, companyID uuid.UUID)
 	return s, nil
 }
 
-// SaveSettings upserts the rotation configuration for a company.
+// SaveSettings upserts the rotation configuration for a company. The rotation counter is only
+// ever advanced by AdvanceRotationIndex: writing back the value read earlier by a PATCH would
+// roll it back when leads were assigned in between.
 func (r *LeadRotationRepo) SaveSettings(ctx context.Context, s *domain.LeadRotationSettings) error {
 	const q = `
 		INSERT INTO lead_rotation_settings (id, company_id, mode, enabled, rotation_index, max_per_agent, updated_at)
@@ -44,7 +46,6 @@ func (r *LeadRotationRepo) SaveSettings(ctx context.Context, s *domain.LeadRotat
 		ON CONFLICT (company_id) DO UPDATE SET
 			mode           = EXCLUDED.mode,
 			enabled        = EXCLUDED.enabled,
-			rotation_index = EXCLUDED.rotation_index,
 			max_per_agent  = EXCLUDED.max_per_agent,
 			updated_at     = NOW()
 	`
