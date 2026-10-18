@@ -489,7 +489,7 @@ func main() {
 		exec(ctx, pool, `
 			INSERT INTO tenants (id,company_id,full_name_en,full_name_ar,email,phone,phone_wa,id_type,id_number,nationality,status,is_verified,verification_status,created_by)
 			VALUES ($1,$2,$3,$4,$5,$6,$7,'Emirates ID','784-'||$8,$9,$10,true,'verified',$11)
-			ON CONFLICT (id_number) DO NOTHING
+			ON CONFLICT (company_id, id_number) WHERE id_number IS NOT NULL AND id_number <> '' DO NOTHING
 		`, t.ID, companyID, t.NameEN, t.NameAR, t.Email, t.Phone, t.PhoneWA,
 			t.ID.String()[:8], t.Nationality, t.Status, users[0].ID)
 		logged("Tenant", fmt.Sprintf("%s / %s", t.NameEN, t.NameAR))
@@ -1074,7 +1074,7 @@ func main() {
 		exec(ctx, pool, `
 			INSERT INTO bank_transactions (id,company_id,bank_integration_id,external_id,transaction_date,amount,currency,from_name,to_name,reference,transaction_type,status)
 			VALUES ($1,$2,$3,$4,$5,$6,'AED',$7,$8,$9,'credit','posted')
-			ON CONFLICT (external_id) DO NOTHING
+			ON CONFLICT (company_id, external_id) WHERE external_id IS NOT NULL AND external_id <> '' DO NOTHING
 		`, t.id, companyID, bankID, "ext-"+t.id.String(), t.date, t.amount, t.fromName, t.toName, t.ref)
 		logged("BankTransaction", fmt.Sprintf("AED %.0f from %s", t.amount, t.fromName))
 	}

@@ -20,7 +20,7 @@ import (
 type InvoiceRepository interface {
 	Issue(ctx context.Context, inv *domain.VATInvoice) error
 	GetByID(ctx context.Context, id uuid.UUID) (*domain.VATInvoice, error)
-	ListAll(ctx context.Context, page, limit int) ([]domain.VATInvoice, int, error)
+	ListAll(ctx context.Context, page, limit int, status domain.InvoiceStatus) ([]domain.VATInvoice, int, error)
 	ListCreditNotes(ctx context.Context, invoiceID uuid.UUID) ([]domain.VATInvoice, error)
 	UpdateStatus(ctx context.Context, id uuid.UUID, status domain.InvoiceStatus, voidReason string) error
 }
@@ -68,7 +68,13 @@ func NewInvoiceHandler(invoices InvoiceRepository, deals DealRepository, company
 // @Router       /invoices [get]
 func (h *InvoiceHandler) List(c *fiber.Ctx) error {
 	page, limit := pageParams(c, 50, 100)
-	invoices, total, err := h.invoices.ListAll(c.Context(), page, limit)
+	status := domain.InvoiceStatus(c.Query("status"))
+	switch status {
+	case "", domain.InvoiceDraft, domain.InvoiceSent, domain.InvoicePaid, domain.InvoiceVoid:
+	default:
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid status"})
+	}
+	invoices, total, err := h.invoices.ListAll(c.Context(), page, limit, status)
 	if err != nil {
 		return serverError(c, err)
 	}

@@ -250,12 +250,12 @@ func main() {
 		Payment:             handler.NewPaymentHandler(paymentRepo),
 		BankIntegration:     handler.NewBankIntegrationHandler(bankIntegrationRepo),
 		BankStatement:       handler.NewBankStatementHandler(bankStatementRepo, bankStatementStore, cfg.BankStatementMaxMB),
-		PaymentConfirmation: handler.NewPaymentConfirmationHandler(paymentConfirmationRepo, confirmationSvc),
+		PaymentConfirmation: handler.NewPaymentConfirmationHandler(paymentConfirmationRepo, paymentRepo, confirmationSvc),
 		Analytics:           handler.NewAnalyticsHandler(analyticsRepo),
 		Expense:             handler.NewExpenseHandler(expenseRepo),
 		Inspection:          handler.NewInspectionHandler(inspectionTemplateRepo, inspectionRepo),
 		Maintenance:         handler.NewMaintenanceTaskHandler(maintenanceRepo),
-		LeaseRenewal:        handler.NewLeaseRenewalHandler(leaseRenewalRepo, renewalTemplateRepo, renewalLogRepo),
+		LeaseRenewal:        handler.NewLeaseRenewalHandler(leaseRenewalRepo, renewalTemplateRepo, renewalLogRepo, leaseRepo),
 		Document:            handler.NewDocumentHandler(documentRepo, auditRepo, dsClient).UseRera(reraRepo),
 		ApiKey:              handler.NewApiKeyHandler(apiKeyRepo),
 		PublicLead:          handler.NewPublicLeadHandler(contactRepo, leadRepo, auditRepo, dispatcher).UsePrivacy(privacyRepo),
@@ -288,6 +288,12 @@ func main() {
 		Portal: handler.NewPortalHandler(repo.NewPortalRepo(pool), contactRepo, leadRepo, listingRepo, userRepo, companySettingsRepo,
 			dispatcher, leadRotation.AssignNewLead, cfg.PublicAPIURL, cfg.AppURL),
 	}
+	// Leads created through the API, the public intake endpoint, imports and AI auto-create are
+	// handed to an agent when lead rotation is enabled (before this, enabling it did nothing).
+	h.Lead.SetAssigner(h.LeadRotation)
+	h.PublicLead.SetAssigner(h.LeadRotation)
+	h.ImportExport.SetAssigner(h.LeadRotation)
+	h.Message.SetAssigner(h.LeadRotation)
 	if cfg.DocusignWebhookSecret != "" {
 		h.DocusignWebhook = handler.NewDocusignWebhookHandler(documentRepo, cfg.DocusignWebhookSecret)
 	}
