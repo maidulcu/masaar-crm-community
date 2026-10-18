@@ -176,6 +176,7 @@ Foundations for the UAE-launch roadmap (#82, milestone #83). Includes migrations
 - New leads can no longer be created with source `bos24` (existing ones keep it).
 - **Not changed yet:** the market-data endpoints (`/api/v1/properties/*`, Properties and Map pages) still run on the stub client and answer `503`; a dldapi client will replace it.
 - **README** corrected: Go 1.26, Docker Compose instead of "single binary", the market-data section describes the stub, no "resets every 24 hours" or "immutable" claims.
+- **Removed `scripts/publish-community.sh`.** It exported a private tree into this repo with `rsync --delete`, which would now overwrite work done here. This repo is developed directly.
 
 ### Lead intake hardening (`POST /webhooks/leads`)
 - **Idempotent pushes.** Optional `external_source` + `external_ref` identify a lead in the system that sends it. The same pair again returns the existing lead (`200`, `"duplicate": true`) instead of creating a second one, so a sender can retry safely. Unique per company. Adds migration `0079`.
