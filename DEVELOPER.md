@@ -109,6 +109,18 @@ JWT payload includes `role` claim. Role enforcement happens per-endpoint in the 
 
 ---
 
+## OpenAPI
+
+The API is described by an **OpenAPI 3.1** document, served without authentication at:
+
+```
+GET /openapi.json
+```
+
+Import it into Postman, Insomnia, Zapier, Make or an OpenAPI code generator. It covers the documented `/api/v1` routes, the public routes and the lead intake. Session routes use `BearerAuth` (JWT); routes open to API keys also list `ApiKeyAuth` with the scope they need (also in `x-api-key-scope`), document the `Idempotency-Key` header on writes and the RFC 9457 `Problem` error body. `servers` is relative (`/`), so paths resolve against the host you fetched the document from.
+
+The document is generated from the swag annotations on the handlers (`scripts/openapi.sh`) and checked against the router in CI. The Swagger UI at `/docs` shows the same annotations in Swagger 2.0 form (in production only behind `DOCS_PASSWORD`).
+
 ## API Keys
 
 For external integrations (website forms, Zapier, automation tools) that can't go through the user login flow, use API keys.

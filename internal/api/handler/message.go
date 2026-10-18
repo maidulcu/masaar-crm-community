@@ -105,7 +105,7 @@ func (h *MessageHandler) AnalyzeMessage(c *fiber.Ctx) error {
 // @Accept json
 // @Produce json
 // @Param request body SuggestActionRequest true "Message and context"
-// @Success 200 {object} SuggestActionResponse
+// @Success 200 {object} map[string]interface{}
 // @Failure 400 {object} map[string]string
 // @Failure 503 {object} map[string]string
 // @Router /api/v1/messages/suggest-action [post]

@@ -412,7 +412,7 @@ func (h *InvoiceHandler) UpdateStatus(c *fiber.Ctx) error {
 // @Summary      Download invoice as PDF
 // @Description  PDF generation is part of the Pro edition. In the community edition use the printable invoice page in the web app (Invoices → Print).
 // @Tags         Invoices
-// @Produce      pdf
+// @Produce      application/pdf
 // @Param        id  path  string  true  "Invoice UUID"
 // @Success      200  {file}  application/pdf
 // @Failure      404  {object}  object{error=string}

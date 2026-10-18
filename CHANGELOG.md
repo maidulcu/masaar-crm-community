@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [v0.4.0] - Unreleased
 
+### OpenAPI 3.1 at `/openapi.json` (integration standards, step 2)
+
+- **`GET /openapi.json`** serves an OpenAPI 3.1 description of the API, without authentication, for Postman, Zapier, Make and code generators. It documents 349 operations, each with an `operationId`; API-key routes list their scope (`ApiKeyAuth`, `x-api-key-scope`), `Idempotency-Key` and the RFC 9457 `Problem` body. It passes the Redocly linter.
+- **Generated, not hand-written:** `scripts/openapi.sh` runs swag (pinned v1.16.6) on the handler annotations, then `cmd/openapi` converts the Swagger 2.0 output to 3.1, checked against the live router: annotations written with or without the `/api/v1` prefix resolve to the real path, the session scheme is named consistently, public routes are marked public.
+- **The Swagger docs were regenerated** for the first time since the first release (27 operations → 349); `/docs` now shows the current API. A few annotations that stopped generation were fixed.
+- **CI** fails when `docs/` is stale; `TestOpenAPIMatchesRouter` fails on an annotation for a route that does not exist, or when the number of undocumented routes (56 today: commissions, offers, viewings, performance, import/export, billing) grows.
+- CORS allows the `Idempotency-Key` header.
+
 ### Market data works: client for the Waqov DLD data API (build plan PR 8)
 
 - **`internal/bos24` is now a real client** for the Waqov real-estate data API ([OpenAPI spec](https://dldapi.waqov.com/openapi.json)), replacing the stub. The Properties and Map pages and the 47 `/api/v1/properties/*` endpoints work once `BOS24_API_TOKEN` is set; without it they still answer `503`.

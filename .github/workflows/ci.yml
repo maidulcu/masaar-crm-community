@@ -51,6 +51,11 @@ jobs:
       - name: Build server binary
         run: go build -o /dev/null ./cmd/server
       - run: go test ./...
+      - name: API docs up to date
+        # Regenerates docs/ from the handler annotations; fails if the committed files differ.
+        run: |
+          scripts/openapi.sh
+          git diff --exit-code -- docs/ || { echo "Run scripts/openapi.sh and commit docs/"; exit 1; }
       - name: Vulnerability scan
         run: |
           go install golang.org/x/vuln/cmd/govulncheck@latest

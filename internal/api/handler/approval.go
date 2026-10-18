@@ -90,7 +90,7 @@ func (h *ApprovalHandler) SaveConfig(c *fiber.Ctx) error {
 // @Param        entity_type  query  string  false  "Filter by entity (listing, deal, offer)"
 // @Param        page         query  int     false  "Page number"
 // @Param        limit        query  int     false  "Items per page"
-// @Success      200  {object}  repo.PaginatedResult{data=[]domain.ApprovalRequest}
+// @Success      200  {object}  domain.PaginatedResult[domain.ApprovalRequest]
 // @Security     BearerAuth
 // @Router       /approval-requests [get]
 func (h *ApprovalHandler) ListRequests(c *fiber.Ctx) error {
