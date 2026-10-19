@@ -52,9 +52,9 @@ func TestAzureServiceSSRFBlocked(t *testing.T) {
 	svc := NewAzureService("http://127.0.0.1:8080", key, "DoNotReply@example.com")
 
 	email := &domain.EmailHistory{
-		ToEmail:  "user@example.com",
-		Subject:  "Test",
-		Body:     "Test",
+		ToEmail: "user@example.com",
+		Subject: "Test",
+		Body:    "Test",
 	}
 
 	err := svc.SendWithContext(context.Background(), email)
