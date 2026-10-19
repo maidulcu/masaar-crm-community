@@ -101,7 +101,7 @@ func (h *EmailHandler) SendEmail(c *fiber.Ctx) error {
 	}
 
 	// Attempt to send
-	err = h.emailService.Send(emailHist)
+	err = h.emailService.SendWithContext(c.Context(), emailHist)
 	if err != nil {
 		// Update status to failed
 		h.emailRepo.UpdateStatus(c.Context(), emailHist.ID, domain.EmailFailed, err.Error())
