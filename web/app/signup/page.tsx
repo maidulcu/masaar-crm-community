@@ -10,6 +10,9 @@ import api from '@/lib/api'
 import type { LoginResponse } from '@/types'
 
 const TURNSTILE_SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? ''
+const SIGNUP_ENABLED = process.env.NEXT_PUBLIC_SIGNUP_ENABLED !== 'false'
+const PROVIDER_NAME = process.env.NEXT_PUBLIC_ACCOUNT_PROVIDER_NAME ?? ''
+const PROVIDER_URL = process.env.NEXT_PUBLIC_ACCOUNT_PROVIDER_URL ?? ''
 
 export default function SignupPage() {
   const { setSession } = useAuthStore()
@@ -62,6 +65,33 @@ export default function SignupPage() {
     } finally {
       setLoading(false)
     }
+  }
+
+
+  if (!SIGNUP_ENABLED) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-blue-50 flex items-center justify-center p-4">
+        <div className="w-full max-w-md text-center bg-white rounded-2xl shadow-xl border border-gray-100 p-8 space-y-4">
+          <h1 className="text-2xl font-bold text-gray-900">Masaar CRM</h1>
+          <p className="text-gray-600 text-sm" dir="ltr">
+            {PROVIDER_NAME
+              ? `Masaar CRM is included with ${PROVIDER_NAME} plans, and your account is created there. Open it from your ${PROVIDER_NAME} dashboard.`
+              : 'Sign-up is closed on this instance. Accounts are created for you by your provider.'}
+          </p>
+          <p className="text-gray-600 text-sm" dir="rtl">
+            {PROVIDER_NAME
+              ? `مسار CRM متاح مع اشتراكات ${PROVIDER_NAME}، ويتم إنشاء حسابك هناك. افتحه من لوحة ${PROVIDER_NAME}.`
+              : 'التسجيل مغلق في هذه النسخة. يتم إنشاء الحسابات من قبل مزود الخدمة.'}
+          </p>
+          <div className="flex justify-center gap-4 text-sm font-medium">
+            {PROVIDER_NAME && PROVIDER_URL && (
+              <a href={PROVIDER_URL} className="text-blue-600 hover:text-blue-700">{`Go to ${PROVIDER_NAME}`}</a>
+            )}
+            <Link href="/login" className="text-blue-600 hover:text-blue-700">Sign in · تسجيل الدخول</Link>
+          </div>
+        </div>
+      </div>
+    )
   }
 
   return (

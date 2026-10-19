@@ -9,14 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [v0.4.0] - Unreleased
 
-### Partner API: provision companies, users, seats and one-click logins (integration standards, step 4a) — migration `0083`
+### Sign-up can be hidden in the web app
 
-- **OAuth 2.0 client credentials** (`POST /oauth/token`, RFC 6749 §4.4) for partner clients configured in `PARTNER_CLIENTS` (client id + SHA-256 of the secret), with revocation (`POST /oauth/revoke`, RFC 7009) and metadata (`GET /.well-known/oauth-authorization-server`, RFC 8414). Tokens (`mpt_…`) last one hour and are stored hashed.
-- **`/partner/v1`**: `PUT /companies/{ref}` creates a company with its first admin and a `lead:create` API key (or updates name, plan, seats, active); `PUT /companies/{ref}/users/{user_ref}` keeps users in step; `POST …/api-keys`; `POST …/users/{user_ref}/login-link` returns a single-use, two-minute login URL (the magic-link mechanism). Keyed by the partner's own references, so calls can be retried; a partner sees only its own companies.
-- **Seats**: `companies.max_users`, enforced by a database trigger on every path (partner, admin screens, invitations) under a company row lock; going beyond it answers `409 seat_limit`. Deactivating or demoting a user through the partner ends their current sessions.
-- **Suspension**: `active: false` turns the company off; its users, API keys and login links are refused.
-- Migration `0083`: `companies.external_source/external_ref/max_users`, `users.external_ref`, `partner_tokens`, `audit_logs.partner_client_id` (partner actions are audited under the client id). The down migration removes only that metadata and the tokens.
-- Documented in DEVELOPER.md (Partner API) and in `/openapi.json` (`PartnerAuth`, OAuth 2.0 client credentials with scopes).
+- **`NEXT_PUBLIC_SIGNUP_ENABLED=false`** (build time) hides the sign-up links on the login page and makes `/signup` say registration is closed, for instances whose accounts are created elsewhere (pair it with `ALLOW_REGISTRATION=false`, the API default). Defaults to `true`; nothing changes otherwise.
+- Optional **`NEXT_PUBLIC_ACCOUNT_PROVIDER_NAME`** / **`NEXT_PUBLIC_ACCOUNT_PROVIDER_URL`**: with sign-up off, the login page and `/signup` tell visitors that accounts come from that service and link to it.
 
 ### Outbound webhooks signed per Standard Webhooks (integration standards, step 3)
 
