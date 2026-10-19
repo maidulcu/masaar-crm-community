@@ -2,6 +2,7 @@ package email
 
 import (
 	"bytes"
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
@@ -14,6 +15,7 @@ import (
 	"time"
 
 	"github.com/maidulcu/masaar-crm/internal/domain"
+	"github.com/maidulcu/masaar-crm/internal/safehttp"
 )
 
 type AzureService struct {
@@ -32,7 +34,7 @@ func NewAzureService(endpoint, key, fromAddress string) *AzureService {
 		endpoint:    strings.TrimRight(endpoint, "/"),
 		key:         decoded,
 		fromAddress: fromAddress,
-		client:      &http.Client{Timeout: 30 * time.Second},
+		client:      safehttp.NewClient(30 * time.Second), // protects against SSRF to internal/cloud metadata addresses
 	}
 }
 
@@ -62,6 +64,10 @@ func (s *AzureService) IsConfigured() bool {
 }
 
 func (s *AzureService) Send(email *domain.EmailHistory) error {
+	return s.SendWithContext(context.Background(), email)
+}
+
+func (s *AzureService) SendWithContext(ctx context.Context, email *domain.EmailHistory) error {
 	if !s.IsConfigured() {
 		return fmt.Errorf("azure email service not configured")
 	}
@@ -86,7 +92,7 @@ func (s *AzureService) Send(email *domain.EmailHistory) error {
 	}
 
 	reqURL := s.endpoint + "/emails:send?api-version=2023-03-31"
-	req, err := http.NewRequest("POST", reqURL, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, "POST", reqURL, bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("azure create request: %w", err)
 	}

@@ -2,6 +2,7 @@ package email
 
 import (
 	"bytes"
+	"context"
 	"crypto/tls"
 	"errors"
 	"fmt"
@@ -59,8 +60,12 @@ func (s *Service) IsConfigured() bool {
 }
 
 func (s *Service) Send(email *domain.EmailHistory) error {
+	return s.SendWithContext(context.Background(), email)
+}
+
+func (s *Service) SendWithContext(ctx context.Context, email *domain.EmailHistory) error {
 	if s.azureSvc != nil {
-		return s.azureSvc.Send(email)
+		return s.azureSvc.SendWithContext(ctx, email)
 	}
 	return s.sendSMTP(email)
 }
