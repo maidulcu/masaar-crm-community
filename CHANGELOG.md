@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [v0.4.0] - Unreleased
 
+### Fixed: new companies had an empty pipeline
+
+- Companies created after the custom pipeline stages were added (sign-up, Partner API) had no stages, so the Pipeline page drew no columns even though their leads were stored. Listing stages now gives a company the default six (`new` … `lost`) the first time it has none, for leads and deals. No migration; existing companies are unaffected.
+
 ### Sign-up can be hidden in the web app
 
 - **`NEXT_PUBLIC_SIGNUP_ENABLED=false`** (build time) hides the sign-up links on the login page and makes `/signup` say registration is closed, for instances whose accounts are created elsewhere (pair it with `ALLOW_REGISTRATION=false`, the API default). Defaults to `true`; nothing changes otherwise.
