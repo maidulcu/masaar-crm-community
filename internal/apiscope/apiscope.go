@@ -19,6 +19,18 @@ const (
 	WebhooksManage = "webhooks:manage"
 )
 
+// Partner scopes, held by partner clients (PARTNER_CLIENTS) rather than API keys.
+const (
+	PartnerProvision = "partner:provision" // create and update companies, users and their API keys
+	PartnerLogin     = "partner:login"     // create one-click login links for provisioned users
+)
+
+// PartnerScopes lists the partner scopes with what each allows.
+var PartnerScopes = map[string]string{
+	PartnerProvision: "Create and update companies, their users and API keys",
+	PartnerLogin:     "Create one-click login links for users of provisioned companies",
+}
+
 // Known lists every scope a new key may be given, with what it allows.
 var Known = map[string]string{
 	LeadCreate:     "Submit leads to POST /webhooks/leads",

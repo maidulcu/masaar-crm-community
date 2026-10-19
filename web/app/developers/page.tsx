@@ -462,6 +462,7 @@ Authorization: Bearer <jwt>
                     ['GEMINI_API_KEY', 'Gemini', '—', 'Google AI API key'],
                     ['GEMINI_MODEL', '—', 'gemini-2.0-flash', 'Google Gemini model name'],
                     ['BOS24_API_TOKEN', 'Real estate', '—', 'Waqov data API token'],
+                    ['PARTNER_CLIENTS', 'Partner API', '—', 'client_id:sha256(secret)[:scopes], comma-separated'],
                     ['SMTP_HOST', 'Email', '—', 'SMTP server hostname'],
                     ['SMTP_USER', 'Email', '—', 'SMTP username'],
                     ['SMTP_PASSWORD', 'Email', '—', 'SMTP password'],

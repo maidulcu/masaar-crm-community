@@ -2961,6 +2961,42 @@ definitions:
         description: RentReminders is the tenant's choice to receive rent reminders.
         type: boolean
     type: object
+  repo.PartnerCompany:
+    properties:
+      active:
+        type: boolean
+      active_users:
+        type: integer
+      created_at:
+        type: string
+      external_ref:
+        type: string
+      id:
+        type: string
+      max_users:
+        type: integer
+      name:
+        type: string
+      plan:
+        type: string
+    type: object
+  repo.PartnerUser:
+    properties:
+      active:
+        type: boolean
+      email:
+        type: string
+      external_ref:
+        type: string
+      id:
+        type: string
+      lang_pref:
+        type: string
+      name:
+        type: string
+      role:
+        $ref: '#/definitions/domain.Role'
+    type: object
   repo.PortalConnection:
     properties:
       created_at:
@@ -3128,6 +3164,19 @@ info:
   title: Masaar CRM API
   version: "1.0"
 paths:
+  /.well-known/oauth-authorization-server:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      summary: OAuth 2.0 authorization server metadata (RFC 8414)
+      tags:
+      - OAuth
   /api/public/feeds/{portal}/listings.xml:
     get:
       description: Published listings as XML (format "masaar-listings/1"). Listings
@@ -9617,6 +9666,91 @@ paths:
       summary: Mark all notifications read
       tags:
       - Notifications
+  /oauth/revoke:
+    post:
+      consumes:
+      - application/x-www-form-urlencoded
+      description: Revokes a token issued to the authenticating client. Answers 200
+        whether or not the token was known.
+      parameters:
+      - description: The access token
+        in: formData
+        name: token
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+        "401":
+          description: Unauthorized
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
+      summary: Revoke an access token (RFC 7009)
+      tags:
+      - OAuth
+  /oauth/token:
+    post:
+      consumes:
+      - application/x-www-form-urlencoded
+      description: Client credentials grant for partner clients. Authenticate with
+        HTTP Basic (client_id:client_secret) or client_id and client_secret in the
+        form. Returns a Bearer token for the Partner API, valid one hour.
+      parameters:
+      - description: client_credentials
+        in: formData
+        name: grant_type
+        required: true
+        type: string
+      - description: 'Space-separated scopes (default: all the client holds)'
+        in: formData
+        name: scope
+        type: string
+      - description: With client_secret, when not using HTTP Basic
+        in: formData
+        name: client_id
+        type: string
+      - description: With client_id, when not using HTTP Basic
+        in: formData
+        name: client_secret
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            properties:
+              access_token:
+                type: string
+              expires_in:
+                type: integer
+              scope:
+                type: string
+              token_type:
+                type: string
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            properties:
+              error:
+                type: string
+              error_description:
+                type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
+      summary: Get an access token (OAuth 2.0)
+      tags:
+      - OAuth
   /organisations:
     get:
       parameters:
@@ -9781,6 +9915,257 @@ paths:
       summary: Remove a beneficial owner
       tags:
       - KYC
+  /partner/v1/companies/{ref}:
+    get:
+      parameters:
+      - description: Your reference for the company
+        in: path
+        name: ref
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/repo.PartnerCompany'
+        "404":
+          description: Not Found
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
+      security:
+      - PartnerAuth: []
+      summary: Get a provisioned company
+      tags:
+      - Partner
+    put:
+      consumes:
+      - application/json
+      description: 'Creates the company with your reference, its first admin and an
+        API key for POST /webhooks/leads (returned once, on creation only), or updates
+        name, plan, seats and active status. Setting active to false suspends the
+        company: its users and keys are refused until it is reactivated.'
+      parameters:
+      - description: Your reference for the company
+        in: path
+        name: ref
+        required: true
+        type: string
+      - description: admin is required on creation
+        in: body
+        name: body
+        required: true
+        schema:
+          properties:
+            active:
+              type: boolean
+            admin:
+              properties:
+                email:
+                  type: string
+                lang_pref:
+                  type: string
+                name:
+                  type: string
+                ref:
+                  type: string
+              type: object
+            max_users:
+              type: integer
+            name:
+              type: string
+            plan:
+              type: string
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            properties:
+              company:
+                $ref: '#/definitions/repo.PartnerCompany'
+            type: object
+        "201":
+          description: Created
+          schema:
+            properties:
+              admin:
+                $ref: '#/definitions/repo.PartnerUser'
+              company:
+                $ref: '#/definitions/repo.PartnerCompany'
+              lead_api_key:
+                type: string
+            type: object
+        "409":
+          description: Conflict
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
+        "422":
+          description: Unprocessable Entity
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
+      security:
+      - PartnerAuth: []
+      summary: Create or update a company
+      tags:
+      - Partner
+  /partner/v1/companies/{ref}/api-keys:
+    post:
+      description: A new key with lead:create for POST /webhooks/leads, shown once.
+        Older keys keep working until the company's admin revokes them.
+      parameters:
+      - description: Your reference for the company
+        in: path
+        name: ref
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            properties:
+              lead_api_key:
+                type: string
+            type: object
+      security:
+      - PartnerAuth: []
+      summary: Create an API key for a company
+      tags:
+      - Partner
+  /partner/v1/companies/{ref}/users/{user_ref}:
+    put:
+      consumes:
+      - application/json
+      description: Creates the user with your reference in the company, or updates
+        name, role, language and active status. Creating or reactivating a user fails
+        with 409 seat_limit when the company has max_users active users.
+      parameters:
+      - description: Your reference for the company
+        in: path
+        name: ref
+        required: true
+        type: string
+      - description: Your reference for the user
+        in: path
+        name: user_ref
+        required: true
+        type: string
+      - description: email is required on creation; role admin, agent (default) or
+          viewer
+        in: body
+        name: body
+        required: true
+        schema:
+          properties:
+            active:
+              type: boolean
+            email:
+              type: string
+            lang_pref:
+              type: string
+            name:
+              type: string
+            role:
+              type: string
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            properties:
+              user:
+                $ref: '#/definitions/repo.PartnerUser'
+            type: object
+        "201":
+          description: Created
+          schema:
+            properties:
+              user:
+                $ref: '#/definitions/repo.PartnerUser'
+            type: object
+        "409":
+          description: Conflict
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
+        "422":
+          description: Unprocessable Entity
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
+      security:
+      - PartnerAuth: []
+      summary: Create or update a user
+      tags:
+      - Partner
+  /partner/v1/companies/{ref}/users/{user_ref}/login-link:
+    post:
+      description: A single-use link that signs the user in to the CRM, valid two
+        minutes. Open it in the user's browser right away (e.g. redirect to it); do
+        not email it. Two-factor authentication still applies if the user turned it
+        on.
+      parameters:
+      - description: Your reference for the company
+        in: path
+        name: ref
+        required: true
+        type: string
+      - description: Your reference for the user
+        in: path
+        name: user_ref
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            properties:
+              expires_in:
+                type: integer
+              url:
+                type: string
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
+      security:
+      - PartnerAuth: []
+      summary: Create a one-click login link
+      tags:
+      - Partner
   /payments:
     get:
       description: Returns a paginated list of payments for the company.

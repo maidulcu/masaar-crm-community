@@ -394,3 +394,16 @@ func (r *UserRepo) SetBRN(ctx context.Context, companyID, id uuid.UUID, brn stri
 	}
 	return nil
 }
+
+// SeatAvailable reports whether the company can have one more active user, not counting
+// exclude (the user being reactivated; uuid.Nil for a new user). Companies without max_users
+// always can.
+func (r *UserRepo) SeatAvailable(ctx context.Context, companyID, exclude uuid.UUID) (bool, error) {
+	var ok bool
+	err := r.db.QueryRow(ctx, `
+		SELECT c.max_users IS NULL OR (
+		  SELECT COUNT(*) FROM users u WHERE u.company_id = c.id AND u.is_active AND u.id <> $2
+		) < c.max_users
+		FROM companies c WHERE c.id = $1`, companyID, exclude).Scan(&ok)
+	return ok, err
+}

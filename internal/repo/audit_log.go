@@ -142,6 +142,17 @@ func (r *AuditLogRepo) LogAPIKey(ctx context.Context, apiKeyID uuid.UUID, action
 	r.db.Exec(ctx, q, entityType, entityID, action, apiKeyID, diffJSON)
 }
 
+// LogPartner records an action a partner client (Partner API) took in companyID.
+func (r *AuditLogRepo) LogPartner(ctx context.Context, clientID string, companyID uuid.UUID, action, entityType string, entityID uuid.UUID, diff any) {
+	var diffJSON []byte
+	if diff != nil {
+		diffJSON, _ = json.Marshal(diff)
+	}
+	r.db.Exec(ctx, `
+		INSERT INTO audit_logs (entity_type, entity_id, action, partner_client_id, diff, company_id)
+		VALUES ($1, $2, $3, $4, $5, $6)`, entityType, entityID, action, clientID, diffJSON, companyID)
+}
+
 // AuditLog constants used across handlers.
 const (
 	AuditCreate         = "create"
@@ -158,4 +169,6 @@ const (
 	AuditUser     = "user"
 	AuditDocument = "document"
 	AuditWebhook  = "webhook_subscription"
+	AuditCompany  = "company"
+	AuditAPIKey   = "api_key"
 )
