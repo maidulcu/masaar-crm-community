@@ -67,12 +67,7 @@ func Normalize(raw string) (string, bool) {
 			if r == ' ' { // Non-breaking space U+00A0
 				i += w
 			} else {
-				r, w := utf8.DecodeRuneInString(trimmed[i:])
-				if r == ' ' { // Non-breaking space U+00A0
-					i += w
-				} else {
-					return "", false
-				}
+				return "", false
 			}
 		}
 	}
@@ -89,7 +84,9 @@ func Normalize(raw string) (string, bool) {
 		return "", false
 	}
 
-	return "+" + string(digits), true
+	// Optimization: Construct string directly from buf[outStart:n] (which starts with '+')
+	// avoiding double string allocation ("+" + string(digits)).
+	return string(buf[outStart:n]), true
 }
 
 // isCanonicalE164 checks if s is already in valid E.164 canonical format (+ followed by 7-15 digits, not starting with 0).
