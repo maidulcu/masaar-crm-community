@@ -69,13 +69,14 @@ export function Modal({ open, onClose, title, children }: ModalProps) {
 
 interface FormFieldProps {
   label: string
+  htmlFor?: string
   children: React.ReactNode
 }
 
-export function FormField({ label, children }: FormFieldProps) {
+export function FormField({ label, htmlFor, children }: FormFieldProps) {
   return (
     <div>
-      <label className="block text-[13px] font-medium text-surface-700 mb-1.5">{label}</label>
+      <label htmlFor={htmlFor} className="block text-[13px] font-medium text-surface-700 mb-1.5">{label}</label>
       {children}
     </div>
   )
@@ -83,6 +84,6 @@ export function FormField({ label, children }: FormFieldProps) {
 
 export function FormError({ error }: { error: string }) {
   return (
-    <p className="text-red-600 text-xs bg-red-50 border border-red-100 px-3 py-2 rounded-lg mt-2">{error}</p>
+    <p role="alert" className="text-red-600 text-xs bg-red-50 border border-red-100 px-3 py-2 rounded-lg mt-2">{error}</p>
   )
 }
