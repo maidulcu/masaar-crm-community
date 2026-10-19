@@ -35,6 +35,20 @@ func (h *PipelineStageHandler) List(c *fiber.Ctx) error {
 	if err != nil {
 		return serverError(c, err)
 	}
+	// 0057 gave the default stages only to companies that existed then; companies created since
+	// (signup, Partner API) have none and their pipeline board draws no columns. Give them the
+	// defaults on first use. SetDefaults upserts, so concurrent requests cannot duplicate stages.
+	if len(stages) == 0 && (entityType == "lead" || entityType == "deal") {
+		if err := h.repo.SetDefaults(c.Context(), companyID, entityType); err != nil {
+			return serverError(c, err)
+		}
+		if stages, err = h.repo.ListByCompany(c.Context(), companyID, entityType); err != nil {
+			return serverError(c, err)
+		}
+	}
+	if stages == nil {
+		stages = []domain.PipelineStage{}
+	}
 	return c.JSON(stages)
 }
 
