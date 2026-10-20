@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [v0.4.0] - Unreleased
 
+### Fixed: magic link into a browser where someone else was signed in
+
+- After signing in with a magic link (including a partner's one-click login link) in a browser where another user was already signed in, the app could show the previous user's company data under the new user's name until the page was reloaded. The API was not affected; each session only ever received its own company's data. Signing in through a magic link now enters the app with a full page load.
+
 ### Fixed: new companies had an empty pipeline
 
 - Companies created after the custom pipeline stages were added (sign-up, Partner API) had no stages, so the Pipeline page drew no columns even though their leads were stored. Listing stages now gives a company the default six (`new` … `lost`) the first time it has none, for leads and deals. No migration; existing companies are unaffected.

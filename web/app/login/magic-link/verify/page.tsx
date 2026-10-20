@@ -35,7 +35,7 @@ function MagicLinkVerifyContent() {
         if (res.user.lang_pref) setLang(res.user.lang_pref)
         setStatus('success')
         setTimeout(() => {
-          router.push('/pipeline')
+          enterApp()
         }, 1500)
       } catch (err: any) {
         setStatus('error')
@@ -50,7 +50,7 @@ function MagicLinkVerifyContent() {
     const done = (res: LoginResponse) => {
       setSession(res.access_token, res.user, res.company)
       if (res.user.lang_pref) setLang(res.user.lang_pref)
-      router.push('/pipeline')
+      enterApp()
     }
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
@@ -106,6 +106,14 @@ function MagicLinkVerifyContent() {
       </div>
     </div>
   )
+}
+
+// A magic link may sign in a different user than the one already signed in in this browser (a
+// partner's one-click "Open CRM" link, a shared computer). A client-side navigation kept the
+// previous session's state and the app showed that company's data until a reload, so enter the
+// app with a full page load: it restores the session from the refresh cookie verify just set.
+function enterApp() {
+  window.location.replace('/pipeline')
 }
 
 export default function MagicLinkVerifyPage() {
