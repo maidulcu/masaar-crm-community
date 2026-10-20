@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { Header } from '@/components/layout/Header'
 import { api } from '@/lib/api'
 import { useLang } from '@/context/LangContext'
@@ -92,9 +92,32 @@ export default function CalendarPage() {
 
   useEffect(() => { load() }, [load])
 
+  // ── Pre-indexed viewings lookups for O(1) performance ───────────────────────
+  const viewingsByDate = useMemo(() => {
+    const map = new Map<string, Viewing[]>()
+    for (const v of viewings) {
+      if (!v.scheduled_at) continue
+      const dateKey = v.scheduled_at.slice(0, 10) // YYYY-MM-DD
+      const list = map.get(dateKey)
+      if (list) {
+        list.push(v)
+      } else {
+        map.set(dateKey, [v])
+      }
+    }
+    return map
+  }, [viewings])
+
+  const upcomingViewings = useMemo(() => {
+    const now = new Date()
+    return viewings
+      .filter(v => new Date(v.scheduled_at) >= now && v.status !== 'cancelled')
+      .slice(0, 10)
+  }, [viewings])
+
   // ── Helpers ────────────────────────────────────────────────────────────────
-  const viewingsOnDay = (dateStr: string) =>
-    viewings.filter(v => v.scheduled_at.startsWith(dateStr))
+  const viewingsOnDay = useCallback((dateStr: string) =>
+    viewingsByDate.get(dateStr) ?? [], [viewingsByDate])
 
   const handleStatusChange = async (id: string, status: string) => {
     if (isDemo) return
@@ -172,10 +195,7 @@ export default function CalendarPage() {
             <p className="text-[10px] text-gray-400 uppercase tracking-wide font-semibold mb-2 px-1">
               {t('القادمة', 'Upcoming')}
             </p>
-            {viewings
-              .filter(v => new Date(v.scheduled_at) >= today && v.status !== 'cancelled')
-              .slice(0, 10)
-              .map(v => (
+            {upcomingViewings.map(v => (
                 <button key={v.id} onClick={() => setSelected(v)}
                   className={`w-full text-left p-2.5 rounded-lg mb-1 border text-xs transition-colors hover:bg-gray-50 ${
                     selected?.id === v.id ? 'bg-brand-50 border-brand-200' : 'border-gray-100'
@@ -470,6 +490,24 @@ function WeekView({ viewings, today, onSelect }: {
 
   const hours = Array.from({ length: 13 }, (_, i) => i + 8) // 8am–8pm
 
+  // Pre-index viewings by date string and hour for O(1) slot lookups instead of O(N) filters per cell
+  const slotMap = useMemo(() => {
+    const map = new Map<string, Viewing[]>()
+    for (const v of viewings) {
+      if (!v.scheduled_at) continue
+      const vDate = new Date(v.scheduled_at)
+      const dateStr = `${vDate.getFullYear()}-${String(vDate.getMonth()+1).padStart(2,'0')}-${String(vDate.getDate()).padStart(2,'0')}`
+      const key = `${dateStr}-${vDate.getHours()}`
+      const list = map.get(key)
+      if (list) {
+        list.push(v)
+      } else {
+        map.set(key, [v])
+      }
+    }
+    return map
+  }, [viewings])
+
   return (
     <div className="overflow-x-auto h-full">
       <div className="min-w-[600px] h-full flex flex-col">
@@ -493,10 +531,8 @@ function WeekView({ viewings, today, onSelect }: {
               <div className="border-r border-gray-100 px-2 py-1 text-[10px] text-gray-400 text-right">{hour}:00</div>
               {days.map(d => {
                 const dateStr = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
-                const slotViewings = viewings.filter(v => {
-                  const vDate = new Date(v.scheduled_at)
-                  return vDate.toDateString() === d.toDateString() && vDate.getHours() === hour
-                })
+                const slotKey = `${dateStr}-${hour}`
+                const slotViewings = slotMap.get(slotKey) ?? []
                 return (
                   <div key={dateStr} className="border-r border-gray-100 last:border-0 p-0.5 space-y-0.5">
                     {slotViewings.map(v => (
