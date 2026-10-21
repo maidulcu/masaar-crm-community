@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { api } from '@/lib/api'
 
 interface ReportModalProps {
@@ -10,6 +10,15 @@ interface ReportModalProps {
 }
 
 export function ReportModal({ leadId, defaultClientName = '', onClose }: ReportModalProps) {
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose()
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [onClose])
   const [form, setForm] = useState({
     client_name:   defaultClientName,
     agent_name:    '',
@@ -77,16 +86,34 @@ export function ReportModal({ leadId, defaultClientName = '', onClose }: ReportM
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      {/* Backdrop */}
+      <div
+        className="fixed inset-0 bg-black/40 backdrop-blur-sm"
+        onClick={onClose}
+        aria-hidden="true"
+      />
+
+      {/* Modal Dialog Card */}
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="report-modal-title"
+        className="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden"
+      >
 
         {/* Header */}
         <div className="bg-[#1a3a5c] px-6 py-4 flex items-center justify-between">
           <div>
-            <h2 className="text-white font-semibold text-lg">Generate Client Report</h2>
+            <h2 id="report-modal-title" className="text-white font-semibold text-lg">Generate Client Report</h2>
             <p className="text-blue-200 text-xs mt-0.5">Branded PDF with DLD data, yield &amp; amenities</p>
           </div>
-          <button onClick={onClose} className="text-blue-200 hover:text-white transition">
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close modal"
+            className="inline-flex items-center justify-center w-8 h-8 rounded-lg text-blue-200 hover:text-white hover:bg-white/10 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50"
+          >
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/>
             </svg>
