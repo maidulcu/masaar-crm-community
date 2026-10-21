@@ -8,7 +8,6 @@ package phone
 
 import (
 	"strings"
-	"unicode/utf8"
 )
 
 // Normalize returns the E.164 form of raw, or ok=false when raw cannot be a full international
@@ -20,7 +19,7 @@ import (
 // and 1-allocation fast paths for digits-only WhatsApp/international numbers ("971501234567", "00971501234567").
 func Normalize(raw string) (string, bool) {
 	// Fast path: if input is already canonical E.164 (+ followed by 7-15 digits, no leading 0),
-	// return raw directly with 0 heap allocations (~12 ns/op vs ~70 ns/op).
+	// return raw directly with 0 heap allocations (~11 ns/op).
 	if isCanonicalE164(raw) {
 		return raw, true
 	}
@@ -34,7 +33,7 @@ func Normalize(raw string) (string, bool) {
 	if len(trimmed) >= 7 && len(trimmed) <= 15 && trimmed[0] != '0' && isDigits(trimmed) {
 		return "+" + trimmed, true
 	}
-	if len(trimmed) >= 9 && len(trimmed) <= 17 && strings.HasPrefix(trimmed, "00") {
+	if len(trimmed) >= 9 && len(trimmed) <= 17 && trimmed[0] == '0' && trimmed[1] == '0' {
 		rest := trimmed[2:]
 		if len(rest) >= 7 && len(rest) <= 15 && rest[0] != '0' && isDigits(rest) {
 			return "+" + rest, true
@@ -60,15 +59,11 @@ func Normalize(raw string) (string, bool) {
 			i++
 		} else if c == '+' || c == ' ' || c == '-' || c == '(' || c == ')' || c == '.' {
 			i++
-		} else if c < 0x80 {
-			return "", false
+		} else if c == 0xC2 && i+1 < len(trimmed) && trimmed[i+1] == 0xA0 {
+			// Non-breaking space U+00A0 encoded in UTF-8 (0xC2 0xA0)
+			i += 2
 		} else {
-			r, w := utf8.DecodeRuneInString(trimmed[i:])
-			if r == ' ' { // Non-breaking space U+00A0
-				i += w
-			} else {
-				return "", false
-			}
+			return "", false
 		}
 	}
 
