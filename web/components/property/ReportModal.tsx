@@ -86,16 +86,20 @@ export function ReportModal({ leadId, defaultClientName = '', onClose }: ReportM
   }
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
-      onClick={onClose}
-    >
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      {/* Backdrop */}
+      <div
+        className="fixed inset-0 bg-black/40 backdrop-blur-sm"
+        onClick={onClose}
+        aria-hidden="true"
+      />
+
+      {/* Modal Dialog Card */}
       <div
         role="dialog"
         aria-modal="true"
         aria-labelledby="report-modal-title"
-        className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden animate-scale-in"
-        onClick={e => e.stopPropagation()}
+        className="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden"
       >
 
         {/* Header */}
