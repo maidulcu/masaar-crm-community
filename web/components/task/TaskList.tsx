@@ -94,11 +94,11 @@ export default function TaskList({ filter, link, canEdit, compact, emptyText }: 
               <option value="normal">{t('عادية', 'Normal')}</option>
               <option value="high">{t('عالية', 'High')}</option>
             </select>
-            <button type="submit" className="px-3 py-1.5 text-sm font-medium bg-primary-600 text-white rounded-lg">{t('إضافة', 'Add')}</button>
-            <button type="button" onClick={() => setAdding(false)} className="px-3 py-1.5 text-sm text-surface-500">{t('إلغاء', 'Cancel')}</button>
+            <button type="submit" className="px-3 py-1.5 text-sm font-medium bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500">{t('إضافة', 'Add')}</button>
+            <button type="button" onClick={() => setAdding(false)} className="px-3 py-1.5 text-sm text-surface-500 hover:text-surface-700 hover:bg-surface-100 rounded-lg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500">{t('إلغاء', 'Cancel')}</button>
           </form>
         ) : (
-          <button onClick={() => setAdding(true)} className="mb-3 text-xs font-medium text-primary-600 hover:underline">
+          <button onClick={() => setAdding(true)} className="mb-3 text-xs font-medium text-primary-600 hover:text-primary-700 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 rounded px-1.5 py-0.5">
             {t('+ مهمة جديدة', '+ New task')}
           </button>
         )
@@ -112,8 +112,8 @@ export default function TaskList({ filter, link, canEdit, compact, emptyText }: 
         <ul className="divide-y divide-surface-100">
           {tasks.map(task => (
             <li key={task.id} className="py-2 flex items-start gap-3">
-              <input type="checkbox" className="mt-1 rounded border-surface-300" checked={task.status === 'done'} disabled={!canEdit || task.status === 'cancelled'}
-                onChange={() => toggle(task)} aria-label={t('تم', 'Done')} />
+              <input type="checkbox" className="mt-1 rounded border-surface-300 text-primary-600 focus:ring-2 focus:ring-primary-500/40" checked={task.status === 'done'} disabled={!canEdit || task.status === 'cancelled'}
+                onChange={() => toggle(task)} aria-label={task.status === 'done' ? t(`تحديد "${task.title}" كغير مكتملة`, `Mark "${task.title}" as incomplete`) : t(`تحديد "${task.title}" كمكتملة`, `Mark "${task.title}" as complete`)} />
               <div className="flex-1 min-w-0">
                 <p className={clsx('text-sm text-surface-900', task.status !== 'open' && 'line-through text-surface-400')}>{task.title}</p>
                 <p className="text-xs text-surface-500 flex flex-wrap gap-x-2">
