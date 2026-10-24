@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net/mail"
 	"strings"
 	"time"
 
@@ -214,8 +215,15 @@ func (h *UserHandler) CreateUser(c *fiber.Ctx) error {
 	if strings.TrimSpace(body.Name) == "" {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "name is required"})
 	}
-	if strings.TrimSpace(body.Email) == "" {
+	body.Email = strings.ToLower(strings.TrimSpace(body.Email))
+	if body.Email == "" {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "email is required"})
+	}
+	if len(body.Email) > 254 {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "email is too long"})
+	}
+	if addr, err := mail.ParseAddress(body.Email); err != nil || addr.Address != body.Email {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid email format"})
 	}
 	if msg := validatePasswordStrength(body.Password); msg != "" {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": msg})
@@ -297,8 +305,15 @@ func (h *UserHandler) InviteUser(c *fiber.Ctx) error {
 	if strings.TrimSpace(body.Name) == "" {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "name is required"})
 	}
-	if strings.TrimSpace(body.Email) == "" {
+	body.Email = strings.ToLower(strings.TrimSpace(body.Email))
+	if body.Email == "" {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "email is required"})
+	}
+	if len(body.Email) > 254 {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "email is too long"})
+	}
+	if addr, err := mail.ParseAddress(body.Email); err != nil || addr.Address != body.Email {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid email format"})
 	}
 
 	validRoles := map[domain.Role]bool{
