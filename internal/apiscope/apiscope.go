@@ -70,16 +70,36 @@ func Normalize(raw string) (string, error) {
 
 // Grants reports whether a key's stored scope list allows required. Keys created before scopes
 // were validated may hold "*" or "<resource>:*"; those still match.
+//
+// Optimization Note:
+// Uses zero-allocation substring scanning and inline whitespace trimming to avoid strings.Split heap allocations.
 func Grants(granted, required string) bool {
-	for _, s := range strings.Split(granted, ",") {
-		s = strings.TrimSpace(s)
+	for start := 0; start < len(granted); {
+		end := strings.IndexByte(granted[start:], ',')
+		if end == -1 {
+			end = len(granted)
+		} else {
+			end = start + end
+		}
+
+		s := granted[start:end]
+		// Trim spaces without allocation
+		for len(s) > 0 && (s[0] == ' ' || s[0] == '\t' || s[0] == '\n' || s[0] == '\r') {
+			s = s[1:]
+		}
+		for len(s) > 0 && (s[len(s)-1] == ' ' || s[len(s)-1] == '\t' || s[len(s)-1] == '\n' || s[len(s)-1] == '\r') {
+			s = s[:len(s)-1]
+		}
+
+		start = end + 1
+
 		if s == "" {
 			continue
 		}
 		if s == required || s == "*" {
 			return true
 		}
-		if strings.HasSuffix(s, ":*") && strings.HasPrefix(required, strings.TrimSuffix(s, "*")) {
+		if len(s) >= 2 && s[len(s)-2:] == ":*" && strings.HasPrefix(required, s[:len(s)-1]) {
 			return true
 		}
 		for _, sub := range implied[s] {
