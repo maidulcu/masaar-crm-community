@@ -367,6 +367,28 @@ func TestWAWebhook_StoresMediaMessagesAsSentByMeta(t *testing.T) {
 	}
 }
 
+func TestWAVerify_UnconfiguredToken(t *testing.T) {
+	h := &WhatsAppHandler{
+		config: &config.Config{WAVerifyToken: ""},
+	}
+	app := fiber.New()
+	app.Get("/webhooks/whatsapp", h.Verify)
+
+	for _, q := range []string{
+		"hub.mode=subscribe&hub.challenge=abc",
+		"hub.mode=subscribe&hub.verify_token=&hub.challenge=abc",
+		"hub.mode=subscribe&hub.verify_token=foo&hub.challenge=abc",
+	} {
+		resp, err := app.Test(httptest.NewRequest("GET", "/webhooks/whatsapp?"+q, nil))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if resp.StatusCode != fiber.StatusForbidden {
+			t.Errorf("query %q returned status %d, want 403 Forbidden", q, resp.StatusCode)
+		}
+	}
+}
+
 // Delivery receipts arrive as value.statuses[] and must update the outbound message.
 func TestWAWebhook_AppliesDeliveryStatusUpdates(t *testing.T) {
 	e := newWAEnv(t)
