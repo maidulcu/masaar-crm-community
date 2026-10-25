@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { useLang } from '@/context/LangContext'
 import { api } from '@/lib/api'
 import { companyCurrency } from '@/lib/money'
@@ -21,7 +21,6 @@ interface FinancialAnalytics {
 export default function FinancialAnalyticsPage() {
   const { lang } = useLang()
   const [financial, setFinancial] = useState<FinancialAnalytics | null>(null)
-  const [chartData, setChartData] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
@@ -79,27 +78,6 @@ export default function FinancialAnalyticsPage() {
         setLoading(true)
         const res = (await api.analytics.getFinancial(startDate, endDate)) as any
         setFinancial(res.data as FinancialAnalytics)
-
-        // Prepare chart data
-        const data: any[] = [
-          {
-            name: t.revenue,
-            value: res.data.total_revenue,
-            fill: '#10b981',
-          },
-          {
-            name: t.expenses,
-            value: res.data.total_expenses,
-            fill: '#ef4444',
-          },
-          {
-            name: t.profit,
-            value: res.data.net_profit,
-            fill: '#3b82f6',
-          },
-        ]
-
-        setChartData(data)
       } catch (error) {
         console.error('Failed to fetch financial analytics:', error)
       } finally {
@@ -109,6 +87,34 @@ export default function FinancialAnalyticsPage() {
 
     fetchFinancial()
   }, [startDate, endDate])
+
+  // Memoize chart data generation to prevent unnecessary allocations on re-renders
+  const chartData = useMemo(() => {
+    if (!financial) return []
+    return [
+      {
+        name: t.revenue,
+        value: financial.total_revenue,
+        fill: '#10b981',
+      },
+      {
+        name: t.expenses,
+        value: financial.total_expenses,
+        fill: '#ef4444',
+      },
+      {
+        name: t.profit,
+        value: financial.net_profit,
+        fill: '#3b82f6',
+      },
+    ]
+  }, [financial, t.revenue, t.expenses, t.profit])
+
+  // Pre-calculate max value to avoid recalculating Math.max(...chartData.map(...)) in style evaluation
+  const maxChartValue = useMemo(() => {
+    if (chartData.length === 0) return 0
+    return Math.max(...chartData.map((d) => d.value))
+  }, [chartData])
 
   if (loading) {
     return <div className="text-center py-8">{t.loading}</div>
@@ -168,7 +174,7 @@ export default function FinancialAnalyticsPage() {
                     className="h-full transition-all duration-300"
                     style={{
                       backgroundColor: item.fill,
-                      width: chartData.length > 0 ? `${(item.value / Math.max(...chartData.map((d: any) => d.value))) * 100}%` : '0%',
+                      width: maxChartValue > 0 ? `${(item.value / maxChartValue) * 100}%` : '0%',
                     }}
                   />
                 </div>
