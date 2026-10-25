@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useId } from 'react'
+import { useState, useEffect } from 'react'
 import { api } from '@/lib/api'
 import { useLang } from '@/context/LangContext'
 
@@ -12,7 +12,6 @@ interface ReportModalProps {
 
 export function ReportModal({ leadId, defaultClientName = '', onClose }: ReportModalProps) {
   const { t } = useLang()
-  const baseId = useId()
   const [form, setForm] = useState({
     client_name:   defaultClientName,
     agent_name:    '',
@@ -30,13 +29,23 @@ export function ReportModal({ leadId, defaultClientName = '', onClose }: ReportM
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose()
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [onClose])
+
   function set(field: string, value: string | boolean) {
     setForm(f => ({ ...f, [field]: value }))
   }
 
   async function handleGenerate() {
     if (!form.area.trim()) {
-      setError(t('اسم المنطقة مطلوب', 'Area is required'))
+      setError(t('المنطقة مطلوبة', 'Area is required'))
       return
     }
     setLoading(true)
@@ -80,31 +89,30 @@ export function ReportModal({ leadId, defaultClientName = '', onClose }: ReportM
   }
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby={`${baseId}-title`}
-    >
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden animate-scale-in">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="report-modal-title"
+        className="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden"
+      >
 
         {/* Header */}
         <div className="bg-[#1a3a5c] px-6 py-4 flex items-center justify-between">
           <div>
-            <h2 id={`${baseId}-title`} className="text-white font-semibold text-lg">
+            <h2 id="report-modal-title" className="text-white font-semibold text-lg">
               {t('إنشاء تقرير العميل', 'Generate Client Report')}
             </h2>
             <p className="text-blue-200 text-xs mt-0.5">
-              {t('تقرير PDF بعلامة تجارية مع بيانات أراضي دبي والعائد والخدمات', 'Branded PDF with DLD data, yield & amenities')}
+              {t('تقرير بصيغة PDF مع بيانات دائرة الأراضي والأملاك', 'Branded PDF with DLD data, yield & amenities')}
             </p>
           </div>
           <button
-            type="button"
             onClick={onClose}
             aria-label={t('إغلاق النافذة', 'Close modal')}
-            className="text-blue-200 hover:text-white transition rounded-lg p-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300"
+            className="text-blue-200 hover:text-white transition p-1 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
           >
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/>
             </svg>
           </button>
@@ -121,9 +129,7 @@ export function ReportModal({ leadId, defaultClientName = '', onClose }: ReportM
           {/* Client & agent */}
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label htmlFor={`${baseId}-client-name`} className="block text-xs font-medium text-gray-600 mb-1">
-                {t('اسم العميل', 'Client name')}
-              </label>
+              <label className="block text-xs font-medium text-gray-600 mb-1">{t('اسم العميل', 'Client name')}</label>
               <input
                 id={`${baseId}-client-name`}
                 className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors"
@@ -133,9 +139,7 @@ export function ReportModal({ leadId, defaultClientName = '', onClose }: ReportM
               />
             </div>
             <div>
-              <label htmlFor={`${baseId}-agent-name`} className="block text-xs font-medium text-gray-600 mb-1">
-                {t('اسم الوكيل', 'Agent name')}
-              </label>
+              <label className="block text-xs font-medium text-gray-600 mb-1">{t('اسم الوكيل', 'Agent name')}</label>
               <input
                 id={`${baseId}-agent-name`}
                 className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors"
@@ -149,9 +153,7 @@ export function ReportModal({ leadId, defaultClientName = '', onClose }: ReportM
           {/* Area */}
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label htmlFor={`${baseId}-area`} className="block text-xs font-medium text-gray-600 mb-1">
-                {t('المنطقة', 'Area')} <span className="text-red-500">*</span>
-              </label>
+              <label className="block text-xs font-medium text-gray-600 mb-1">{t('المنطقة', 'Area')} <span className="text-red-500">*</span></label>
               <input
                 id={`${baseId}-area`}
                 className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors"
@@ -162,9 +164,7 @@ export function ReportModal({ leadId, defaultClientName = '', onClose }: ReportM
               />
             </div>
             <div>
-              <label htmlFor={`${baseId}-area-slug`} className="block text-xs font-medium text-gray-600 mb-1">
-                {t('معرف المنطقة (لبيانات السوق)', 'Area slug (for market data)')}
-              </label>
+              <label className="block text-xs font-medium text-gray-600 mb-1">{t('اسم المنطقة المبسط (لبيانات السوق)', 'Area slug (for market data)')}</label>
               <input
                 id={`${baseId}-area-slug`}
                 className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors"
@@ -178,9 +178,7 @@ export function ReportModal({ leadId, defaultClientName = '', onClose }: ReportM
           {/* Property details */}
           <div className="grid grid-cols-3 gap-3">
             <div>
-              <label htmlFor={`${baseId}-property-type`} className="block text-xs font-medium text-gray-600 mb-1">
-                {t('نوع العقار', 'Type')}
-              </label>
+              <label className="block text-xs font-medium text-gray-600 mb-1">{t('النوع', 'Type')}</label>
               <select
                 id={`${baseId}-property-type`}
                 className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors"
@@ -196,9 +194,7 @@ export function ReportModal({ leadId, defaultClientName = '', onClose }: ReportM
               </select>
             </div>
             <div>
-              <label htmlFor={`${baseId}-bedrooms`} className="block text-xs font-medium text-gray-600 mb-1">
-                {t('غرف النوم', 'Bedrooms')}
-              </label>
+              <label className="block text-xs font-medium text-gray-600 mb-1">{t('غرف النوم', 'Bedrooms')}</label>
               <select
                 id={`${baseId}-bedrooms`}
                 className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors"
@@ -207,16 +203,14 @@ export function ReportModal({ leadId, defaultClientName = '', onClose }: ReportM
               >
                 <option value="">{t('الكل', 'Any')}</option>
                 <option value="Studio">{t('استوديو', 'Studio')}</option>
-                <option value="1BR">{t('غرفة واحدة', '1BR')}</option>
-                <option value="2BR">{t('غرفتان', '2BR')}</option>
-                <option value="3BR">{t('3 غرف', '3BR')}</option>
-                <option value="4BR+">{t('4+ غرف', '4BR+')}</option>
+                <option value="1BR">1BR</option>
+                <option value="2BR">2BR</option>
+                <option value="3BR">3BR</option>
+                <option value="4BR+">4BR+</option>
               </select>
             </div>
             <div className="col-span-1">
-              <label htmlFor={`${baseId}-budget-min`} className="block text-xs font-medium text-gray-600 mb-1">
-                {t('الميزانية (درهم)', 'Budget (AED)')}
-              </label>
+              <label className="block text-xs font-medium text-gray-600 mb-1">{t('الميزانية (درهم)', 'Budget (AED)')}</label>
               <div className="flex gap-1">
                 <input
                   id={`${baseId}-budget-min`}
@@ -242,11 +236,8 @@ export function ReportModal({ leadId, defaultClientName = '', onClose }: ReportM
 
           {/* Optional: coordinates for POIs */}
           <div>
-            <label htmlFor={`${baseId}-lat`} className="block text-xs font-medium text-gray-600 mb-1">
-              {t('إحداثيات العقار', 'Property coordinates')}{' '}
-              <span className="text-gray-400 font-normal">
-                {t('(اختياري — لتفعيل الخدمات المجاورة)', '(optional — enables nearby amenities)')}
-              </span>
+            <label className="block text-xs font-medium text-gray-600 mb-1">
+              {t('إحداثيات العقار', 'Property coordinates')} <span className="text-gray-400 font-normal">({t('اختياري — لتحديد المرافق القريبة', 'optional — enables nearby amenities')})</span>
             </label>
             <div className="grid grid-cols-2 gap-3">
               <input
@@ -274,39 +265,29 @@ export function ReportModal({ leadId, defaultClientName = '', onClose }: ReportM
 
           {/* Sections toggle */}
           <div className="border border-gray-200 rounded-xl p-4 space-y-3">
-            <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">
-              {t('تضمين في التقرير', 'Include in report')}
-            </p>
+            <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">{t('تضمين في التقرير', 'Include in report')}</p>
             <label className="flex items-center gap-3 cursor-pointer">
               <input
                 type="checkbox"
-                className="w-4 h-4 rounded accent-blue-600 focus:ring-2 focus:ring-blue-500 transition-colors"
+                className="w-4 h-4 rounded accent-blue-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
                 checked={form.include_yield}
                 onChange={e => set('include_yield', e.target.checked)}
               />
               <div>
-                <div className="text-sm font-medium text-gray-800">
-                  {t('تحليل العائد الإيجاري', 'Rental yield analysis')}
-                </div>
-                <div className="text-xs text-gray-500">
-                  {t('بيانات إيجاري — العائد على الاستثمار المتوقع للمستثمرين', 'Ejari data — estimated ROI for investor clients')}
-                </div>
+                <div className="text-sm font-medium text-gray-800">{t('تحليل العائد الإيجاري', 'Rental yield analysis')}</div>
+                <div className="text-xs text-gray-500">{t('بيانات إيجاري — العائد المتوقع للمستثمرين', 'Ejari data — estimated ROI for investor clients')}</div>
               </div>
             </label>
             <label className="flex items-center gap-3 cursor-pointer">
               <input
                 type="checkbox"
-                className="w-4 h-4 rounded accent-blue-600 focus:ring-2 focus:ring-blue-500 transition-colors"
+                className="w-4 h-4 rounded accent-blue-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
                 checked={form.include_pois}
                 onChange={e => set('include_pois', e.target.checked)}
               />
               <div>
-                <div className="text-sm font-medium text-gray-800">
-                  {t('الخدمات المجاورة', 'Nearby amenities')}
-                </div>
-                <div className="text-xs text-gray-500">
-                  {t('المترو، المدارس، مراكز التسوق — يتطلب الإحداثيات أعلاه', 'Metro, schools, malls — requires coordinates above')}
-                </div>
+                <div className="text-sm font-medium text-gray-800">{t('المرافق القريبة', 'Nearby amenities')}</div>
+                <div className="text-xs text-gray-500">{t('المترو، المدارس، الموالات — يتطلب إحداثيات أعلاه', 'Metro, schools, malls — requires coordinates above')}</div>
               </div>
             </label>
           </div>
@@ -316,7 +297,7 @@ export function ReportModal({ leadId, defaultClientName = '', onClose }: ReportM
         {/* Footer */}
         <div className="px-6 py-4 border-t border-gray-100 flex items-center justify-between bg-gray-50">
           <p className="text-xs text-gray-400">
-            {t('المعلومات مصدرها دائرة الأراضي والأملاك عبر وقوف', 'Data sourced from DLD via Waqov')}
+            {t('مصدر البيانات: دائرة الأراضي والأملاك عبر وقوف', 'Data sourced from DLD via Waqov')}
           </p>
           <div className="flex gap-3">
             <button
@@ -334,15 +315,15 @@ export function ReportModal({ leadId, defaultClientName = '', onClose }: ReportM
             >
               {loading ? (
                 <>
-                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" aria-hidden="true" />
-                  <span>{t('جاري التوليد...', 'Generating…')}</span>
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  {t('جاري الإنشاء...', 'Generating…')}
                 </>
               ) : (
                 <>
                   <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
                   </svg>
-                  <span>{t('تحميل PDF', 'Download PDF')}</span>
+                  {t('تنزيل PDF', 'Download PDF')}
                 </>
               )}
             </button>

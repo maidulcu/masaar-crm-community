@@ -180,7 +180,8 @@ func (h *WebhookSubHandler) Delete(c *fiber.Ctx) error {
 // @Security Bearer
 // @Router /api/v1/settings/webhooks/{id}/test [post]
 func (h *WebhookSubHandler) Test(c *fiber.Ctx) error {
-	if c.Locals("role").(domain.Role) != domain.RoleAdmin {
+	role, _ := c.Locals("role").(domain.Role)
+	if role != domain.RoleAdmin {
 		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "only admins can test webhooks"})
 	}
 

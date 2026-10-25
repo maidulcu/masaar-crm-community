@@ -319,7 +319,14 @@ func main() {
 	})
 	app.Use(recover.New())
 	app.Use(middleware.PIISafeLogger())
-	app.Use(helmet.New())
+	app.Use(helmet.New(helmet.Config{
+		XSSProtection:      "1; mode=block",
+		ContentTypeNosniff: "nosniff",
+		XFrameOptions:      "SAMEORIGIN",
+		HSTSMaxAge:         31536000,
+		ReferrerPolicy:     "strict-origin-when-cross-origin",
+		PermissionPolicy:   "geolocation=(), microphone=(), camera=()",
+	}))
 	app.Use(cors.New(cors.Config{
 		AllowOrigins: cfg.AllowedOrigins,
 		AllowMethods: "GET,POST,PUT,PATCH,DELETE,OPTIONS",
