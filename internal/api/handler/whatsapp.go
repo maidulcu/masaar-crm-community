@@ -43,7 +43,7 @@ func (h *WhatsAppHandler) Verify(c *fiber.Ctx) error {
 	token := c.Query("hub.verify_token")
 	challenge := c.Query("hub.challenge")
 
-	if mode == "subscribe" && subtle.ConstantTimeCompare([]byte(token), []byte(h.config.WAVerifyToken)) == 1 {
+	if mode == "subscribe" && h.config.WAVerifyToken != "" && subtle.ConstantTimeCompare([]byte(token), []byte(h.config.WAVerifyToken)) == 1 {
 		return c.SendString(challenge)
 	}
 	return c.SendStatus(fiber.StatusForbidden)
