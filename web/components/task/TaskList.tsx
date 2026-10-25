@@ -112,8 +112,8 @@ export default function TaskList({ filter, link, canEdit, compact, emptyText }: 
         <ul className="divide-y divide-surface-100">
           {tasks.map(task => (
             <li key={task.id} className="py-2 flex items-start gap-3">
-              <input type="checkbox" className="mt-1 rounded border-surface-300" checked={task.status === 'done'} disabled={!canEdit || task.status === 'cancelled'}
-                onChange={() => toggle(task)} aria-label={t('تم', 'Done')} />
+              <input type="checkbox" className="mt-1 rounded border-surface-300 text-primary-600 focus:ring-2 focus:ring-primary-500/40" checked={task.status === 'done'} disabled={!canEdit || task.status === 'cancelled'}
+                onChange={() => toggle(task)} aria-label={task.status === 'done' ? t(`تحديد "${task.title}" كغير مكتملة`, `Mark "${task.title}" as incomplete`) : t(`تحديد "${task.title}" كمكتملة`, `Mark "${task.title}" as complete`)} />
               <div className="flex-1 min-w-0">
                 <p className={clsx('text-sm text-surface-900', task.status !== 'open' && 'line-through text-surface-400')}>{task.title}</p>
                 <p className="text-xs text-surface-500 flex flex-wrap gap-x-2">
