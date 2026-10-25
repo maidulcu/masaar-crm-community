@@ -18,6 +18,7 @@ import (
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/gofiber/fiber/v2/middleware/helmet"
 	"github.com/gofiber/fiber/v2/middleware/recover"
+	"github.com/google/uuid"
 	_ "github.com/jackc/pgx/v5/stdlib" // database/sql driver used by goose
 	"github.com/pressly/goose/v3"
 	"github.com/redis/go-redis/v9"
@@ -84,6 +85,17 @@ func main() {
 	commHistRepo := repo.NewCommunicationHistoryRepo(pool)
 	waRepo := repo.NewWhatsAppRepo(pool)
 	waOutboundRepo := repo.NewWhatsAppOutboundRepo(pool)
+
+	// The connection is still deployment-wide (WA_PHONE_NUMBER_ID), but threads and future
+	// connections hang off an account row. Reflect the configured number as an account so a
+	// deployment that has not received a message yet is already visible in the new model.
+	if cfg.WAPhoneNumberID != "" {
+		if cid, err := uuid.Parse(cfg.AppCompanyID); err != nil {
+			log.Printf("WARNING: WhatsApp account backfill skipped: invalid APP_COMPANY_ID: %v", err)
+		} else if _, err := repo.NewWAAccountRepo(pool).EnsureDeploymentAccount(ctx, cid, cfg.WAPhoneNumberID, ""); err != nil {
+			log.Printf("WARNING: WhatsApp account backfill failed: %v", err)
+		}
+	}
 	notificationRepo := repo.NewNotificationRepo(pool)
 	dealRepo := repo.NewDealRepo(pool)
 	invoiceRepo := repo.NewInvoiceRepo(pool)

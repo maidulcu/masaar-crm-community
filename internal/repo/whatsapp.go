@@ -27,16 +27,19 @@ func (r *WhatsAppRepo) UpsertThread(ctx context.Context, contactID uuid.UUID, wa
 	if err != nil {
 		return nil, err
 	}
-	// The contact must belong to the caller's company.
+	// The contact must belong to the caller's company. The account is resolved by the legacy
+	// phone number id when an account row exists, so new threads are already on the new model.
 	const q = `
-		INSERT INTO whatsapp_threads (id, company_id, contact_id, wa_account_id)
-		SELECT uuid_generate_v4(), $3, $1, $2
+		INSERT INTO whatsapp_threads (id, company_id, contact_id, wa_account_id, account_id)
+		SELECT uuid_generate_v4(), $3, $1, $2,
+		       (SELECT id FROM wa_accounts WHERE company_id = $3 AND phone_number_id = $2 LIMIT 1)
 		WHERE EXISTS (SELECT 1 FROM contacts WHERE id = $1 AND company_id = $3)
 		ON CONFLICT (contact_id, wa_account_id) DO UPDATE
 			SET thread_status = CASE
 				WHEN whatsapp_threads.thread_status = 'closed' THEN 'open'
 				ELSE whatsapp_threads.thread_status
-			END
+			END,
+			account_id = COALESCE(whatsapp_threads.account_id, EXCLUDED.account_id)
 		RETURNING id, contact_id, wa_account_id, thread_status, last_message_at, message_count, COALESCE(ai_summary,''), created_at
 	`
 	t := &domain.WhatsAppThread{}
