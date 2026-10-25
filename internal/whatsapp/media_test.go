@@ -160,12 +160,26 @@ func TestUploadMedia(t *testing.T) {
 		_, _ = w.Write([]byte(`{"id":"UPLOADED1"}`))
 	}))
 	defer srv.Close()
-	s := NewSender(&SenderConfig{BaseURL: srv.URL, PhoneNumberID: "PN", AccessToken: "tok"})
+	s := NewSender(&SenderConfig{BaseURL: srv.URL, PhoneNumberID: "PN", AccessToken: "tok", AllowInsecureMedia: true})
 	id, err := s.UploadMedia(context.Background(), "brochure.pdf", "application/pdf", []byte("%PDF-1.4"))
 	if err != nil || id != "UPLOADED1" {
 		t.Fatalf("UploadMedia = %q, %v", id, err)
 	}
 	if gotField != "whatsapp" || gotType != "application/pdf" || gotFile != "brochure.pdf:%PDF-1.4" || auth != "Bearer tok" {
 		t.Errorf("upload request: product=%q type=%q file=%q auth=%q", gotField, gotType, gotFile, auth)
+	}
+}
+
+func TestUploadMedia_SSRF(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"id":"SECRET"}`))
+	}))
+	defer srv.Close()
+
+	// Default/AllowInsecureMedia: false must use safehttp client and block local server requests
+	s := NewSender(&SenderConfig{BaseURL: srv.URL, PhoneNumberID: "PN", AccessToken: "tok"})
+	_, err := s.UploadMedia(context.Background(), "test.pdf", "application/pdf", []byte("data"))
+	if err == nil || !strings.Contains(err.Error(), "SSRF blocked") {
+		t.Fatalf("expected SSRF blocked error, got: %v", err)
 	}
 }

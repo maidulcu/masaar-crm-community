@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { api } from '@/lib/api'
+import { useLang } from '@/context/LangContext'
 
 interface ReportModalProps {
   leadId?: string
@@ -10,15 +11,7 @@ interface ReportModalProps {
 }
 
 export function ReportModal({ leadId, defaultClientName = '', onClose }: ReportModalProps) {
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        onClose()
-      }
-    }
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [onClose])
+  const { t } = useLang()
   const [form, setForm] = useState({
     client_name:   defaultClientName,
     agent_name:    '',
@@ -36,13 +29,23 @@ export function ReportModal({ leadId, defaultClientName = '', onClose }: ReportM
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose()
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [onClose])
+
   function set(field: string, value: string | boolean) {
     setForm(f => ({ ...f, [field]: value }))
   }
 
   async function handleGenerate() {
     if (!form.area.trim()) {
-      setError('Area is required')
+      setError(t('المنطقة مطلوبة', 'Area is required'))
       return
     }
     setLoading(true)
@@ -79,40 +82,35 @@ export function ReportModal({ leadId, defaultClientName = '', onClose }: ReportM
       URL.revokeObjectURL(url)
       onClose()
     } catch (e: any) {
-      setError(e.message || 'Failed to generate report')
+      setError(e.message || t('فشل إنشاء التقرير', 'Failed to generate report'))
     } finally {
       setLoading(false)
     }
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      {/* Backdrop */}
-      <div
-        className="fixed inset-0 bg-black/40 backdrop-blur-sm"
-        onClick={onClose}
-        aria-hidden="true"
-      />
-
-      {/* Modal Dialog Card */}
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
       <div
         role="dialog"
         aria-modal="true"
         aria-labelledby="report-modal-title"
-        className="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden"
+        className="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden"
       >
 
         {/* Header */}
         <div className="bg-[#1a3a5c] px-6 py-4 flex items-center justify-between">
           <div>
-            <h2 id="report-modal-title" className="text-white font-semibold text-lg">Generate Client Report</h2>
-            <p className="text-blue-200 text-xs mt-0.5">Branded PDF with DLD data, yield &amp; amenities</p>
+            <h2 id="report-modal-title" className="text-white font-semibold text-lg">
+              {t('إنشاء تقرير العميل', 'Generate Client Report')}
+            </h2>
+            <p className="text-blue-200 text-xs mt-0.5">
+              {t('تقرير بصيغة PDF مع بيانات دائرة الأراضي والأملاك', 'Branded PDF with DLD data, yield & amenities')}
+            </p>
           </div>
           <button
-            type="button"
             onClick={onClose}
-            aria-label="Close modal"
-            className="inline-flex items-center justify-center w-8 h-8 rounded-lg text-blue-200 hover:text-white hover:bg-white/10 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50"
+            aria-label={t('إغلاق النافذة', 'Close modal')}
+            className="text-blue-200 hover:text-white transition p-1 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
           >
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/>
@@ -123,7 +121,7 @@ export function ReportModal({ leadId, defaultClientName = '', onClose }: ReportM
         <div className="p-6 space-y-4 max-h-[70vh] overflow-y-auto">
 
           {error && (
-            <div className="rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700">
+            <div role="alert" className="rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700">
               {error}
             </div>
           )}
@@ -131,7 +129,7 @@ export function ReportModal({ leadId, defaultClientName = '', onClose }: ReportM
           {/* Client & agent */}
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Client name</label>
+              <label className="block text-xs font-medium text-gray-600 mb-1">{t('اسم العميل', 'Client name')}</label>
               <input
                 className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 value={form.client_name}
@@ -140,7 +138,7 @@ export function ReportModal({ leadId, defaultClientName = '', onClose }: ReportM
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Agent name</label>
+              <label className="block text-xs font-medium text-gray-600 mb-1">{t('اسم الوكيل', 'Agent name')}</label>
               <input
                 className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 value={form.agent_name}
@@ -153,7 +151,7 @@ export function ReportModal({ leadId, defaultClientName = '', onClose }: ReportM
           {/* Area */}
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Area <span className="text-red-500">*</span></label>
+              <label className="block text-xs font-medium text-gray-600 mb-1">{t('المنطقة', 'Area')} <span className="text-red-500">*</span></label>
               <input
                 className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 value={form.area}
@@ -162,7 +160,7 @@ export function ReportModal({ leadId, defaultClientName = '', onClose }: ReportM
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Area slug (for market data)</label>
+              <label className="block text-xs font-medium text-gray-600 mb-1">{t('اسم المنطقة المبسط (لبيانات السوق)', 'Area slug (for market data)')}</label>
               <input
                 className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 value={form.area_slug}
@@ -175,29 +173,29 @@ export function ReportModal({ leadId, defaultClientName = '', onClose }: ReportM
           {/* Property details */}
           <div className="grid grid-cols-3 gap-3">
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Type</label>
+              <label className="block text-xs font-medium text-gray-600 mb-1">{t('النوع', 'Type')}</label>
               <select
                 className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 value={form.property_type}
                 onChange={e => set('property_type', e.target.value)}
               >
-                <option value="">Any</option>
-                <option value="Unit">Apartment / Unit</option>
-                <option value="Villa">Villa</option>
-                <option value="Townhouse">Townhouse</option>
-                <option value="Penthouse">Penthouse</option>
-                <option value="Land">Land</option>
+                <option value="">{t('الكل', 'Any')}</option>
+                <option value="Unit">{t('شقة / وحدة', 'Apartment / Unit')}</option>
+                <option value="Villa">{t('فيلا', 'Villa')}</option>
+                <option value="Townhouse">{t('تاون هاوس', 'Townhouse')}</option>
+                <option value="Penthouse">{t('بنتهاوس', 'Penthouse')}</option>
+                <option value="Land">{t('أرض', 'Land')}</option>
               </select>
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Bedrooms</label>
+              <label className="block text-xs font-medium text-gray-600 mb-1">{t('غرف النوم', 'Bedrooms')}</label>
               <select
                 className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 value={form.bedrooms}
                 onChange={e => set('bedrooms', e.target.value)}
               >
-                <option value="">Any</option>
-                <option value="Studio">Studio</option>
+                <option value="">{t('الكل', 'Any')}</option>
+                <option value="Studio">{t('استوديو', 'Studio')}</option>
                 <option value="1BR">1BR</option>
                 <option value="2BR">2BR</option>
                 <option value="3BR">3BR</option>
@@ -205,20 +203,20 @@ export function ReportModal({ leadId, defaultClientName = '', onClose }: ReportM
               </select>
             </div>
             <div className="col-span-1">
-              <label className="block text-xs font-medium text-gray-600 mb-1">Budget (AED)</label>
+              <label className="block text-xs font-medium text-gray-600 mb-1">{t('الميزانية (درهم)', 'Budget (AED)')}</label>
               <div className="flex gap-1">
                 <input
                   className="w-full border border-gray-200 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                   value={form.budget_min}
                   onChange={e => set('budget_min', e.target.value)}
-                  placeholder="Min"
+                  placeholder={t('الأدنى', 'Min')}
                   type="number"
                 />
                 <input
                   className="w-full border border-gray-200 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                   value={form.budget_max}
                   onChange={e => set('budget_max', e.target.value)}
-                  placeholder="Max"
+                  placeholder={t('الأقصى', 'Max')}
                   type="number"
                 />
               </div>
@@ -228,7 +226,7 @@ export function ReportModal({ leadId, defaultClientName = '', onClose }: ReportM
           {/* Optional: coordinates for POIs */}
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">
-              Property coordinates <span className="text-gray-400 font-normal">(optional — enables nearby amenities)</span>
+              {t('إحداثيات العقار', 'Property coordinates')} <span className="text-gray-400 font-normal">({t('اختياري — لتحديد المرافق القريبة', 'optional — enables nearby amenities')})</span>
             </label>
             <div className="grid grid-cols-2 gap-3">
               <input
@@ -252,29 +250,29 @@ export function ReportModal({ leadId, defaultClientName = '', onClose }: ReportM
 
           {/* Sections toggle */}
           <div className="border border-gray-200 rounded-xl p-4 space-y-3">
-            <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Include in report</p>
+            <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">{t('تضمين في التقرير', 'Include in report')}</p>
             <label className="flex items-center gap-3 cursor-pointer">
               <input
                 type="checkbox"
-                className="w-4 h-4 rounded accent-blue-600"
+                className="w-4 h-4 rounded accent-blue-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
                 checked={form.include_yield}
                 onChange={e => set('include_yield', e.target.checked)}
               />
               <div>
-                <div className="text-sm font-medium text-gray-800">Rental yield analysis</div>
-                <div className="text-xs text-gray-500">Ejari data — estimated ROI for investor clients</div>
+                <div className="text-sm font-medium text-gray-800">{t('تحليل العائد الإيجاري', 'Rental yield analysis')}</div>
+                <div className="text-xs text-gray-500">{t('بيانات إيجاري — العائد المتوقع للمستثمرين', 'Ejari data — estimated ROI for investor clients')}</div>
               </div>
             </label>
             <label className="flex items-center gap-3 cursor-pointer">
               <input
                 type="checkbox"
-                className="w-4 h-4 rounded accent-blue-600"
+                className="w-4 h-4 rounded accent-blue-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
                 checked={form.include_pois}
                 onChange={e => set('include_pois', e.target.checked)}
               />
               <div>
-                <div className="text-sm font-medium text-gray-800">Nearby amenities</div>
-                <div className="text-xs text-gray-500">Metro, schools, malls — requires coordinates above</div>
+                <div className="text-sm font-medium text-gray-800">{t('المرافق القريبة', 'Nearby amenities')}</div>
+                <div className="text-xs text-gray-500">{t('المترو، المدارس، الموالات — يتطلب إحداثيات أعلاه', 'Metro, schools, malls — requires coordinates above')}</div>
               </div>
             </label>
           </div>
@@ -284,31 +282,31 @@ export function ReportModal({ leadId, defaultClientName = '', onClose }: ReportM
         {/* Footer */}
         <div className="px-6 py-4 border-t border-gray-100 flex items-center justify-between bg-gray-50">
           <p className="text-xs text-gray-400">
-            Data sourced from DLD via Waqov
+            {t('مصدر البيانات: دائرة الأراضي والأملاك عبر وقوف', 'Data sourced from DLD via Waqov')}
           </p>
           <div className="flex gap-3">
             <button
               onClick={onClose}
-              className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800 transition"
+              className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800 transition rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
             >
-              Cancel
+              {t('إلغاء', 'Cancel')}
             </button>
             <button
               onClick={handleGenerate}
               disabled={loading}
-              className="px-5 py-2 bg-[#1a3a5c] text-white text-sm font-semibold rounded-lg hover:bg-[#22487a] transition disabled:opacity-50 flex items-center gap-2"
+              className="px-5 py-2 bg-[#1a3a5c] text-white text-sm font-semibold rounded-lg hover:bg-[#22487a] transition disabled:opacity-50 flex items-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
             >
               {loading ? (
                 <>
                   <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  Generating…
+                  {t('جاري الإنشاء...', 'Generating…')}
                 </>
               ) : (
                 <>
                   <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
                   </svg>
-                  Download PDF
+                  {t('تنزيل PDF', 'Download PDF')}
                 </>
               )}
             </button>

@@ -41,7 +41,7 @@ var testRoutes = []APIKeyRoute{
 }
 
 func TestScopeFor(t *testing.T) {
-	table := apiKeyRouteTable(testRoutes)
+	table := newAPIKeyRouteTable(testRoutes)
 	id := uuid.NewString()
 	cases := []struct {
 		method, path, scope string
@@ -311,4 +311,15 @@ func TestIdempotency(t *testing.T) {
 func fingerprint(method, path, body string) string {
 	sum := sha256.Sum256([]byte(method + " " + path + "?\n" + body))
 	return hex.EncodeToString(sum[:])
+}
+
+func BenchmarkScopeFor(b *testing.B) {
+	table := newAPIKeyRouteTable(testRoutes)
+	id := uuid.NewString()
+	path := "/api/v1/leads/" + id
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		table.scopeFor("GET", path)
+	}
 }

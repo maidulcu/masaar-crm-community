@@ -113,7 +113,10 @@ func (s *Sender) UploadMedia(ctx context.Context, filename, mimeType string, dat
 	req.Header.Set("Content-Type", w.FormDataContentType())
 	req.Header.Set("Authorization", "Bearer "+s.config.AccessToken)
 
-	client := &http.Client{Timeout: 120 * time.Second}
+	client := safehttp.NewClient(120 * time.Second)
+	if s.config.AllowInsecureMedia {
+		client = &http.Client{Timeout: 120 * time.Second}
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("failed to upload media: %w", err)
