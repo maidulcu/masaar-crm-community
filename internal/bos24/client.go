@@ -18,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/maidulcu/masaar-crm/internal/safehttp"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -53,6 +54,7 @@ type Client struct {
 }
 
 // NewClient returns nil when token is empty, so handlers answer 503 "not enabled".
+// It uses safehttp.NewClient to enforce dial-time SSRF protection against private or internal addresses.
 func NewClient(token, baseURL string, rdb *redis.Client) *Client {
 	if !IsEnabled(token) {
 		return nil
@@ -60,7 +62,7 @@ func NewClient(token, baseURL string, rdb *redis.Client) *Client {
 	return &Client{
 		base:  strings.TrimRight(baseURL, "/"),
 		token: strings.TrimSpace(token),
-		http:  &http.Client{Timeout: 20 * time.Second},
+		http:  safehttp.NewClient(20 * time.Second),
 		rdb:   rdb,
 	}
 }

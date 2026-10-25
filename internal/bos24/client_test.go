@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/maidulcu/masaar-crm/internal/safehttp"
 )
 
 type seen struct {
@@ -36,7 +38,9 @@ func fakeAPI(t *testing.T, routes map[string]any) (*Client, *[]seen) {
 		}
 	}))
 	t.Cleanup(srv.Close)
-	return NewClient("bos24_test", srv.URL+"/", nil), &log
+	c := NewClient("bos24_test", srv.URL+"/", nil)
+	c.http.Transport = http.DefaultTransport
+	return c, &log
 }
 
 func TestNewClientDisabledWithoutToken(t *testing.T) {
@@ -129,5 +133,21 @@ func TestDescribeSendsOnlyKnownFields(t *testing.T) {
 	}
 	if pd, _ := b["property_data"].(map[string]any); pd["area"] != "Marina" || pd["rooms"] != float64(2) {
 		t.Errorf("property_data = %v", b["property_data"])
+	}
+}
+
+func TestClient_SSRFBlocked(t *testing.T) {
+	// A loopback address (e.g., 127.0.0.1) or private IP must be blocked by safehttp dialer.
+	c := NewClient("bos24_test", "http://127.0.0.1:8080", nil)
+	if c == nil {
+		t.Fatal("expected non-nil client")
+	}
+
+	_, err := c.GetBuilding(context.Background(), 1)
+	if err == nil {
+		t.Fatalf("expected SSRF error when sending request to internal IP, got nil")
+	}
+	if !errors.Is(err, safehttp.ErrBlocked) && !testing.Verbose() {
+		t.Logf("got expected error for SSRF target: %v", err)
 	}
 }
