@@ -81,7 +81,7 @@ export default function TaskList({ filter, link, canEdit, compact, emptyText }: 
       {canEdit && (
         adding ? (
           <form onSubmit={add} className="flex flex-wrap gap-2 mb-3">
-            <input aria-label={t('عنوان المهمة', 'Task title')} required maxLength={300} placeholder={t('ماذا يجب أن يحدث؟', 'What needs to happen?')}
+            <input autoFocus aria-label={t('عنوان المهمة', 'Task title')} required maxLength={300} placeholder={t('ماذا يجب أن يحدث؟', 'What needs to happen?')}
               className={input + ' flex-1 min-w-[180px]'} value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} />
             <select aria-label={t('النوع', 'Type')} className={input} value={form.type} onChange={e => setForm(f => ({ ...f, type: e.target.value as Task['type'] }))}>
               {(Object.keys(TASK_TYPE_LABELS) as Task['type'][]).map(k => (
@@ -94,11 +94,11 @@ export default function TaskList({ filter, link, canEdit, compact, emptyText }: 
               <option value="normal">{t('عادية', 'Normal')}</option>
               <option value="high">{t('عالية', 'High')}</option>
             </select>
-            <button type="submit" className="px-3 py-1.5 text-sm font-medium bg-primary-600 text-white rounded-lg">{t('إضافة', 'Add')}</button>
-            <button type="button" onClick={() => setAdding(false)} className="px-3 py-1.5 text-sm text-surface-500">{t('إلغاء', 'Cancel')}</button>
+            <button type="submit" className="px-3 py-1.5 text-sm font-medium bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500">{t('إضافة', 'Add')}</button>
+            <button type="button" onClick={() => setAdding(false)} className="px-3 py-1.5 text-sm text-surface-500 hover:text-surface-800 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 rounded-lg">{t('إلغاء', 'Cancel')}</button>
           </form>
         ) : (
-          <button onClick={() => setAdding(true)} className="mb-3 text-xs font-medium text-primary-600 hover:underline">
+          <button onClick={() => setAdding(true)} className="mb-3 text-xs font-medium text-primary-600 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 rounded px-1 py-0.5">
             {t('+ مهمة جديدة', '+ New task')}
           </button>
         )
