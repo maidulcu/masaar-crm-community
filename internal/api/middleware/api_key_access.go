@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"regexp"
 	"strings"
 
 	"github.com/gofiber/fiber/v2"
@@ -29,7 +28,26 @@ type APIKeyRoute struct {
 	Method, Path, Scope string
 }
 
-var uuidSegment = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+// isUUID reports whether s is a valid 36-character canonical UUID (8-4-4-4-12 hex string).
+// It avoids regex DFA matching overhead on hot-path route lookup loops.
+func isUUID(s string) bool {
+	if len(s) != 36 {
+		return false
+	}
+	if s[8] != '-' || s[13] != '-' || s[18] != '-' || s[23] != '-' {
+		return false
+	}
+	for i := 0; i < 36; i++ {
+		if i == 8 || i == 13 || i == 18 || i == 23 {
+			continue
+		}
+		b := s[i]
+		if !((b >= '0' && b <= '9') || (b >= 'a' && b <= 'f') || (b >= 'A' && b <= 'F')) {
+			return false
+		}
+	}
+	return true
+}
 
 type compiledRoute struct {
 	method   string
@@ -88,7 +106,7 @@ func (t apiKeyRouteTable) scopeFor(method, path string) (string, bool) {
 		ok := true
 		for i, w := range r.segments {
 			if strings.HasPrefix(w, ":") {
-				ok = uuidSegment.MatchString(segs[i])
+				ok = isUUID(segs[i])
 			} else {
 				ok = strings.EqualFold(w, segs[i])
 			}
