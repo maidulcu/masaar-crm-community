@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useId } from 'react'
 import { api } from '@/lib/api'
 import { useLang } from '@/context/LangContext'
 
@@ -11,6 +11,7 @@ interface ReportModalProps {
 }
 
 export function ReportModal({ leadId, defaultClientName = '', onClose }: ReportModalProps) {
+  const baseId = useId()
   const { t } = useLang()
   const [form, setForm] = useState({
     client_name:   defaultClientName,
