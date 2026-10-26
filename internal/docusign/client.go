@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/maidulcu/masaar-crm/internal/safehttp"
 )
 
 type Config struct {
@@ -42,7 +43,7 @@ func NewClient(cfg Config) *Client {
 	acctBase := fmt.Sprintf("%s/v2.1/accounts/%s", base, cfg.AccountID)
 	return &Client{
 		cfg:        cfg,
-		httpClient: &http.Client{Timeout: 30 * time.Second},
+		httpClient: safehttp.NewClient(30 * time.Second),
 		acctBase:   acctBase,
 	}
 }
