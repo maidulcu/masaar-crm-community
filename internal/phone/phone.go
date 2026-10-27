@@ -84,12 +84,17 @@ func Normalize(raw string) (string, bool) {
 	return string(buf[outStart:n]), true
 }
 
-// isCanonicalE164 checks if s is already in valid E.164 canonical format (+ followed by 7-15 digits, not starting with 0).
-func isCanonicalE164(s string) bool {
-	if len(s) < 8 || len(s) > 16 || s[0] != '+' || s[1] == '0' {
+// IsE164 reports whether s is in valid E.164 canonical format (+ followed by a non-zero digit and 6-14 digits, total length 8-16).
+// It performs fast byte inspection without regular expression overhead.
+func IsE164(s string) bool {
+	if len(s) < 8 || len(s) > 16 || s[0] != '+' || s[1] < '1' || s[1] > '9' {
 		return false
 	}
-	return isDigits(s[1:])
+	return isDigits(s[2:])
+}
+
+func isCanonicalE164(s string) bool {
+	return IsE164(s)
 }
 
 // isDigits returns true if s consists only of ASCII digits '0'-'9'.
