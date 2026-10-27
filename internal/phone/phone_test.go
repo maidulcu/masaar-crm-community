@@ -31,6 +31,35 @@ func TestNormalize(t *testing.T) {
 	}
 }
 
+func TestIsE164(t *testing.T) {
+	valid := []string{
+		"+971501234567",
+		"+14155552671",
+		"+447911123456",
+		"+1234567", // 7 digits after + (min valid length)
+	}
+	for _, in := range valid {
+		if !IsE164(in) {
+			t.Errorf("IsE164(%q) = false; want true", in)
+		}
+	}
+
+	invalid := []string{
+		"",
+		"+0501234567",        // starts with +0
+		"971501234567",       // missing +
+		"+123456",            // too short (6 digits after +)
+		"+12345678901234567", // too long (>15 digits after +)
+		"+971 50 123",        // spaces
+		"+97150abc456",       // non-digits
+	}
+	for _, in := range invalid {
+		if IsE164(in) {
+			t.Errorf("IsE164(%q) = true; want false", in)
+		}
+	}
+}
+
 func TestNormalizeIsIdempotent(t *testing.T) {
 	once, _ := Normalize("00971 50 123 4567")
 	twice, ok := Normalize(once)

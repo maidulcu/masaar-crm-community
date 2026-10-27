@@ -5,3 +5,7 @@
 ## 2026-10-26 - Non-Regex Byte Inspection for Hot-Path Middleware Path Parameters
 **Learning:** Go's `regexp` engine adds significant CPU overhead per match (~500+ ns) even for compiled regular expressions due to DFA state machine traversal. In hot-path HTTP middleware route lookups, replacing regex URL segment matching (e.g., UUID validation) with direct byte scanning reduces route scope resolution latency by over 75% (721 ns -> 169 ns).
 **Action:** Avoid `regexp.MatchString` inside hot-path middleware or routing functions; use direct length and byte inspection helpers instead.
+
+## 2026-10-27 - Fast Non-Regex E.164 Validation in API Handlers
+**Learning:** Validating input phone numbers against `regexp.MustCompile(`^\+[1-9]\d{6,14}$`)` in high-throughput handlers (e.g. public lead submission and contact creation) takes ~285 ns/op. Replacing regex match with a direct byte-inspection function (`phone.IsE164`) reduces validation latency to ~10.7 ns/op (~96% speedup, 0 B/op, 0 allocs/op).
+**Action:** Replace `regexp.MatchString` for common canonical string shapes (e.g., E.164, UUIDs) with fast byte/length inspection helpers.

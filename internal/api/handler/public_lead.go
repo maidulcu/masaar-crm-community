@@ -10,11 +10,10 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 	"github.com/maidulcu/masaar-crm/internal/domain"
+	"github.com/maidulcu/masaar-crm/internal/phone"
 	"github.com/maidulcu/masaar-crm/internal/repo"
 	"github.com/maidulcu/masaar-crm/internal/webhook"
 )
-
-var e164PublicRe = regexp.MustCompile(`^\+[1-9]\d{6,14}$`)
 
 // externalSourceRe names the pushing system: lowercase, short, e.g. "waqov" or "zapier".
 var externalSourceRe = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,31}$`)
@@ -104,7 +103,7 @@ func (h *PublicLeadHandler) SubmitLead(c *fiber.Ctx) error {
 	if req.Phone == "" {
 		return c.Status(fiber.StatusUnprocessableEntity).JSON(fiber.Map{"error": "phone is required"})
 	}
-	if !e164PublicRe.MatchString(req.Phone) {
+	if !phone.IsE164(req.Phone) {
 		return c.Status(fiber.StatusUnprocessableEntity).JSON(fiber.Map{
 			"error": "phone must be in E.164 format (e.g. +971501234567)",
 		})
