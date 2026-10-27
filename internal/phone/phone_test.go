@@ -46,12 +46,12 @@ func TestIsE164(t *testing.T) {
 
 	invalid := []string{
 		"",
-		"+0501234567",         // starts with +0
-		"971501234567",        // missing +
-		"+123456",             // too short (6 digits after +)
-		"+12345678901234567",  // too long (>15 digits after +)
-		"+971 50 123",         // spaces
-		"+97150abc456",        // non-digits
+		"+0501234567",        // starts with +0
+		"971501234567",       // missing +
+		"+123456",            // too short (6 digits after +)
+		"+12345678901234567", // too long (>15 digits after +)
+		"+971 50 123",        // spaces
+		"+97150abc456",       // non-digits
 	}
 	for _, in := range invalid {
 		if IsE164(in) {

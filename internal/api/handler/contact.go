@@ -15,7 +15,6 @@ import (
 	"github.com/maidulcu/masaar-crm/internal/repo"
 )
 
-
 type ContactHandler struct {
 	contacts *repo.ContactRepo
 	audit    *repo.AuditLogRepo
