@@ -15,6 +15,7 @@ func TestSafeURL(t *testing.T) {
 		"javascript:alert(1)", "JaVaScRiPt:alert(1)", " javascript:alert(1)", "java\tscript:alert(1)",
 		"data:text/html,<script>alert(1)</script>", "vbscript:x", "file:///etc/passwd", "ftp://x/y",
 		"//evil.example.com/x", `/\evil.example.com`, "https://", "mailto:a@b.c", "blob:https://x/y",
+		"https://user:pass@example.com/a.pdf", "http://user@example.com/x",
 	}
 	for _, s := range ok {
 		if !SafeURL(s) {
