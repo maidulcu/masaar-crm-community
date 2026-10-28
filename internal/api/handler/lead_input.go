@@ -2,14 +2,11 @@ package handler
 
 import (
 	"math"
-	"regexp"
 	"strings"
 	"unicode/utf8"
 
 	"github.com/maidulcu/masaar-crm/internal/domain"
 )
-
-var currencyRE = regexp.MustCompile(`^[A-Za-z]{3}$`)
 
 // maxDealValue is the largest amount the leads.deal_value column (numeric(12,2)) can hold.
 const maxDealValue = 9_999_999_999.99
@@ -20,6 +17,16 @@ const maxDealValue = 9_999_999_999.99
 var leadSources = map[string]bool{"whatsapp": true, "web": true, "referral": true, "event": true,
 	"property_finder": true, "bayut": true, "dubizzle": true, "portal": true}
 
+// isCurrencyCode performs fast byte inspection to verify s is exactly a 3-letter ASCII currency code.
+func isCurrencyCode(s string) bool {
+	if len(s) != 3 {
+		return false
+	}
+	return ((s[0] >= 'A' && s[0] <= 'Z') || (s[0] >= 'a' && s[0] <= 'z')) &&
+		((s[1] >= 'A' && s[1] <= 'Z') || (s[1] >= 'a' && s[1] <= 'z')) &&
+		((s[2] >= 'A' && s[2] <= 'Z') || (s[2] >= 'a' && s[2] <= 'z'))
+}
+
 // normalizeCurrency upper-cases a 3-letter currency code ("" means the AED default). The column
 // is char(3): anything longer used to be a 500, and lower-case codes were stored as-is.
 func normalizeCurrency(s string) (string, bool) {
@@ -27,7 +34,7 @@ func normalizeCurrency(s string) (string, bool) {
 	if s == "" {
 		return "AED", true
 	}
-	if !currencyRE.MatchString(s) {
+	if !isCurrencyCode(s) {
 		return "", false
 	}
 	return strings.ToUpper(s), true

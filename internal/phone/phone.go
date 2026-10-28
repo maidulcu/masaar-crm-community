@@ -84,6 +84,12 @@ func Normalize(raw string) (string, bool) {
 	return string(buf[outStart:n]), true
 }
 
+// IsE164 checks if s is in valid E.164 canonical format (+ followed by 7-15 digits, not starting with 0).
+// Fast non-regex replacement for regexp.MatchString(`^\+[1-9]\d{6,14}$`, s).
+func IsE164(s string) bool {
+	return isCanonicalE164(s)
+}
+
 // isCanonicalE164 checks if s is already in valid E.164 canonical format (+ followed by 7-15 digits, not starting with 0).
 func isCanonicalE164(s string) bool {
 	if len(s) < 8 || len(s) > 16 || s[0] != '+' || s[1] == '0' {
