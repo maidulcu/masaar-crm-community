@@ -41,7 +41,7 @@ func TestIsCanonicalE164(t *testing.T) {
 		"",
 		"971501234567",
 		"+0501234567",
-		"+123456",            // 6 digits - too short
+		"+123456",           // 6 digits - too short
 		"+1234567890123456", // 16 digits - too long
 		"+971 501234567",
 		"+971a501234567",
