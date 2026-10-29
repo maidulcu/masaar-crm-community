@@ -3,6 +3,7 @@
 import { safeUrl } from '@/lib/safeUrl'
 import { useEffect, useState } from 'react'
 import api from '@/lib/api'
+import { useLang } from '@/context/LangContext'
 
 interface Document {
   id: string
@@ -48,9 +49,11 @@ export default function DocumentAttachmentSection({
     file_url: '',
   })
 
+  const { t } = useLang()
   const [sigFormDocId, setSigFormDocId] = useState<string | null>(null)
   const [signerData, setSignerData] = useState({ signerName: '', signerEmail: '' })
   const [sendingSignature, setSendingSignature] = useState(false)
+  const [copiedSigId, setCopiedSigId] = useState<string | null>(null)
 
   useEffect(() => {
     loadDocuments()
@@ -310,16 +313,27 @@ export default function DocumentAttachmentSection({
                               </span>
                               {sig.signature_status !== 'signed' && (
                                 <button
-                                  title="Copy signature link"
+                                  type="button"
+                                  aria-label={copiedSigId === sig.id ? t('تم نسخ رابط التوقيع', 'Signature link copied') : t('نسخ رابط التوقيع', 'Copy signature link')}
+                                  title={copiedSigId === sig.id ? t('تم النسخ!', 'Copied!') : t('نسخ رابط التوقيع', 'Copy signature link')}
                                   onClick={() => {
                                     const link = `${window.location.origin}/sign/${sig.id}`
-                                    navigator.clipboard.writeText(link).then(() => alert('Link copied!'))
+                                    navigator.clipboard.writeText(link).then(() => {
+                                      setCopiedSigId(sig.id)
+                                      setTimeout(() => setCopiedSigId(null), 2000)
+                                    })
                                   }}
-                                  className="text-xs text-gray-400 hover:text-gray-600"
+                                  className="text-gray-400 hover:text-gray-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded p-0.5 transition-colors"
                                 >
-                                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                                  </svg>
+                                  {copiedSigId === sig.id ? (
+                                    <svg className="w-3.5 h-3.5 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                    </svg>
+                                  ) : (
+                                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                                    </svg>
+                                  )}
                                 </button>
                               )}
                             </div>
