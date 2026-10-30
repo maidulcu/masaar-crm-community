@@ -5,3 +5,7 @@
 ## 2026-10-26 - Non-Regex Byte Inspection for Hot-Path Middleware Path Parameters
 **Learning:** Go's `regexp` engine adds significant CPU overhead per match (~500+ ns) even for compiled regular expressions due to DFA state machine traversal. In hot-path HTTP middleware route lookups, replacing regex URL segment matching (e.g., UUID validation) with direct byte scanning reduces route scope resolution latency by over 75% (721 ns -> 169 ns).
 **Action:** Avoid `regexp.MatchString` inside hot-path middleware or routing functions; use direct length and byte inspection helpers instead.
+
+## 2026-10-30 - Zero-Allocation Scope Verification in Middleware
+**Learning:** Replacing `strings.Fields` in hot-path scope authorization middleware (`RequirePartnerScope`) with space-delimited substring scanning eliminates heap slice allocations (1 alloc/op -> 0 allocs/op) and reduces scope verification latency by over 80% (159 ns/op -> 28.5 ns/op).
+**Action:** Avoid `strings.Fields` or `strings.Split` in HTTP middleware; use zero-allocation substring indexing loops (`strings.IndexByte`) and string slicing instead.
