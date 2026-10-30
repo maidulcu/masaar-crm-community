@@ -51,6 +51,7 @@ export default function DocumentAttachmentSection({
   const [sigFormDocId, setSigFormDocId] = useState<string | null>(null)
   const [signerData, setSignerData] = useState({ signerName: '', signerEmail: '' })
   const [sendingSignature, setSendingSignature] = useState(false)
+  const [copiedSigId, setCopiedSigId] = useState<string | null>(null)
 
   useEffect(() => {
     loadDocuments()
@@ -144,7 +145,8 @@ export default function DocumentAttachmentSection({
         {canEdit && (
           <button
             onClick={() => setShowCreateForm(!showCreateForm)}
-            className="text-xs font-medium px-3 py-1.5 bg-brand-600 text-white rounded-lg hover:bg-brand-700 transition-colors"
+            aria-expanded={showCreateForm}
+            className="text-xs font-medium px-3 py-1.5 bg-brand-600 text-white rounded-lg hover:bg-brand-700 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
           >
             {showCreateForm ? 'Cancel' : '+ Attach Document'}
           </button>
@@ -210,14 +212,26 @@ export default function DocumentAttachmentSection({
             <div key={doc.id} className="border border-gray-200 rounded-xl overflow-hidden">
               {/* Row */}
               <div
-                className="flex items-center gap-3 px-4 py-3 bg-white hover:bg-gray-50 cursor-pointer transition-colors"
+                role="button"
+                tabIndex={0}
+                aria-expanded={expandedDoc === doc.id}
+                aria-label={`Toggle details for ${doc.document_title}`}
+                className="flex items-center gap-3 px-4 py-3 bg-white hover:bg-gray-50 cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-inset"
                 onClick={() => {
                   const next = expandedDoc === doc.id ? null : doc.id
                   setExpandedDoc(next)
                   if (next && !signatures[doc.id]) loadSignatures(doc.id)
                 }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault()
+                    const next = expandedDoc === doc.id ? null : doc.id
+                    setExpandedDoc(next)
+                    if (next && !signatures[doc.id]) loadSignatures(doc.id)
+                  }
+                }}
               >
-                <svg className="w-4 h-4 text-gray-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <svg className="w-4 h-4 text-gray-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
                 </svg>
                 <div className="flex-1 min-w-0">
@@ -233,7 +247,7 @@ export default function DocumentAttachmentSection({
                 </span>
                 <svg
                   className={`w-4 h-4 text-gray-400 shrink-0 transition-transform ${expandedDoc === doc.id ? 'rotate-180' : ''}`}
-                  fill="none" viewBox="0 0 24 24" stroke="currentColor"
+                  fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true"
                 >
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                 </svg>
@@ -310,16 +324,29 @@ export default function DocumentAttachmentSection({
                               </span>
                               {sig.signature_status !== 'signed' && (
                                 <button
-                                  title="Copy signature link"
+                                  title={copiedSigId === sig.id ? 'Link copied' : 'Copy signature link'}
+                                  aria-label={copiedSigId === sig.id ? 'Signature link copied' : 'Copy signature link'}
                                   onClick={() => {
                                     const link = `${window.location.origin}/sign/${sig.id}`
-                                    navigator.clipboard.writeText(link).then(() => alert('Link copied!'))
+                                    navigator.clipboard.writeText(link).then(() => {
+                                      setCopiedSigId(sig.id)
+                                      setTimeout(() => setCopiedSigId(null), 2000)
+                                    })
                                   }}
-                                  className="text-xs text-gray-400 hover:text-gray-600"
+                                  className="text-xs text-gray-400 hover:text-gray-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded p-0.5 transition-colors"
                                 >
-                                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                                  </svg>
+                                  {copiedSigId === sig.id ? (
+                                    <span className="text-green-600 font-medium text-[11px] flex items-center gap-0.5">
+                                      <svg className="w-3.5 h-3.5 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                      </svg>
+                                      Copied!
+                                    </span>
+                                  ) : (
+                                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                                    </svg>
+                                  )}
                                 </button>
                               )}
                             </div>
