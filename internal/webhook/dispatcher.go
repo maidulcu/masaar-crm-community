@@ -115,9 +115,13 @@ type Dispatcher struct {
 }
 
 func NewDispatcher(store SubscriptionStore) *Dispatcher {
+	client := safehttp.NewClient(10 * time.Second) // refuses internal addresses (SSRF)
+	// A delivery goes to the registered URL only: a redirect would resend the signed payload to
+	// another host. The 3xx is recorded as a failed delivery, so the owner sees it and fixes the URL.
+	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	d := &Dispatcher{
 		repo:   store,
-		client: safehttp.NewClient(10 * time.Second), // refuses internal addresses (SSRF)
+		client: client,
 		queue:  make(chan job, dispatchQueueSize),
 	}
 	d.wg.Add(dispatchWorkers)
@@ -240,6 +244,9 @@ func (d *Dispatcher) send(ctx context.Context, sub repo.WebhookSubscription, j j
 				break
 			}
 			log.Printf("webhook [%s] %s attempt %d: got HTTP %d", sub.Name, event, attempt, statusCode)
+			if statusCode >= 300 && statusCode < 400 {
+				break // redirects are not followed, so a retry would get the same answer
+			}
 		}
 
 		if attempt < 3 && !sleepCtx(ctx, time.Duration(attempt*attempt)*time.Second) { // 1s, 4s

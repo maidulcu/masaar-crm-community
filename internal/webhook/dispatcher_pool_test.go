@@ -123,3 +123,32 @@ func TestDispatchAfterShutdownIsIgnored(t *testing.T) {
 	d.Dispatch(uuid.New(), EventLeadCreated, nil) // must not panic on the closed queue
 	d.Shutdown(time.Second)                       // idempotent
 }
+
+// A delivery must not follow a redirect: that would resend the signed payload to another host.
+func TestDispatchDoesNotFollowRedirects(t *testing.T) {
+	var elsewhere int32
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&elsewhere, 1)
+		w.WriteHeader(204)
+	}))
+	defer target.Close()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, target.URL, http.StatusTemporaryRedirect)
+	}))
+	defer srv.Close()
+
+	store := &fakeStore{url: srv.URL}
+	d := NewDispatcher(store)
+	plain := *d.client                      // the production redirect policy...
+	plain.Transport = http.DefaultTransport // ...without the SSRF guard, which refuses httptest's loopback
+	d.client = &plain
+	d.Dispatch(uuid.New(), EventLeadCreated, map[string]string{"id": "1"})
+	d.Shutdown(3 * time.Second)
+
+	if n := atomic.LoadInt32(&elsewhere); n != 0 {
+		t.Errorf("payload delivered to the redirect target %d times", n)
+	}
+	if store.count() != 1 || store.lastStatus != http.StatusTemporaryRedirect {
+		t.Errorf("recorded %d deliveries, status %d; want 1 / 307 (a failed delivery)", store.count(), store.lastStatus)
+	}
+}

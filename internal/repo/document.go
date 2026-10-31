@@ -363,8 +363,12 @@ func (r *DocumentRepo) SignByToken(ctx context.Context, sigID uuid.UUID, signedA
 // MarkSignedByEnvelope is called by the DocuSign webhook (authenticated by its HMAC secret),
 // which has no company context; the envelope id identifies the signature.
 func (r *DocumentRepo) MarkSignedByEnvelope(ctx context.Context, envelopeID string) error {
-	_, err := r.db.Exec(ctx,
-		`UPDATE document_signatures SET signature_status=$1, signed_at=NOW() WHERE envelope_id=$2`,
+	// A deleted document stays deleted and unsigned; a repeated "completed" event keeps the
+	// first signing time.
+	_, err := r.db.Exec(ctx, `
+		UPDATE document_signatures s SET signature_status=$1, signed_at=COALESCE(s.signed_at, NOW())
+		WHERE s.envelope_id=$2
+		  AND EXISTS (SELECT 1 FROM documents d WHERE d.id = s.document_id AND d.deleted_at IS NULL)`,
 		domain.SignatureSigned, envelopeID,
 	)
 	if err != nil {
@@ -373,7 +377,7 @@ func (r *DocumentRepo) MarkSignedByEnvelope(ctx context.Context, envelopeID stri
 	_, err = r.db.Exec(ctx, `
 		UPDATE documents SET signature_status=$1, updated_at=NOW()
 		WHERE id = (SELECT document_id FROM document_signatures WHERE envelope_id=$2 LIMIT 1)
-	`, domain.SignatureSigned, envelopeID)
+		  AND deleted_at IS NULL`, domain.SignatureSigned, envelopeID)
 	return err
 }
 

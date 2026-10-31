@@ -415,7 +415,8 @@ Authorization: Bearer <jwt_token>
 | `ALLOWED_ORIGINS` | ✅ | `*` | CORS — set to your frontend URL in production |
 | `APP_COMPANY_ID` | — | `00000000-0000-0000-0000-000000000001` | Single-tenant company UUID |
 | `WA_VERIFY_TOKEN` | WhatsApp | — | Meta webhook verification token |
-| `WA_APP_SECRET` | WhatsApp | — | App secret for HMAC signature validation |
+| `WA_APP_SECRET` | WhatsApp | — | App secret for HMAC signature validation. Without it inbound webhooks are refused (503) |
+| `WA_INSECURE_SKIP_SIGNATURE` | — | `false` | Local testing only: `true` accepts unsigned webhooks while `WA_APP_SECRET` is empty. Ignored when `APP_ENV=production` |
 | `WA_PHONE_NUMBER_ID` | WhatsApp outbound | — | Meta phone number ID |
 | `WA_ACCESS_TOKEN` | WhatsApp outbound | — | Meta Business API token |
 | `AI_PROVIDER` | — | `ollama` | `ollama` or `gemini` |
@@ -450,7 +451,9 @@ https://your-domain.com/webhooks/whatsapp
 
 **Verification:** On first setup, Meta sends a GET request. The CRM responds automatically using `WA_VERIFY_TOKEN`.
 
-**Security:** Set `WA_APP_SECRET` to your Meta App Secret. The CRM validates every inbound request using HMAC-SHA256.
+**Security:** Set `WA_APP_SECRET` to your Meta App Secret. The CRM validates every inbound request using HMAC-SHA256 and refuses requests while the secret is unset.
+
+**One number per deployment:** inbound messages and delivery statuses are stored in the `APP_COMPANY_ID` company; the `phone_number_id` in Meta's payload is not used to pick a company. Subscribe the Meta app to one WhatsApp number per deployment: if one app received several companies' numbers, all their conversations would land in that one company.
 
 **Rate limit:** 300 requests/minute per IP.
 
@@ -535,7 +538,7 @@ Verify the raw request body, before any JSON parsing.
 
 **Legacy header.** Requests also still carry `X-Masaar-Signature: sha256=<hex HMAC-SHA256 of the body, keyed with the secret string>`, plus `X-Masaar-Event` and `X-Masaar-Delivery` (now the same as `webhook-id`). Existing receivers keep working; new ones should use the headers above.
 
-Delivery retries: 3 attempts with 1s / 4s backoff. Failures tracked in `webhook_deliveries` table.
+Delivery retries: 3 attempts with 1s / 4s backoff. Failures tracked in `webhook_deliveries` table. Redirects are not followed: a `3xx` answer is recorded as a failed delivery (and not retried), so register the final URL.
 
 ---
 
