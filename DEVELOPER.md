@@ -477,6 +477,8 @@ curl -X POST https://crm.yourcompany.ae/api/v1/settings/webhooks \
   -H "Content-Type: application/json" \
   -d '{"name":"My App","url":"https://myapp.com/crm-events","events":"lead.created,lead.won"}'
 # Returns: {"id":"...","secret":"whsec_..."}  ← store secret, shown once
+# events: a comma-separated string or a JSON array of the event names above ("*" or empty = all);
+# unknown names are refused. url: absolute https, no credentials, at most 2048 characters.
 
 # List registered webhooks
 GET /api/v1/settings/webhooks

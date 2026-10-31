@@ -194,7 +194,7 @@ export default async function PublicListingPage({ params }: { params: Promise<{ 
               style={{ color: primaryColor }}>
               📞 Call Now
             </a>
-            <a href={`mailto:${company.email}?subject=Enquiry: ${listing.title}&body=I am interested in listing ${listing.reference_number}`}
+            <a href={`mailto:${encodeURIComponent(company.email)}?subject=${encodeURIComponent(`Enquiry: ${listing.title}`)}&body=${encodeURIComponent(`I am interested in listing ${listing.reference_number}`)}`}
               className="border border-white/50 text-white font-semibold py-3 px-6 rounded-xl hover:bg-white/10 transition-colors">
               ✉️ Send Email
             </a>
