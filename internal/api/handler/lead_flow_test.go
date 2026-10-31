@@ -464,3 +464,44 @@ func TestImportLeads_RejectedRowsLeaveNoContact(t *testing.T) {
 		t.Errorf("currency = %q, want USD", cur)
 	}
 }
+
+// recordingAudit keeps the audit entries a handler writes.
+type recordingAudit struct {
+	mu      sync.Mutex
+	entries []string // "action entity_type"
+}
+
+func (r *recordingAudit) Log(_ context.Context, _ uuid.UUID, action, entityType string, _ uuid.UUID, _ any) {
+	r.mu.Lock()
+	r.entries = append(r.entries, action+" "+entityType)
+	r.mu.Unlock()
+}
+func (r *recordingAudit) LogAPIKey(ctx context.Context, id uuid.UUID, action, entityType string, eid uuid.UUID, diff any) {
+	r.Log(ctx, id, action, entityType, eid, diff)
+}
+
+func TestExports_AreAudited(t *testing.T) {
+	e := newLeadEnv(t)
+	e.newLead(t)
+	rec := &recordingAudit{}
+	imp := NewImportExportHandler(repo.NewContactRepo(e.pool), repo.NewLeadRepo(e.pool), repo.NewListingRepo(e.pool)).UseAudit(rec)
+	app := fiber.New()
+	g := app.Group("/", func(c *fiber.Ctx) error {
+		c.Locals("company_id", e.a.String())
+		c.Locals("user_id", e.agent1)
+		return c.Next()
+	})
+	g.Get("/export/contacts", imp.ExportContacts)
+	g.Get("/export/leads", imp.ExportLeads)
+	g.Get("/export/listings", imp.ExportListings)
+	for _, p := range []string{"/export/contacts", "/export/leads", "/export/listings"} {
+		resp, err := app.Test(httptest.NewRequest("GET", p, nil), -1)
+		if err != nil || resp.StatusCode != 200 {
+			t.Fatalf("%s = %v %v", p, resp.StatusCode, err)
+		}
+	}
+	want := "export contact,export lead,export listing"
+	if got := strings.Join(rec.entries, ","); got != want {
+		t.Errorf("audit entries = %q, want %q", got, want)
+	}
+}

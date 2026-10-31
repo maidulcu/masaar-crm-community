@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [v0.4.0] - Unreleased
 
+### Audit log covers confidential files and exports
+
+- **Bank statements:** uploading, downloading and deleting a statement is now recorded in the audit log (file name, size and format, never the content). Uploading with another company's `bank_integration_id` answers 422 instead of 404.
+- **Exports:** every contact, lead and listing CSV export is recorded with the row count and filters used.
+
 ### Fixed: new companies had an empty pipeline
 
 - Companies created after the custom pipeline stages were added (sign-up, Partner API) had no stages, so the Pipeline page drew no columns even though their leads were stored. Listing stages now gives a company the default six (`new` … `lost`) the first time it has none, for leads and deals. No migration; existing companies are unaffected.

@@ -5959,6 +5959,14 @@ paths:
               error:
                 type: string
             type: object
+        "422":
+          description: Content does not match the extension, or the bank integration
+            is not your company's
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
       security:
       - BearerAuth: []
       summary: Upload bank statement
