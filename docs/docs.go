@@ -8056,7 +8056,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Assigns a lead to a user (agent or admin). Pass null user_id to unassign.",
+                "description": "Assigns a lead to a user (agent or admin). Pass null assigned_to to unassign.",
                 "consumes": [
                     "application/json"
                 ],
@@ -8083,7 +8083,7 @@ const docTemplate = `{
                         "schema": {
                             "type": "object",
                             "properties": {
-                                "user_id": {
+                                "assigned_to": {
                                     "type": "string"
                                 }
                             }

@@ -9,14 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [v0.4.0] - Unreleased
 
-### Account security
+### Fixed: sign-in, sign-up and lead intake
 
-- **Two-factor reset by an admin** (`POST /users/{id}/2fa/reset`) no longer works on the admin's own account: turning off your own two-factor still needs your password and a code (`/users/me/2fa/disable`). Resetting another user's two-factor now also ends that user's sessions. The Users page hides the button on your own row.
-- **Audit log:** creating a user directly (`POST /users`) and creating or revoking an API key are now recorded. Key entries hold the name, prefix and scopes, never the key.
-- **Revoking an API key** that doesn't exist (or belongs to another company) answers 404 instead of 204.
-- **Password reset** mail is no longer sent to deactivated accounts (the answer is unchanged).
-- `POST /users` limits `name` to 100 characters and `wa_number` to 20.
-- Removed two unused user-repository methods that created users outside any company scope.
+- **Magic-link and SMS sign-ins are audited.** They now go through the same session code as password login, so they write the `login` audit entry they used to skip. The SMS response keeps `user.phone`, which every sign-in response now includes.
+- **Magic-link requests no longer reveal which emails are registered.** The email is sent in the background, as password-reset mail already was; before, only registered addresses waited for the SMTP round trip, so response time gave them away.
+- **`POST /webhooks/leads` counts characters, not bytes.** `name` (200), `notes` (2000), `property_type` and `area` (100) were measured in bytes, so Arabic names over 100 letters were refused as "too long". `name` is also trimmed: a blank name is now a 422.
+- **API docs:** `PATCH /leads/{id}/assign` is documented with its real body field, `assigned_to` (the docs said `user_id`).
+- **Sign-up shows readable errors** for a taken email or subdomain instead of the raw `email_taken` / `subdomain_taken` codes.
 
 ### Fixed: new companies had an empty pipeline
 

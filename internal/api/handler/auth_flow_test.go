@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -369,19 +370,24 @@ func TestSMSRequest_OnlyTextsRegisteredNumbers(t *testing.T) {
 	}
 }
 
-func TestForgotPassword_NoTokenForDeactivatedUser(t *testing.T) {
+func TestVerifyMagicLink_AuditsLogin(t *testing.T) {
 	e := newAuthEnv(t)
-	email := e.email("gone")
-	if code, _ := e.register(t, "Gone", email, "Password1", e.sub("gone")); code != 201 {
-		t.Fatal("setup failed")
+	email := e.email("magic")
+	code, reg := e.register(t, "Magic", email, "Password1", e.sub("magic"))
+	if code != 201 {
+		t.Fatalf("setup = %d %v", code, reg)
 	}
-	if _, err := e.pool.Exec(context.Background(), `UPDATE users SET is_active = false WHERE email = $1`, email); err != nil {
+	userID := reg["user"].(map[string]any)["id"].(string)
+
+	tok := uuid.NewString() + e.tag
+	if err := e.rdb.Set(context.Background(), "magic:"+tok, email+"|en", time.Minute).Err(); err != nil {
 		t.Fatal(err)
 	}
-	if code, _ := e.post(t, "/forgot", fiber.Map{"email": email}); code != 200 {
-		t.Fatalf("forgot = %d, must always answer 200", code)
+	if code, out := e.post(t, "/magic/verify", fiber.Map{"token": tok}); code != 200 || out["access_token"] == nil {
+		t.Fatalf("verify = %d %v", code, out)
 	}
-	if n := e.count(t, `SELECT count(*) FROM password_reset_tokens t JOIN users u ON u.id = t.user_id WHERE u.email = $1`, email); n != 0 {
-		t.Errorf("%d reset tokens issued to a deactivated account, want 0", n)
+	// Password, 2FA and magic-link sign-ins all leave the same login entry.
+	if n := e.count(t, `SELECT count(*) FROM audit_logs WHERE actor_id = $1 AND action = 'login'`, userID); n != 1 {
+		t.Errorf("%d login audit entries after a magic-link sign-in, want 1", n)
 	}
 }

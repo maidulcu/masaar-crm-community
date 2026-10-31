@@ -174,6 +174,7 @@ func (h *AuthHandler) completeLogin(c *fiber.Ctx, user *domain.User, extra fiber
 			"email":     user.Email,
 			"role":      user.Role,
 			"lang_pref": user.LangPref,
+			"phone":     user.Phone,
 		},
 	}
 	if company != nil {
@@ -743,12 +744,19 @@ func (h *AuthHandler) RequestMagicLink(c *fiber.Ctx) error {
 		})
 		if renderErr != nil {
 			log.Printf("[magic-link] template render error: %v", renderErr)
-		} else if sendErr := h.email.Send(&domain.EmailHistory{
-			ToEmail:  body.Email,
-			Subject:  "Your Masaar CRM Login Link",
-			HTMLBody: htmlBody,
-		}); sendErr != nil {
-			log.Printf("[magic-link] email send error: %v", sendErr)
+		} else {
+			msg := &domain.EmailHistory{
+				ToEmail:  body.Email,
+				Subject:  "Your Masaar CRM Login Link",
+				HTMLBody: htmlBody,
+			}
+			// Sent in the background: the SMTP round trip only happens for registered addresses,
+			// so waiting for it would reveal (by response time) which emails exist.
+			go func() {
+				if sendErr := h.email.Send(msg); sendErr != nil {
+					log.Printf("[magic-link] email send error: %v", sendErr)
+				}
+			}()
 		}
 	} else {
 		log.Printf("[magic-link] email service not configured, skipping send")
@@ -816,42 +824,8 @@ func (h *AuthHandler) VerifyMagicLink(c *fiber.Ctx) error {
 	if pending, err := h.twoFactorGate(c, user, "magic_link"); pending || err != nil {
 		return err
 	}
-
-	// Same company checks as password login: suspended workspaces are refused and an expired
-	// trial is downgraded; the trial countdown is reported instead of a hard-coded 0.
-	company, daysRemaining, cerr := h.loadCompany(ctx, user)
-	if cerr != nil {
-		return companyError(c, cerr)
-	}
-
-	// Generate JWT tokens
-	access, refresh, err := h.generateTokenPair(user)
-	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "token generation failed"})
-	}
-
-	// Store refresh token in Redis
-	key := fmt.Sprintf("refresh:%s", refresh)
-	ttl := time.Duration(h.config.JWTRefreshExpiryDays) * 24 * time.Hour
-	if err := h.redis.Set(ctx, key, user.ID.String(), ttl).Err(); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "session error"})
-	}
-
-	resp := fiber.Map{
-		"access_token": access,
-		"expires_in":   h.config.JWTAccessExpiryMin * 60,
-		"user": fiber.Map{
-			"id":        user.ID,
-			"name":      user.Name,
-			"email":     user.Email,
-			"role":      user.Role,
-			"lang_pref": user.LangPref,
-		},
-	}
-	if company != nil {
-		resp["company"] = companyPayload(company, daysRemaining)
-	}
-	return c.JSON(h.attachRefresh(c, resp, refresh))
+	// Same company checks, session and login audit entry as password login.
+	return h.completeLogin(c, user, nil)
 }
 
 var (
@@ -1102,37 +1076,5 @@ func (h *AuthHandler) VerifySMSOTP(c *fiber.Ctx) error {
 	if pending, err := h.twoFactorGate(c, user, "sms"); pending || err != nil {
 		return err
 	}
-
-	company, daysRemaining, cerr := h.loadCompany(ctx, user)
-	if cerr != nil {
-		return companyError(c, cerr)
-	}
-
-	access, refresh, err := h.generateTokenPair(user)
-	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "token generation failed"})
-	}
-
-	key := fmt.Sprintf("refresh:%s", refresh)
-	ttl := time.Duration(h.config.JWTRefreshExpiryDays) * 24 * time.Hour
-	if err := h.redis.Set(ctx, key, user.ID.String(), ttl).Err(); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "session error"})
-	}
-
-	resp := fiber.Map{
-		"access_token": access,
-		"expires_in":   h.config.JWTAccessExpiryMin * 60,
-		"user": fiber.Map{
-			"id":        user.ID,
-			"name":      user.Name,
-			"email":     user.Email,
-			"role":      user.Role,
-			"lang_pref": user.LangPref,
-			"phone":     user.Phone,
-		},
-	}
-	if company != nil {
-		resp["company"] = companyPayload(company, daysRemaining)
-	}
-	return c.JSON(h.attachRefresh(c, resp, refresh))
+	return h.completeLogin(c, user, nil)
 }

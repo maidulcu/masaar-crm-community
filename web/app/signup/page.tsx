@@ -59,7 +59,12 @@ export default function SignupPage() {
       setSession(res.access_token, res.user, res.company)
       router.push('/onboarding')
     } catch (err: any) {
-      setError(err.message || 'Registration failed')
+      // The API answers conflicts with machine codes; show people a sentence instead.
+      const messages: Record<string, string> = {
+        email_taken: 'An account with this email already exists. Sign in instead.',
+        subdomain_taken: 'This subdomain is already taken. Please choose another.',
+      }
+      setError(messages[err.message] || err.message || 'Registration failed')
       turnstileRef.current?.reset()
       setTurnstileToken(null)
     } finally {
