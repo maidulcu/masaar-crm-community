@@ -16934,7 +16934,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Admin only, for a user of the same company. The user sets two-factor up again at the next sign-in if the company requires it.",
+                "description": "Admin only, for another user of the same company (not yourself: use /users/me/2fa/disable). Ends the user's sessions; they set two-factor up again at the next sign-in if the company requires it.",
                 "tags": [
                     "Users"
                 ],
@@ -16951,6 +16951,17 @@ const docTemplate = `{
                 "responses": {
                     "204": {
                         "description": "No Content"
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "error": {
+                                    "type": "string"
+                                }
+                            }
+                        }
                     }
                 }
             }

@@ -203,15 +203,16 @@ export default function AdminUsersPage() {
                               >
                                 {u.is_active ? t('تعطيل', 'Deactivate') : t('تفعيل', 'Activate')}
                               </button>
-                              <button
+                              {/* Your own 2FA is turned off from your profile, with your password and a code. */}
+                              {u.id !== me?.id && <button
                                 onClick={async () => {
-                                  if (!confirm(t(`إعادة تعيين التحقق بخطوتين لـ ${u.name}؟ سيحتاج إلى إعداده مجدداً.`, `Reset two-step verification for ${u.name}? They will need to set it up again.`))) return
+                                  if (!confirm(t(`إعادة تعيين التحقق بخطوتين لـ ${u.name}؟ سيتم تسجيل خروجه وسيحتاج إلى إعداده مجدداً.`, `Reset two-step verification for ${u.name}? They will be signed out and need to set it up again.`))) return
                                   try { await api.twoFactor.resetUser(u.id); alert(t('تمت إعادة التعيين', 'Reset done')) } catch (e) { alert(e instanceof Error ? e.message : 'Failed') }
                                 }}
                                 className="text-xs text-gray-600 hover:underline"
                               >
                                 {t('إعادة تعيين 2FA', 'Reset 2FA')}
-                              </button>
+                              </button>}
                               <button
                                 onClick={() => setDeleteTarget(u)}
                                 className="text-xs text-red-500 hover:underline"

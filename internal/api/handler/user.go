@@ -7,6 +7,7 @@ import (
 	"net/mail"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -212,8 +213,16 @@ func (h *UserHandler) CreateUser(c *fiber.Ctx) error {
 	if err := c.BodyParser(&body); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid request"})
 	}
-	if strings.TrimSpace(body.Name) == "" {
+	body.Name = strings.TrimSpace(body.Name)
+	if body.Name == "" {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "name is required"})
+	}
+	if utf8.RuneCountInString(body.Name) > maxNameRunes {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "name is too long"})
+	}
+	body.WANumber = strings.TrimSpace(body.WANumber)
+	if len(body.WANumber) > 20 {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "wa_number is too long"})
 	}
 	body.Email = strings.ToLower(strings.TrimSpace(body.Email))
 	if body.Email == "" {
@@ -272,6 +281,10 @@ func (h *UserHandler) CreateUser(c *fiber.Ctx) error {
 		}
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to create user"})
 	}
+
+	callerID, _ := uuid.Parse(fmt.Sprint(claims["sub"]))
+	h.audit.Log(c.Context(), callerID, repo.AuditCreate, repo.AuditUser, user.ID,
+		fiber.Map{"email": user.Email, "role": user.Role, "method": "create"})
 
 	return c.Status(fiber.StatusCreated).JSON(fiber.Map{
 		"id":        user.ID,

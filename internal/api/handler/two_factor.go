@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 
 	"github.com/maidulcu/masaar-crm/internal/domain"
 	"github.com/maidulcu/masaar-crm/internal/repo"
+	"github.com/maidulcu/masaar-crm/internal/session"
 	"github.com/maidulcu/masaar-crm/internal/totp"
 )
 
@@ -569,10 +571,11 @@ func (h *AuthHandler) UpdateSecuritySettings(c *fiber.Ctx) error {
 
 // ResetUserTwoFactor godoc
 // @Summary      Reset a user's two-factor (lost phone)
-// @Description  Admin only, for a user of the same company. The user sets two-factor up again at the next sign-in if the company requires it.
+// @Description  Admin only, for another user of the same company (not yourself: use /users/me/2fa/disable). Ends the user's sessions; they set two-factor up again at the next sign-in if the company requires it.
 // @Tags         Users
 // @Param        id  path  string  true  "User ID"
 // @Success      204
+// @Failure      403  {object}  object{error=string}
 // @Security     BearerAuth
 // @Router       /users/{id}/2fa/reset [post]
 func (h *AuthHandler) ResetUserTwoFactor(c *fiber.Ctx) error {
@@ -587,12 +590,21 @@ func (h *AuthHandler) ResetUserTwoFactor(c *fiber.Ctx) error {
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid id"})
 	}
+	// Turning off your own second factor needs your password and a code (TwoFactorDisable);
+	// this route must not be a way around that for whoever holds an admin's session.
+	if actor := localsUserPtr(c); actor != nil && *actor == id {
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "use /users/me/2fa/disable to turn off your own two-factor"})
+	}
 	target, err := h.users.FindByID(c.Context(), id)
 	if err != nil || target.CompanyID != cid {
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "not found"})
 	}
 	if err := h.twoFactor.Disable(c.Context(), id); err != nil {
 		return serverError(c, err)
+	}
+	// Sessions opened with the old second factor end: the user signs in (and enrols) again.
+	if err := session.RevokeAll(c.Context(), h.redis, id); err != nil {
+		log.Printf("2fa reset: revoke sessions for %s: %v", id, err)
 	}
 	if actor := localsUserPtr(c); actor != nil {
 		h.audit.Log(c.Context(), *actor, "2fa_reset", repo.AuditUser, id, fiber.Map{"user": fmt.Sprint(target.Email)})
