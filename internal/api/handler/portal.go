@@ -150,6 +150,8 @@ const maxPortalLeadBytes = 64 << 10
 // @Param        token   query  string  true  "Inbound token"
 // @Success      201  {object}  object{lead_id=string}
 // @Success      200  {object}  object{duplicate=bool}
+// @Failure      401  {object}  object{error=string}  "Invalid token"
+// @Failure      403  {object}  object{error=string}  "account_suspended: the company is suspended"
 // @Router       /webhooks/portals/{portal} [post]
 func (h *PortalHandler) ReceiveLead(c *fiber.Ctx) error {
 	p, ok := validPortal(c)
@@ -159,6 +161,9 @@ func (h *PortalHandler) ReceiveLead(c *fiber.Ctx) error {
 	cid, err := h.portals.CompanyForToken(c.Context(), p, "inbound", c.Query("token"))
 	if errors.Is(err, repo.ErrBadPortalToken) {
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "invalid token"})
+	}
+	if errors.Is(err, repo.ErrPortalCompanySuspended) {
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "account_suspended"})
 	}
 	if err != nil {
 		return serverError(c, err)
@@ -240,6 +245,8 @@ func (h *PortalHandler) createLead(ctx context.Context, cid uuid.UUID, p string,
 // @Param        portal  path   string  true  "Portal"
 // @Param        token   query  string  true  "Feed token"
 // @Success      200
+// @Failure      401  {object}  object{error=string}  "Invalid token"
+// @Failure      403  {object}  object{error=string}  "account_suspended: the company is suspended"
 // @Router       /api/public/feeds/{portal}/listings.xml [get]
 func (h *PortalHandler) Feed(c *fiber.Ctx) error {
 	p, ok := validPortal(c)
@@ -249,6 +256,9 @@ func (h *PortalHandler) Feed(c *fiber.Ctx) error {
 	cid, err := h.portals.CompanyForToken(c.Context(), p, "feed", c.Query("token"))
 	if errors.Is(err, repo.ErrBadPortalToken) {
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "invalid token"})
+	}
+	if errors.Is(err, repo.ErrPortalCompanySuspended) {
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "account_suspended"})
 	}
 	if err != nil {
 		return serverError(c, err)

@@ -4845,15 +4845,35 @@
           "200": {
             "description": "OK"
           },
-          "4XX": {
+          "401": {
             "content": {
-              "application/json": {
+              "text/xml": {
                 "schema": {
-                  "$ref": "#/components/schemas/Error"
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
                 }
               }
             },
-            "description": "Client error"
+            "description": "Invalid token"
+          },
+          "403": {
+            "content": {
+              "text/xml": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "account_suspended: the company is suspended"
           }
         },
         "security": [],
@@ -26807,15 +26827,35 @@
             },
             "description": "Created"
           },
-          "4XX": {
+          "401": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Error"
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
                 }
               }
             },
-            "description": "Client error"
+            "description": "Invalid token"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "account_suspended: the company is suspended"
           }
         },
         "security": [],
