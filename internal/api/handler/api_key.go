@@ -2,6 +2,7 @@ package handler
 
 import (
 	"sort"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -21,6 +22,9 @@ func NewApiKeyHandler(apiKeyRepo *repo.ApiKeyRepo) *ApiKeyHandler {
 type ApiKeyCreateRequest struct {
 	Name   string `json:"name"`
 	Scopes string `json:"scopes"` // Comma-separated, from apiscope.Known: "leads:read,contacts:read"
+	// ExpiresInDays makes the key stop working after that many days (1-3650); omitted, the key
+	// works until it is revoked.
+	ExpiresInDays *int `json:"expires_in_days,omitempty"`
 }
 
 type ApiKeyResponse struct {
@@ -30,6 +34,7 @@ type ApiKeyResponse struct {
 	Scopes     string    `json:"scopes"`
 	CreatedAt  string    `json:"created_at"`
 	LastUsedAt *string   `json:"last_used_at"`
+	ExpiresAt  *string   `json:"expires_at,omitempty"`
 	Plaintext  string    `json:"plaintext,omitempty"` // Only on creation, never again
 }
 
@@ -67,6 +72,10 @@ func (h *ApiKeyHandler) ListApiKeys(c *fiber.Ctx) error {
 		if key.LastUsedAt != nil {
 			lastUsed := key.LastUsedAt.Format("2006-01-02T15:04:05Z")
 			resp.LastUsedAt = &lastUsed
+		}
+		if key.ExpiresAt != nil {
+			exp := key.ExpiresAt.UTC().Format("2006-01-02T15:04:05Z")
+			resp.ExpiresAt = &exp
 		}
 		responses = append(responses, resp)
 	}
@@ -115,6 +124,14 @@ func (h *ApiKeyHandler) CreateApiKey(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusUnprocessableEntity).JSON(fiber.Map{"error": err.Error()})
 	}
 	req.Scopes = scopes
+	var expiresAt *time.Time
+	if req.ExpiresInDays != nil {
+		if *req.ExpiresInDays < 1 || *req.ExpiresInDays > 3650 {
+			return c.Status(fiber.StatusUnprocessableEntity).JSON(fiber.Map{"error": "expires_in_days must be 1-3650"})
+		}
+		t := time.Now().Add(time.Duration(*req.ExpiresInDays) * 24 * time.Hour)
+		expiresAt = &t
+	}
 
 	// Generate the key
 	plaintext, keyHash, keyPrefix, err := h.apiKeyRepo.GenerateKey()
@@ -123,19 +140,24 @@ func (h *ApiKeyHandler) CreateApiKey(c *fiber.Ctx) error {
 	}
 
 	// Store in database
-	id, err := h.apiKeyRepo.Create(c.Context(), compID, req.Name, keyHash, keyPrefix, req.Scopes)
+	id, err := h.apiKeyRepo.CreateExpiring(c.Context(), compID, req.Name, keyHash, keyPrefix, req.Scopes, expiresAt)
 	if err != nil {
 		return serverError(c, err)
 	}
 
 	// Return with plaintext (only shown once)
-	return c.Status(fiber.StatusCreated).JSON(ApiKeyResponse{
+	resp := ApiKeyResponse{
 		ID:        id,
 		Name:      req.Name,
 		KeyPrefix: keyPrefix,
 		Scopes:    req.Scopes,
 		Plaintext: plaintext, // Only returned at creation time
-	})
+	}
+	if expiresAt != nil {
+		exp := expiresAt.UTC().Format("2006-01-02T15:04:05Z")
+		resp.ExpiresAt = &exp
+	}
+	return c.Status(fiber.StatusCreated).JSON(resp)
 }
 
 // RevokeApiKey revokes an API key

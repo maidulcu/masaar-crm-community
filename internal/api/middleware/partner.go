@@ -15,9 +15,10 @@ import (
 // PartnerTokenPrefix starts every partner access token (OAuth 2.0 client credentials).
 const PartnerTokenPrefix = "mpt_"
 
-// PartnerTokenValidator returns the client and space-separated scopes of a live token hash.
+// PartnerTokenValidator returns the client, space-separated scopes and secret fingerprint ("" if
+// not recorded) of a live token hash.
 type PartnerTokenValidator interface {
-	Validate(ctx context.Context, tokenHash string) (clientID, scopes string, err error)
+	Validate(ctx context.Context, tokenHash string) (clientID, scopes, secretFingerprint string, err error)
 }
 
 // PartnerAuth authenticates Partner API requests ("Bearer mpt_…") and stores partner_client_id
@@ -31,12 +32,16 @@ func PartnerAuth(tokens PartnerTokenValidator, clients partner.Clients) fiber.Ha
 			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "partner access token required"})
 		}
 		sum := sha256.Sum256([]byte(tok))
-		clientID, scopes, err := tokens.Validate(c.Context(), hex.EncodeToString(sum[:]))
+		clientID, scopes, fingerprint, err := tokens.Validate(c.Context(), hex.EncodeToString(sum[:]))
 		if err != nil {
 			c.Set(fiber.HeaderWWWAuthenticate, `Bearer error="invalid_token"`)
 			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "invalid or expired token"})
 		}
 		client, ok := clients[clientID]
+		// A token issued under a secret that has since been rotated is refused.
+		if ok && fingerprint != "" && fingerprint != client.Fingerprint() {
+			ok = false
+		}
 		if !ok {
 			c.Set(fiber.HeaderWWWAuthenticate, `Bearer error="invalid_token"`)
 			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "invalid or expired token"})

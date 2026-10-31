@@ -1018,6 +1018,9 @@
       },
       "domain.DocumentSignature": {
         "properties": {
+          "cancelled_at": {
+            "type": "string"
+          },
           "created_at": {
             "type": "string"
           },
@@ -1025,6 +1028,10 @@
             "type": "string"
           },
           "envelope_id": {
+            "type": "string"
+          },
+          "expires_at": {
+            "description": "ExpiresAt is when the signing link stops working (nil: never, for links made before\nexpiry existed). CancelledAt is set when the sender withdrew it.",
             "type": "string"
           },
           "id": {
@@ -2767,13 +2774,15 @@
         "enum": [
           "not_required",
           "pending",
-          "signed"
+          "signed",
+          "cancelled"
         ],
         "type": "string",
         "x-enum-varnames": [
           "SignatureNotRequired",
           "SignaturePending",
-          "SignatureSigned"
+          "SignatureSigned",
+          "SignatureCancelled"
         ]
       },
       "domain.Stats": {
@@ -3346,6 +3355,10 @@
       },
       "handler.ApiKeyCreateRequest": {
         "properties": {
+          "expires_in_days": {
+            "description": "ExpiresInDays makes the key stop working after that many days (1-3650); omitted, the key\nworks until it is revoked.",
+            "type": "integer"
+          },
           "name": {
             "type": "string"
           },
@@ -3359,6 +3372,9 @@
       "handler.ApiKeyResponse": {
         "properties": {
           "created_at": {
+            "type": "string"
+          },
+          "expires_at": {
             "type": "string"
           },
           "id": {
@@ -4931,6 +4947,21 @@
               }
             },
             "description": "Not Found"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The link was cancelled or has expired"
           }
         },
         "security": [],
@@ -5013,6 +5044,21 @@
               }
             },
             "description": "Conflict"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The link was cancelled or has expired"
           }
         },
         "security": [],
@@ -10819,6 +10865,9 @@
             "application/json": {
               "schema": {
                 "properties": {
+                  "expires_in_days": {
+                    "type": "integer"
+                  },
                   "signer_email": {
                     "type": "string"
                   },
@@ -10833,7 +10882,7 @@
               }
             }
           },
-          "description": "Signer info",
+          "description": "Signer info; the link expires after expires_in_days (1-365, default 30)",
           "required": true
         },
         "responses": {
@@ -10869,6 +10918,76 @@
           }
         ],
         "summary": "Send document for signature",
+        "tags": [
+          "Documents"
+        ]
+      }
+    },
+    "/api/v1/documents/{id}/signatures/{sig_id}/cancel": {
+      "post": {
+        "description": "Withdraws a pending signature request (e.g. sent to the wrong person): its public link stops working. Signed or already cancelled signatures answer 409.",
+        "operationId": "postDocumentsByIdSignaturesBySigIdCancel",
+        "parameters": [
+          {
+            "description": "Document UUID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Signature UUID",
+            "in": "path",
+            "name": "sig_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Conflict"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Cancel a signing link",
         "tags": [
           "Documents"
         ]
