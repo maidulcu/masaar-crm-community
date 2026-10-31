@@ -368,3 +368,20 @@ func TestSMSRequest_OnlyTextsRegisteredNumbers(t *testing.T) {
 		t.Errorf("rate limit sequence = %v", codes)
 	}
 }
+
+func TestForgotPassword_NoTokenForDeactivatedUser(t *testing.T) {
+	e := newAuthEnv(t)
+	email := e.email("gone")
+	if code, _ := e.register(t, "Gone", email, "Password1", e.sub("gone")); code != 201 {
+		t.Fatal("setup failed")
+	}
+	if _, err := e.pool.Exec(context.Background(), `UPDATE users SET is_active = false WHERE email = $1`, email); err != nil {
+		t.Fatal(err)
+	}
+	if code, _ := e.post(t, "/forgot", fiber.Map{"email": email}); code != 200 {
+		t.Fatalf("forgot = %d, must always answer 200", code)
+	}
+	if n := e.count(t, `SELECT count(*) FROM password_reset_tokens t JOIN users u ON u.id = t.user_id WHERE u.email = $1`, email); n != 0 {
+		t.Errorf("%d reset tokens issued to a deactivated account, want 0", n)
+	}
+}

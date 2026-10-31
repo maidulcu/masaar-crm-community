@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [v0.4.0] - Unreleased
 
+### Account security
+
+- **Two-factor reset by an admin** (`POST /users/{id}/2fa/reset`) no longer works on the admin's own account: turning off your own two-factor still needs your password and a code (`/users/me/2fa/disable`). Resetting another user's two-factor now also ends that user's sessions. The Users page hides the button on your own row.
+- **Audit log:** creating a user directly (`POST /users`) and creating or revoking an API key are now recorded. Key entries hold the name, prefix and scopes, never the key.
+- **Revoking an API key** that doesn't exist (or belongs to another company) answers 404 instead of 204.
+- **Password reset** mail is no longer sent to deactivated accounts (the answer is unchanged).
+- `POST /users` limits `name` to 100 characters and `wa_number` to 20.
+- Removed two unused user-repository methods that created users outside any company scope.
+
 ### Fixed: new companies had an empty pipeline
 
 - Companies created after the custom pipeline stages were added (sign-up, Partner API) had no stages, so the Pipeline page drew no columns even though their leads were stored. Listing stages now gives a company the default six (`new` … `lost`) the first time it has none, for leads and deals. No migration; existing companies are unaffected.
