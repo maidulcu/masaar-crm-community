@@ -143,6 +143,17 @@ const docTemplate = `{
                                 }
                             }
                         }
+                    },
+                    "410": {
+                        "description": "The link was cancelled or has expired",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "error": {
+                                    "type": "string"
+                                }
+                            }
+                        }
                     }
                 }
             },
@@ -200,6 +211,17 @@ const docTemplate = `{
                     },
                     "409": {
                         "description": "Conflict",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "error": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    },
+                    "410": {
+                        "description": "The link was cancelled or has expired",
                         "schema": {
                             "type": "object",
                             "properties": {
@@ -7008,13 +7030,16 @@ const docTemplate = `{
                         "required": true
                     },
                     {
-                        "description": "Signer info",
+                        "description": "Signer info; the link expires after expires_in_days (1-365, default 30)",
                         "name": "body",
                         "in": "body",
                         "required": true,
                         "schema": {
                             "type": "object",
                             "properties": {
+                                "expires_in_days": {
+                                    "type": "integer"
+                                },
                                 "signer_email": {
                                     "type": "string"
                                 },
@@ -7037,6 +7062,63 @@ const docTemplate = `{
                     },
                     "404": {
                         "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "error": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/documents/{id}/signatures/{sig_id}/cancel": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Withdraws a pending signature request (e.g. sent to the wrong person): its public link stops working. Signed or already cancelled signatures answer 409.",
+                "tags": [
+                    "Documents"
+                ],
+                "summary": "Cancel a signing link",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Document UUID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Signature UUID",
+                        "name": "sig_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "error": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
                         "schema": {
                             "type": "object",
                             "properties": {
@@ -18115,6 +18197,9 @@ const docTemplate = `{
         "domain.DocumentSignature": {
             "type": "object",
             "properties": {
+                "cancelled_at": {
+                    "type": "string"
+                },
                 "created_at": {
                     "type": "string"
                 },
@@ -18122,6 +18207,10 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "envelope_id": {
+                    "type": "string"
+                },
+                "expires_at": {
+                    "description": "ExpiresAt is when the signing link stops working (nil: never, for links made before\nexpiry existed). CancelledAt is set when the sender withdrew it.",
                     "type": "string"
                 },
                 "id": {
@@ -19864,12 +19953,14 @@ const docTemplate = `{
             "enum": [
                 "not_required",
                 "pending",
-                "signed"
+                "signed",
+                "cancelled"
             ],
             "x-enum-varnames": [
                 "SignatureNotRequired",
                 "SignaturePending",
-                "SignatureSigned"
+                "SignatureSigned",
+                "SignatureCancelled"
             ]
         },
         "domain.Stats": {
@@ -20443,6 +20534,10 @@ const docTemplate = `{
         "handler.ApiKeyCreateRequest": {
             "type": "object",
             "properties": {
+                "expires_in_days": {
+                    "description": "ExpiresInDays makes the key stop working after that many days (1-3650); omitted, the key\nworks until it is revoked.",
+                    "type": "integer"
+                },
                 "name": {
                     "type": "string"
                 },
@@ -20456,6 +20551,9 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "created_at": {
+                    "type": "string"
+                },
+                "expires_at": {
                     "type": "string"
                 },
                 "id": {

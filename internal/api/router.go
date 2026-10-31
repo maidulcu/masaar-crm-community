@@ -1206,6 +1206,10 @@ func RegisterRoutes(app *fiber.App, h *Handlers, hub *ws.Hub, cfg *config.Config
 		middleware.RequireRole(domain.RoleAdmin, domain.RoleAgent),
 		h.Document.SendForSignature,
 	)
+	v1.Post("/documents/:id/signatures/:sig_id/cancel",
+		middleware.RequireRole(domain.RoleAdmin, domain.RoleAgent),
+		h.Document.CancelSignature,
+	)
 	v1.Patch("/documents/signatures/:id/mark-signed",
 		middleware.RequireRole(domain.RoleAdmin, domain.RoleAgent),
 		h.Document.MarkSigned,

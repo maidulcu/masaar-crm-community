@@ -326,22 +326,23 @@ type PartnerTokenRepo struct{ db *pgxpool.Pool }
 func NewPartnerTokenRepo(db *pgxpool.Pool) *PartnerTokenRepo { return &PartnerTokenRepo{db: db} }
 
 // Issue stores a new token hash. Expired tokens are cleaned up opportunistically.
-func (r *PartnerTokenRepo) Issue(ctx context.Context, tokenHash, clientID, scopes string, expiresAt time.Time) error {
+func (r *PartnerTokenRepo) Issue(ctx context.Context, tokenHash, clientID, scopes, secretFingerprint string, expiresAt time.Time) error {
 	_, _ = r.db.Exec(ctx, `DELETE FROM partner_tokens WHERE expires_at < NOW() - INTERVAL '1 day'`)
-	_, err := r.db.Exec(ctx, `INSERT INTO partner_tokens (token_hash, client_id, scopes, expires_at) VALUES ($1,$2,$3,$4)`,
-		tokenHash, clientID, scopes, expiresAt)
+	_, err := r.db.Exec(ctx, `INSERT INTO partner_tokens (token_hash, client_id, scopes, expires_at, secret_fingerprint) VALUES ($1,$2,$3,$4,NULLIF($5,''))`,
+		tokenHash, clientID, scopes, expiresAt, secretFingerprint)
 	return err
 }
 
-// Validate returns the client and scopes of a live (unexpired, unrevoked) token.
-func (r *PartnerTokenRepo) Validate(ctx context.Context, tokenHash string) (clientID, scopes string, err error) {
+// Validate returns the client, scopes and secret fingerprint ("" for tokens issued before
+// fingerprints were recorded) of a live (unexpired, unrevoked) token.
+func (r *PartnerTokenRepo) Validate(ctx context.Context, tokenHash string) (clientID, scopes, secretFingerprint string, err error) {
 	err = r.db.QueryRow(ctx, `
-		SELECT client_id, scopes FROM partner_tokens
-		WHERE token_hash = $1 AND revoked_at IS NULL AND expires_at > NOW()`, tokenHash).Scan(&clientID, &scopes)
+		SELECT client_id, scopes, COALESCE(secret_fingerprint, '') FROM partner_tokens
+		WHERE token_hash = $1 AND revoked_at IS NULL AND expires_at > NOW()`, tokenHash).Scan(&clientID, &scopes, &secretFingerprint)
 	if errors.Is(err, pgx.ErrNoRows) {
 		err = ErrPartnerNotFound
 	}
-	return clientID, scopes, err
+	return clientID, scopes, secretFingerprint, err
 }
 
 // Revoke revokes the token if it belongs to clientID (RFC 7009: unknown tokens are not an error).
