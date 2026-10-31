@@ -16846,6 +16846,17 @@
                                 }
                             }
                         }
+                    },
+                    "409": {
+                        "description": "last_admin: the company must keep an active admin",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "error": {
+                                    "type": "string"
+                                }
+                            }
+                        }
                     }
                 }
             },
@@ -16909,6 +16920,17 @@
                     },
                     "403": {
                         "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "error": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    },
+                    "409": {
+                        "description": "last_admin: the company must keep an active admin",
                         "schema": {
                             "type": "object",
                             "properties": {
@@ -17004,6 +17026,17 @@
                     },
                     "403": {
                         "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "error": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    },
+                    "409": {
+                        "description": "last_admin: the company must keep an active admin",
                         "schema": {
                             "type": "object",
                             "properties": {

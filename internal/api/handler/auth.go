@@ -105,10 +105,9 @@ func (h *AuthHandler) Login(c *fiber.Ctx) error {
 	body.Email = strings.ToLower(strings.TrimSpace(body.Email))
 
 	// Check lockout before touching the database
-	lockKey := fmt.Sprintf("lockout:%s", body.Email)
 	ctx := context.Background()
 
-	if locked, _ := h.redis.Exists(ctx, lockKey).Result(); locked > 0 {
+	if h.loginLocked(ctx, body.Email, c.IP()) {
 		return c.Status(fiber.StatusTooManyRequests).JSON(fiber.Map{
 			"error": "account temporarily locked due to too many failed attempts; try again in 15 minutes",
 		})
@@ -131,7 +130,7 @@ func (h *AuthHandler) Login(c *fiber.Ctx) error {
 	}
 
 	// Successful password check — clear the failure counter.
-	h.clearLoginFailures(ctx, body.Email)
+	h.clearLoginFailures(ctx, body.Email, c.IP())
 
 	if pending, err := h.twoFactorGate(c, user, "password"); pending || err != nil {
 		return err
@@ -188,7 +187,7 @@ func (h *AuthHandler) completeLogin(c *fiber.Ctx, user *domain.User, extra fiber
 // loginFailed counts a failed attempt and answers with the same response whether or not the
 // email is registered (see recordLoginFailure).
 func (h *AuthHandler) loginFailed(c *fiber.Ctx, ctx context.Context, email string) error {
-	if h.recordLoginFailure(ctx, email) {
+	if h.recordLoginFailure(ctx, email, c.IP()) {
 		return c.Status(fiber.StatusTooManyRequests).JSON(fiber.Map{
 			"error": "account locked for 15 minutes after too many failed attempts",
 		})
@@ -473,7 +472,7 @@ func (h *AuthHandler) ResetPassword(c *fiber.Ctx) error {
 	// Someone who forgot their password has usually also been locked out by failed attempts; the
 	// new password must work straight away.
 	if u, err := h.users.FindByID(c.Context(), userID); err == nil {
-		h.clearLoginFailures(context.Background(), u.Email)
+		h.clearLoginFailures(context.Background(), u.Email, c.IP())
 	}
 
 	h.audit.Log(c.Context(), userID, repo.AuditPasswordChange, repo.AuditUser, userID, fiber.Map{

@@ -59,6 +59,10 @@ func (h *AuthHandler) twoFactorGate(c *fiber.Ctx, user *domain.User, method stri
 	if !st.Enabled && !st.RequiredByAdmin {
 		return false, nil
 	}
+	// A suspended company is refused now, not after the user has typed a code.
+	if _, _, cerr := h.loadCompany(c.Context(), user); cerr != nil {
+		return true, companyError(c, cerr)
+	}
 	tok, err := randomToken()
 	if err != nil {
 		return true, serverError(c, err)

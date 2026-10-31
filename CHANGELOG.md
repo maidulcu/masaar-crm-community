@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [v0.4.0] - Unreleased
 
+### Lockout per address, and a company always keeps an admin
+
+- **Sign-in lockout is per address.** Five wrong passwords now lock the email only for the IP address they came from. Before, they locked the email everywhere, so anyone who knew a user's email could lock them out. A guessing run spread over many addresses still locks the email everywhere after 50 failures in 15 minutes. Unknown emails get exactly the same responses as registered ones. A password reset clears the email-wide lock and the lock for the address it was made from.
+- **The last active admin can't be removed.** Demoting, deactivating or deleting a user is refused with `409 last_admin` when it would leave the company with no active admin. This applies in the Users page and in `PUT /partner/v1/companies/{ref}/users/{user_ref}`, and it is safe against two admins demoting each other at the same time.
+- A user of a suspended company is refused at sign-in before being asked for a two-factor code.
+- Lead scores are no longer updated on deleted leads.
+
 ### Fixed: new companies had an empty pipeline
 
 - Companies created after the custom pipeline stages were added (sign-up, Partner API) had no stages, so the Pipeline page drew no columns even though their leads were stored. Listing stages now gives a company the default six (`new` … `lost`) the first time it has none, for leads and deals. No migration; existing companies are unaffected.
