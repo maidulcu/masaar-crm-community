@@ -380,6 +380,7 @@ func (h *UserHandler) InviteUser(c *fiber.Ctx) error {
 // @Success      204
 // @Failure      400  {object}  object{error=string}
 // @Failure      403  {object}  object{error=string}
+// @Failure      409  {object}  object{error=string}  "last_admin: the company must keep an active admin"
 // @Security     BearerAuth
 // @Router       /users/{id} [patch]
 func (h *UserHandler) UpdateUser(c *fiber.Ctx) error {
@@ -483,6 +484,7 @@ func (h *UserHandler) SetBRN(c *fiber.Ctx) error {
 // @Param        body  body  object{active=bool}     true  "Active status"
 // @Success      200   {object}  object{is_active=bool}
 // @Failure      403   {object}  object{error=string}
+// @Failure      409  {object}  object{error=string}  "last_admin: the company must keep an active admin"
 // @Security     BearerAuth
 // @Router       /users/{id}/active [patch]
 func (h *UserHandler) SetActive(c *fiber.Ctx) error {
@@ -533,6 +535,7 @@ func (h *UserHandler) SetActive(c *fiber.Ctx) error {
 // @Param        id  path  string  true  "User ID"
 // @Success      204
 // @Failure      403  {object}  object{error=string}
+// @Failure      409  {object}  object{error=string}  "last_admin: the company must keep an active admin"
 // @Security     BearerAuth
 // @Router       /users/{id} [delete]
 func (h *UserHandler) DeleteUser(c *fiber.Ctx) error {
@@ -578,6 +581,9 @@ func userMutationError(c *fiber.Ctx, err error, fallback string) error {
 	}
 	if repo.IsSeatLimit(err) {
 		return c.Status(fiber.StatusConflict).JSON(fiber.Map{"error": "seat_limit", "detail": "all seats of your plan are in use; deactivate a user or upgrade the plan"})
+	}
+	if errors.Is(err, repo.ErrLastAdmin) {
+		return c.Status(fiber.StatusConflict).JSON(fiber.Map{"error": "last_admin", "detail": "the company must keep at least one active admin"})
 	}
 	return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": fallback})
 }

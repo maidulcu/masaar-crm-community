@@ -314,6 +314,8 @@ func (h *PartnerHandler) PutUser(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusConflict).JSON(fiber.Map{"error": "seat_limit", "detail": "all of the company's seats (max_users) are in use"})
 	case errors.Is(err, repo.ErrEmailTaken):
 		return c.Status(fiber.StatusConflict).JSON(fiber.Map{"error": "email_taken", "detail": "this email already has an account"})
+	case errors.Is(err, repo.ErrLastAdmin):
+		return c.Status(fiber.StatusConflict).JSON(fiber.Map{"error": "last_admin", "detail": "the company must keep at least one active admin"})
 	case err != nil:
 		return serverError(c, err)
 	}
