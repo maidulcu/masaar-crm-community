@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -94,11 +95,12 @@ func (h *PublicLeadHandler) SubmitLead(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid request body"})
 	}
 
-	// Required fields
+	// Required fields. Limits count characters, not bytes: an Arabic name is two bytes per letter.
+	req.Name = strings.TrimSpace(req.Name)
 	if req.Name == "" {
 		return c.Status(fiber.StatusUnprocessableEntity).JSON(fiber.Map{"error": "name is required"})
 	}
-	if len(req.Name) > 200 {
+	if utf8.RuneCountInString(req.Name) > 200 {
 		return c.Status(fiber.StatusUnprocessableEntity).JSON(fiber.Map{"error": "name is too long (max 200 characters)"})
 	}
 	if req.Phone == "" {
@@ -119,13 +121,13 @@ func (h *PublicLeadHandler) SubmitLead(c *fiber.Ctx) error {
 			return c.Status(fiber.StatusUnprocessableEntity).JSON(fiber.Map{"error": "invalid email format"})
 		}
 	}
-	if len(req.Notes) > 2000 {
+	if utf8.RuneCountInString(req.Notes) > 2000 {
 		return c.Status(fiber.StatusUnprocessableEntity).JSON(fiber.Map{"error": "notes are too long (max 2000 characters)"})
 	}
-	if len(req.PropertyType) > 100 {
+	if utf8.RuneCountInString(req.PropertyType) > 100 {
 		return c.Status(fiber.StatusUnprocessableEntity).JSON(fiber.Map{"error": "property_type is too long (max 100 characters)"})
 	}
-	if len(req.Area) > 100 {
+	if utf8.RuneCountInString(req.Area) > 100 {
 		return c.Status(fiber.StatusUnprocessableEntity).JSON(fiber.Map{"error": "area is too long (max 100 characters)"})
 	}
 

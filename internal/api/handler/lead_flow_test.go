@@ -464,3 +464,18 @@ func TestImportLeads_RejectedRowsLeaveNoContact(t *testing.T) {
 		t.Errorf("currency = %q, want USD", cur)
 	}
 }
+
+func TestPublicLead_LimitsCountCharactersAndNameIsTrimmed(t *testing.T) {
+	e := newLeadEnv(t)
+	// 150 Arabic letters are 300 bytes: within the 200-character limit.
+	arabic := strings.Repeat("م", 150)
+	if code, out := e.do(t, "POST", "/a/webhooks/leads", fiber.Map{"name": arabic, "phone": "+971501110100", "area": strings.Repeat("ج", 80)}); code != 201 {
+		t.Fatalf("arabic name = %d %v, want 201", code, out)
+	}
+	if code, out := e.do(t, "POST", "/a/webhooks/leads", fiber.Map{"name": strings.Repeat("م", 201), "phone": "+971501110101"}); code != 422 {
+		t.Errorf("201-character name = %d %v, want 422", code, out)
+	}
+	if code, out := e.do(t, "POST", "/a/webhooks/leads", fiber.Map{"name": "   ", "phone": "+971501110102"}); code != 422 {
+		t.Errorf("blank name = %d %v, want 422", code, out)
+	}
+}

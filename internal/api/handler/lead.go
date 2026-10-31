@@ -437,12 +437,12 @@ func (h *LeadHandler) UpdateNotes(c *fiber.Ctx) error {
 
 // Assign godoc
 // @Summary      Assign lead to agent
-// @Description  Assigns a lead to a user (agent or admin). Pass null user_id to unassign.
+// @Description  Assigns a lead to a user (agent or admin). Pass null assigned_to to unassign.
 // @Tags         Leads
 // @Accept       json
 // @Produce      json
 // @Param        id    path      string                   true  "Lead UUID"
-// @Param        body  body      object{user_id=string}   true  "Agent UUID or null"
+// @Param        body  body      object{assigned_to=string}  true  "Agent UUID or null"
 // @Success      200   {object}  object{lead_id=string,assigned_to=string}
 // @Failure      400   {object}  object{error=string}
 // @Security     BearerAuth
