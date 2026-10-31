@@ -75,11 +75,12 @@ type partnerUserBody struct {
 	Active   *bool  `json:"active"`
 }
 
-// validateUser normalises a user body. creating requires an email.
+// validateUser normalises a user body. creating requires a name and an email; on an update
+// both may be left out (the caller keeps the current values).
 func validateUser(b *partnerUserBody, creating bool) string {
 	b.Name = strings.TrimSpace(b.Name)
 	b.Email = strings.ToLower(strings.TrimSpace(b.Email))
-	if b.Name == "" || utf8.RuneCountInString(b.Name) > maxNameRunes {
+	if (creating && b.Name == "") || utf8.RuneCountInString(b.Name) > maxNameRunes {
 		return "name is required (at most 100 characters)"
 	}
 	if creating || b.Email != "" {
@@ -87,10 +88,10 @@ func validateUser(b *partnerUserBody, creating bool) string {
 			return "a valid email is required"
 		}
 	}
-	if b.LangPref == "" {
+	if b.LangPref == "" && creating {
 		b.LangPref = "en"
 	}
-	if b.LangPref != "en" && b.LangPref != "ar" {
+	if b.LangPref != "" && b.LangPref != "en" && b.LangPref != "ar" {
 		return "lang_pref must be en or ar"
 	}
 	return ""
@@ -130,8 +131,8 @@ func (h *PartnerHandler) GetCompany(c *fiber.Ctx) error {
 // @Accept       json
 // @Produce      json
 // @Param        ref   path  string  true  "Your reference for the company"
-// @Param        body  body  object{name=string,plan=string,max_users=int,active=bool,admin=object{ref=string,name=string,email=string,lang_pref=string}}  true  "admin is required on creation"
-// @Success      200  {object}  object{company=repo.PartnerCompany}
+// @Param        body  body  object{name=string,plan=string,max_users=int,active=bool,admin=object{ref=string,name=string,email=string,lang_pref=string}}  true  "admin is required on creation and ignored on updates"
+// @Success      200  {object}  object{company=repo.PartnerCompany,warnings=[]string}
 // @Success      201  {object}  object{company=repo.PartnerCompany,admin=repo.PartnerUser,lead_api_key=string}
 // @Failure      409  {object}  object{error=string}
 // @Failure      422  {object}  object{error=string}
@@ -182,7 +183,19 @@ func (h *PartnerHandler) PutCompany(c *fiber.Ctx) error {
 			return serverError(c, err)
 		}
 		h.audit.LogPartner(c.Context(), client, existing.ID, repo.AuditUpdate, repo.AuditCompany, existing.ID, json.RawMessage(c.Body()))
-		return c.JSON(fiber.Map{"company": pc})
+		resp := fiber.Map{"company": pc}
+		// Accepted, but say so instead of letting the partner's records drift silently.
+		var warnings []string
+		if body.Admin != nil {
+			warnings = append(warnings, "admin is only used when the company is created; manage users with PUT .../users/{user_ref}")
+		}
+		if pc.MaxUsers != nil && pc.ActiveUsers > *pc.MaxUsers {
+			warnings = append(warnings, fmt.Sprintf("max_users (%d) is below the %d active users: no user can be added or reactivated until enough are deactivated", *pc.MaxUsers, pc.ActiveUsers))
+		}
+		if len(warnings) > 0 {
+			resp["warnings"] = warnings
+		}
+		return c.JSON(resp)
 	case !errors.Is(err, repo.ErrPartnerNotFound):
 		return serverError(c, err)
 	}
@@ -259,14 +272,14 @@ func (h *PartnerHandler) newLeadKey(ctx context.Context, companyID uuid.UUID, cl
 
 // PutUser godoc
 // @Summary      Create or update a user
-// @Description  Creates the user with your reference in the company, or updates name, role, language and active status. Creating or reactivating a user fails with 409 seat_limit when the company has max_users active users.
+// @Description  Creates the user with your reference in the company, or updates name, role, language and active status. An update changes only the fields it sends; email is set on creation only (a different one is reported in warnings). Creating or reactivating a user fails with 409 seat_limit when the company has max_users active users.
 // @Tags         Partner
 // @Accept       json
 // @Produce      json
 // @Param        ref       path  string  true  "Your reference for the company"
 // @Param        user_ref  path  string  true  "Your reference for the user"
-// @Param        body      body  object{name=string,email=string,role=string,lang_pref=string,active=bool}  true  "email is required on creation; role admin, agent (default) or viewer"
-// @Success      200  {object}  object{user=repo.PartnerUser}
+// @Param        body      body  object{name=string,email=string,role=string,lang_pref=string,active=bool}  true  "name and email are required on creation; role admin, agent (default) or viewer"
+// @Success      200  {object}  object{user=repo.PartnerUser,warnings=[]string}
 // @Success      201  {object}  object{user=repo.PartnerUser}
 // @Failure      409  {object}  object{error=string}
 // @Failure      422  {object}  object{error=string}
@@ -303,6 +316,26 @@ func (h *PartnerHandler) PutUser(c *fiber.Ctx) error {
 	}
 	in := repo.PartnerUserInput{Ref: userRef, Name: body.Name, Email: body.Email, LangPref: body.LangPref,
 		Role: role, Active: body.Active == nil || *body.Active}
+	var warnings []string
+	if !creating {
+		// An update changes only what was sent: a body with just a new name must not demote an
+		// admin, reset the language or reactivate a deactivated user.
+		if in.Name == "" {
+			in.Name = prev.Name
+		}
+		if body.Role == "" {
+			in.Role = prev.Role
+		}
+		if in.LangPref == "" {
+			in.LangPref = prev.LangPref
+		}
+		if body.Active == nil {
+			in.Active = prev.Active
+		}
+		if body.Email != "" && body.Email != prev.Email {
+			warnings = append(warnings, "email is not changed by an update; the user keeps "+prev.Email)
+		}
+	}
 	if creating {
 		if in.PasswordHash, err = randomPasswordHash(); err != nil {
 			return serverError(c, err)
@@ -328,7 +361,11 @@ func (h *PartnerHandler) PutUser(c *fiber.Ctx) error {
 	}
 	h.audit.LogPartner(c.Context(), partnerClient(c), pc.ID, action, repo.AuditUser, user.ID,
 		fiber.Map{"ref": userRef, "role": user.Role, "active": user.Active})
-	return c.Status(status).JSON(fiber.Map{"user": user})
+	resp := fiber.Map{"user": user}
+	if len(warnings) > 0 {
+		resp["warnings"] = warnings
+	}
+	return c.Status(status).JSON(resp)
 }
 
 // CreateAPIKey godoc
@@ -396,7 +433,7 @@ func (h *PartnerHandler) LoginLink(c *fiber.Ctx) error {
 	}
 	token := hex.EncodeToString(b)
 	// Same single-use token as an emailed magic link: POST /auth/magic-link/verify redeems it.
-	if err := h.redis.Set(c.Context(), "magic:"+token, user.Email+"|"+user.LangPref, loginLinkTTL).Err(); err != nil {
+	if err := h.redis.Set(c.Context(), "magic:"+token, magicLinkSubject(user.ID)+"|"+user.LangPref, loginLinkTTL).Err(); err != nil {
 		return serverError(c, err)
 	}
 	h.audit.LogPartner(c.Context(), partnerClient(c), pc.ID, "login_link", repo.AuditUser, user.ID, nil)

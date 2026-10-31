@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -366,5 +367,29 @@ func TestSMSRequest_OnlyTextsRegisteredNumbers(t *testing.T) {
 	}
 	if fmt.Sprint(codes) != "[200 200 429 429 429]" { // one request already counted above
 		t.Errorf("rate limit sequence = %v", codes)
+	}
+}
+
+func TestVerifyMagicLink_SignsInTheUserTheLinkWasIssuedFor(t *testing.T) {
+	e := newAuthEnv(t)
+	email := e.email("idlink")
+	code, reg := e.register(t, "IdLink", email, "Password1", e.sub("idlink"))
+	if code != 201 {
+		t.Fatalf("setup = %d %v", code, reg)
+	}
+	userID := reg["user"].(map[string]any)["id"].(string)
+	id, _ := uuid.Parse(userID)
+
+	tok := uuid.NewString() + e.tag
+	if err := e.rdb.Set(context.Background(), "magic:"+tok, magicLinkSubject(id)+"|en", time.Minute).Err(); err != nil {
+		t.Fatal(err)
+	}
+	// The address changes while the link is valid; the link still means the same account.
+	if _, err := e.pool.Exec(context.Background(), `UPDATE users SET email = $1 WHERE id = $2`, e.email("idlink2"), id); err != nil {
+		t.Fatal(err)
+	}
+	code, out := e.post(t, "/magic/verify", fiber.Map{"token": tok})
+	if code != 200 || out["user"].(map[string]any)["id"] != userID {
+		t.Fatalf("verify = %d %v, want a session for %s", code, out, userID)
 	}
 }

@@ -9955,7 +9955,7 @@ paths:
         name: ref
         required: true
         type: string
-      - description: admin is required on creation
+      - description: admin is required on creation and ignored on updates
         in: body
         name: body
         required: true
@@ -9990,6 +9990,10 @@ paths:
             properties:
               company:
                 $ref: '#/definitions/repo.PartnerCompany'
+              warnings:
+                items:
+                  type: string
+                type: array
             type: object
         "201":
           description: Created
@@ -10051,8 +10055,10 @@ paths:
       consumes:
       - application/json
       description: Creates the user with your reference in the company, or updates
-        name, role, language and active status. Creating or reactivating a user fails
-        with 409 seat_limit when the company has max_users active users.
+        name, role, language and active status. An update changes only the fields
+        it sends; email is set on creation only (a different one is reported in warnings).
+        Creating or reactivating a user fails with 409 seat_limit when the company
+        has max_users active users.
       parameters:
       - description: Your reference for the company
         in: path
@@ -10064,8 +10070,8 @@ paths:
         name: user_ref
         required: true
         type: string
-      - description: email is required on creation; role admin, agent (default) or
-          viewer
+      - description: name and email are required on creation; role admin, agent (default)
+          or viewer
         in: body
         name: body
         required: true
@@ -10091,6 +10097,10 @@ paths:
             properties:
               user:
                 $ref: '#/definitions/repo.PartnerUser'
+              warnings:
+                items:
+                  type: string
+                type: array
             type: object
         "201":
           description: Created
