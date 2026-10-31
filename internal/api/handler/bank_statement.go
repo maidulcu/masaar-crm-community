@@ -24,7 +24,16 @@ type BankStatementHandler struct {
 	statements *repo.BankStatementRepo
 	store      *mediastore.Store // nil when the storage directory could not be opened
 	maxBytes   int64
+	audit      actorAuditLogger
 }
+
+// UseAudit records uploads, downloads and deletions of these confidential files.
+func (h *BankStatementHandler) UseAudit(a actorAuditLogger) *BankStatementHandler {
+	h.audit = a
+	return h
+}
+
+const auditBankStatement = "bank_statement"
 
 // NewBankStatementHandler returns the handler. store may be nil (uploads then answer 503);
 // maxMB caps one uploaded file.
@@ -101,6 +110,7 @@ func (h *BankStatementHandler) Get(c *fiber.Ctx) error {
 // @Param        bank_integration_id   formData  string  true  "Bank integration UUID"
 // @Success      201   {object}  domain.BankStatement
 // @Failure      400   {object}  object{error=string}
+// @Failure      422   {object}  object{error=string}  "Content does not match the extension, or the bank integration is not your company's"
 // @Security     BearerAuth
 // @Router       /bank-statements/upload [post]
 func (h *BankStatementHandler) Upload(c *fiber.Ctx) error {
@@ -183,8 +193,13 @@ func (h *BankStatementHandler) Upload(c *fiber.Ctx) error {
 
 	if err := h.statements.Create(c.Context(), statement); err != nil {
 		h.removeFile(key) // do not leave an unreferenced confidential file behind
+		if errors.Is(err, repo.ErrForeignReference) {
+			return c.Status(fiber.StatusUnprocessableEntity).JSON(fiber.Map{"error": "bank_integration_id does not belong to your company"})
+		}
 		return serverError(c, err)
 	}
+	auditWrite(c, h.audit, repo.AuditCreate, auditBankStatement, statement.ID,
+		fiber.Map{"file_name": statement.FileName, "size": statement.FileSizeBytes, "format": statement.FileFormat})
 
 	return c.Status(fiber.StatusCreated).JSON(statement)
 }
@@ -260,6 +275,7 @@ func (h *BankStatementHandler) Download(c *fiber.Ctx) error {
 	c.Set("Content-Security-Policy", "default-src 'none'; sandbox")
 	c.Set(fiber.HeaderCacheControl, "private, no-store")
 	c.Set(fiber.HeaderContentDisposition, mime.FormatMediaType("attachment", map[string]string{"filename": safeFilename(statement.FileName)}))
+	auditWrite(c, h.audit, "download", auditBankStatement, statement.ID, fiber.Map{"file_name": statement.FileName})
 	return c.SendStream(f, statement.FileSizeBytes)
 }
 
@@ -289,5 +305,6 @@ func (h *BankStatementHandler) Delete(c *fiber.Ctx) error {
 		return serverError(c, err)
 	}
 	h.removeFile(statement.StorageKey) // the row stays for the audit trail; the confidential file does not
+	auditWrite(c, h.audit, repo.AuditDelete, auditBankStatement, id, fiber.Map{"file_name": statement.FileName})
 	return c.SendStatus(fiber.StatusNoContent)
 }
