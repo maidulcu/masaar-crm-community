@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Magic-link and SMS sign-ins are audited.** They now go through the same session code as password login, so they write the `login` audit entry they used to skip. The SMS response keeps `user.phone`, which every sign-in response now includes.
 - **Magic-link requests no longer reveal which emails are registered.** The email is sent in the background, as password-reset mail already was; before, only registered addresses waited for the SMTP round trip, so response time gave them away.
 - **`POST /webhooks/leads` counts characters, not bytes.** `name` (200), `notes` (2000), `property_type` and `area` (100) were measured in bytes, so Arabic names over 100 letters were refused as "too long". `name` is also trimmed: a blank name is now a 422.
+- **API docs:** `PATCH /leads/{id}/assign` is documented with its real body field, `assigned_to` (the docs said `user_id`).
 - **Sign-up shows readable errors** for a taken email or subdomain instead of the raw `email_taken` / `subdomain_taken` codes.
 
 ### Fixed: new companies had an empty pipeline
