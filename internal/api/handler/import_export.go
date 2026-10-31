@@ -5,10 +5,12 @@ import (
 	"encoding/csv"
 	"fmt"
 	"io"
+	"net/mail"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -163,6 +165,20 @@ func (h *ImportExportHandler) ImportContacts(c *fiber.Ctx) error {
 			skipped++
 			continue
 		}
+		if utf8.RuneCountInString(name) > 200 {
+			errors = append(errors, fiber.Map{"row": rowNum, "error": "full_name is too long (max 200 characters)"})
+			skipped++
+			continue
+		}
+		// Checked before the contact is written, so a rejected row leaves nothing behind.
+		email := strings.TrimSpace(m["email"])
+		if email != "" {
+			if addr, err := mail.ParseAddress(email); err != nil || addr.Address != email || len(email) > 254 {
+				errors = append(errors, fiber.Map{"row": rowNum, "error": "invalid email"})
+				skipped++
+				continue
+			}
+		}
 
 		contact, err := h.contactRepo.Upsert(c.Context(), phone, name)
 		if err != nil {
@@ -172,7 +188,7 @@ func (h *ImportExportHandler) ImportContacts(c *fiber.Ctx) error {
 		}
 
 		// Update optional fields
-		if email := strings.TrimSpace(m["email"]); email != "" && contact.Email == "" {
+		if email != "" && contact.Email == "" {
 			contact.Email = email
 			_ = h.contactRepo.Update(c.Context(), contact)
 		}

@@ -14,7 +14,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/mail"
 	"strings"
+	"unicode/utf8"
 )
 
 // Portals that can push leads and pull the feed. "portal" is the generic catch-all.
@@ -82,6 +84,10 @@ func ParseLead(body []byte) (*Lead, error) {
 	if l.ExternalID == "" {
 		sum := sha256.Sum256(body)
 		l.ExternalID = "sha256:" + hex.EncodeToString(sum[:])
+	} else if len(l.ExternalID) > maxExternalIDLen {
+		// Too long to index; its hash still identifies a redelivery of the same lead.
+		sum := sha256.Sum256([]byte(l.ExternalID))
+		l.ExternalID = "sha256:" + hex.EncodeToString(sum[:])
 	}
 	if l.Phone == "" {
 		return l, ErrNoContact
@@ -89,13 +95,27 @@ func ParseLead(body []byte) (*Lead, error) {
 	if l.Name == "" {
 		l.Name = l.Phone
 	}
-	if len(l.Message) > 2000 {
-		l.Message = l.Message[:2000]
-	}
-	if len(l.Name) > 200 {
-		l.Name = l.Name[:200]
+	// Cut by characters: cutting by bytes can split an Arabic letter, and Postgres then refuses
+	// the whole lead as invalid UTF-8 (so the portal redelivers it forever).
+	l.Message = truncateRunes(l.Message, 2000)
+	l.Name = truncateRunes(l.Name, 200)
+	l.ListingReference = truncateRunes(l.ListingReference, 128)
+	// The email is optional: one that isn't a plain address is dropped rather than stored.
+	if addr, err := mail.ParseAddress(l.Email); err != nil || addr.Address != l.Email || len(l.Email) > 254 {
+		l.Email = ""
 	}
 	return l, nil
+}
+
+// maxExternalIDLen keeps a portal's lead id small enough for the external_ref index.
+const maxExternalIDLen = 128
+
+// truncateRunes returns s cut to at most n characters, never inside one.
+func truncateRunes(s string, n int) string {
+	if utf8.RuneCountInString(s) <= n {
+		return s
+	}
+	return string([]rune(s)[:n])
 }
 
 // flatten records scalar values by lower-cased key; the shallowest occurrence of a key

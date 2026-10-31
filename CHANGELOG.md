@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [v0.4.0] - Unreleased
 
+### Fixed: input handling
+
+- **Webhooks could not be created from Settings → Webhooks.** The page sent `events` as a list and the API only took a comma-separated string, so every attempt failed with "invalid request". `POST /settings/webhooks` now accepts either form. It also checks the rest of the input: the name is trimmed and capped at 100 characters, the URL must be an absolute `https://` address of at most 2048 characters with no credentials, and unknown event names are refused.
+- **Portal leads with long Arabic text were lost.** `POST /webhooks/portals/{portal}` cut the name and message by bytes, which can split a letter. The database then refused the lead, and the portal kept retrying. Text is now cut by characters. A portal lead id over 128 characters is stored as its hash, so redeliveries are still recognised. The listing reference is capped at 128 characters, and an email that isn't a valid address is dropped.
+- **Contact import** refuses rows with an invalid email or a name over 200 characters before writing anything.
+- **Public listing page:** the enquiry email link encodes its subject and body.
+
 ### Fixed: new companies had an empty pipeline
 
 - Companies created after the custom pipeline stages were added (sign-up, Partner API) had no stages, so the Pipeline page drew no columns even though their leads were stored. Listing stages now gives a company the default six (`new` … `lost`) the first time it has none, for leads and deals. No migration; existing companies are unaffected.
