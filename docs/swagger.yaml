@@ -3199,6 +3199,20 @@ paths:
       responses:
         "200":
           description: OK
+        "401":
+          description: Invalid token
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
+        "403":
+          description: 'account_suspended: the company is suspended'
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
       summary: Listing feed for a portal
       tags:
       - Public
@@ -14102,6 +14116,20 @@ paths:
           schema:
             properties:
               lead_id:
+                type: string
+            type: object
+        "401":
+          description: Invalid token
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
+        "403":
+          description: 'account_suspended: the company is suspended'
+          schema:
+            properties:
+              error:
                 type: string
             type: object
       summary: Receive a lead from a property portal
