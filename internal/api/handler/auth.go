@@ -714,14 +714,15 @@ func (h *AuthHandler) RequestMagicLink(c *fiber.Ctx) error {
 	// Only registered, active accounts get a link. Anything else gets the same generic response
 	// (no enumeration) but no email — otherwise this endpoint is a free way to send unsolicited
 	// mail to arbitrary addresses.
-	if u, uerr := h.users.FindByEmail(c.Context(), body.Email); uerr != nil || !u.IsActive {
+	u, uerr := h.users.FindByEmail(c.Context(), body.Email)
+	if uerr != nil || !u.IsActive {
 		return c.JSON(fiber.Map{"message": "if the email exists, a magic link has been sent"})
 	}
 
 	// Generate magic token
 	token := uuid.New().String()
 	tokenKey := fmt.Sprintf("magic:%s", token)
-	tokenData := fmt.Sprintf("%s|%s", body.Email, body.LangPref)
+	tokenData := fmt.Sprintf("%s|%s", magicLinkSubject(u.ID), body.LangPref)
 
 	// Store in Redis with expiry
 	expiry := time.Duration(h.config.MagicLinkExpiryMin) * time.Minute
@@ -796,13 +797,12 @@ func (h *AuthHandler) VerifyMagicLink(c *fiber.Ctx) error {
 	if len(parts) != 2 {
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "invalid token data"})
 	}
-	email := parts[0]
 	// lang_pref is stored in token but not needed here — user record already has it.
 	_ = parts[1]
 
 	// Find user — magic link does NOT auto-create accounts in multi-tenant mode.
 	// New users must register via POST /auth/register to create a company workspace first.
-	user, err := h.users.FindByEmail(ctx, email)
+	user, err := h.magicLinkUser(ctx, parts[0])
 	if err != nil {
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
 			"error": "no account found for this email — please register at /signup first",
@@ -851,6 +851,23 @@ func (h *AuthHandler) VerifyMagicLink(c *fiber.Ctx) error {
 		resp["company"] = companyPayload(company, daysRemaining)
 	}
 	return c.JSON(h.attachRefresh(c, resp, refresh))
+}
+
+// magicLinkSubject is who a magic link signs in: the user's id, so the link keeps pointing at
+// the same account even if an email address changes hands while it is valid.
+func magicLinkSubject(id uuid.UUID) string { return "id:" + id.String() }
+
+// magicLinkUser resolves a magic-link subject. Links issued before subjects were ids hold an
+// email; they expire within minutes, so that branch only bridges a deploy.
+func (h *AuthHandler) magicLinkUser(ctx context.Context, subject string) (*domain.User, error) {
+	if s, ok := strings.CutPrefix(subject, "id:"); ok {
+		id, err := uuid.Parse(s)
+		if err != nil {
+			return nil, err
+		}
+		return h.users.FindByID(ctx, id)
+	}
+	return h.users.FindByEmail(ctx, subject)
 }
 
 var (

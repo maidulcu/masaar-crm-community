@@ -26271,7 +26271,7 @@
               }
             }
           },
-          "description": "admin is required on creation",
+          "description": "admin is required on creation and ignored on updates",
           "required": true
         },
         "responses": {
@@ -26282,6 +26282,12 @@
                   "properties": {
                     "company": {
                       "$ref": "#/components/schemas/repo.PartnerCompany"
+                    },
+                    "warnings": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
                     }
                   },
                   "type": "object"
@@ -26412,7 +26418,7 @@
     },
     "/partner/v1/companies/{ref}/users/{user_ref}": {
       "put": {
-        "description": "Creates the user with your reference in the company, or updates name, role, language and active status. Creating or reactivating a user fails with 409 seat_limit when the company has max_users active users.",
+        "description": "Creates the user with your reference in the company, or updates name, role, language and active status. An update changes only the fields it sends; email is set on creation only (a different one is reported in warnings). Creating or reactivating a user fails with 409 seat_limit when the company has max_users active users.",
         "operationId": "putPartnerV1CompaniesByRefUsersByUserRef",
         "parameters": [
           {
@@ -26459,7 +26465,7 @@
               }
             }
           },
-          "description": "email is required on creation; role admin, agent (default) or viewer",
+          "description": "name and email are required on creation; role admin, agent (default) or viewer",
           "required": true
         },
         "responses": {
@@ -26470,6 +26476,12 @@
                   "properties": {
                     "user": {
                       "$ref": "#/components/schemas/repo.PartnerUser"
+                    },
+                    "warnings": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
                     }
                   },
                   "type": "object"

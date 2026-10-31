@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [v0.4.0] - Unreleased
 
+### Partner API: updates change only what they send
+
+- **`PUT /partner/v1/companies/{ref}/users/{user_ref}`** on an existing user changes only the fields in the body. Before, a body with just a new `name` also reset `role` to agent, `lang_pref` to `en` and `active` to true, which could demote an admin or reactivate a deactivated user. `name` is now optional on updates. A different `email` is not applied; the answer says so in `warnings`.
+- **`PUT /partner/v1/companies/{ref}`** answers with `warnings` when an update sends `admin` (used on creation only) or sets `max_users` below the number of active users.
+- **Login links and magic links** now point at the user's id, not their email address, so a link always signs in the account it was issued for. Links issued before the upgrade keep working until they expire.
+- **Idempotency-Key:** a request refused with 401 or 403 (for example a missing scope) is no longer stored, so a retry with the same key runs once the client has the access.
+
 ### Fixed: new companies had an empty pipeline
 
 - Companies created after the custom pipeline stages were added (sign-up, Partner API) had no stages, so the Pipeline page drew no columns even though their leads were stored. Listing stages now gives a company the default six (`new` … `lost`) the first time it has none, for leads and deals. No migration; existing companies are unaffected.
