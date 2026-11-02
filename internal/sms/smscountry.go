@@ -24,10 +24,10 @@ type Client struct {
 
 func NewClient(authKey, authToken, senderID string) *Client {
 	return &Client{
-		baseURL:    baseURL,
-		authKey:    authKey,
-		authToken:  authToken,
-		senderID:   senderID,
+		baseURL:   baseURL,
+		authKey:   authKey,
+		authToken: authToken,
+		senderID:  senderID,
 		// Enforce dial-time SSRF protection to block access to internal infrastructure/metadata.
 		httpClient: safehttp.NewClient(10 * time.Second),
 	}
