@@ -10672,7 +10672,7 @@ const docTemplate = `{
                         "required": true
                     },
                     {
-                        "description": "admin is required on creation",
+                        "description": "admin is required on creation and ignored on updates",
                         "name": "body",
                         "in": "body",
                         "required": true,
@@ -10720,6 +10720,12 @@ const docTemplate = `{
                             "properties": {
                                 "company": {
                                     "$ref": "#/definitions/repo.PartnerCompany"
+                                },
+                                "warnings": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "string"
+                                    }
                                 }
                             }
                         }
@@ -10812,7 +10818,7 @@ const docTemplate = `{
                         "PartnerAuth": []
                     }
                 ],
-                "description": "Creates the user with your reference in the company, or updates name, role, language and active status. Creating or reactivating a user fails with 409 seat_limit when the company has max_users active users.",
+                "description": "Creates the user with your reference in the company, or updates name, role, language and active status. An update changes only the fields it sends; email is set on creation only (a different one is reported in warnings). Creating or reactivating a user fails with 409 seat_limit when the company has max_users active users.",
                 "consumes": [
                     "application/json"
                 ],
@@ -10839,7 +10845,7 @@ const docTemplate = `{
                         "required": true
                     },
                     {
-                        "description": "email is required on creation; role admin, agent (default) or viewer",
+                        "description": "name and email are required on creation; role admin, agent (default) or viewer",
                         "name": "body",
                         "in": "body",
                         "required": true,
@@ -10873,6 +10879,12 @@ const docTemplate = `{
                             "properties": {
                                 "user": {
                                     "$ref": "#/definitions/repo.PartnerUser"
+                                },
+                                "warnings": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "string"
+                                    }
                                 }
                             }
                         }
