@@ -13,6 +13,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
+	"github.com/valyala/fasthttp"
 )
 
 func TestCheckBlacklist_TokenNotBlacklisted(t *testing.T) {
@@ -220,10 +221,65 @@ func TestBearerToken_ValidFormat(t *testing.T) {
 	resp, _ := app.Test(req)
 	defer resp.Body.Close()
 
-	// BearerToken should extract the token correctly
-	// (We're just checking it doesn't panic)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+}
+
+func TestBearerToken_EdgeCases(t *testing.T) {
+	tests := []struct {
+		name     string
+		header   string
+		expected string
+	}{
+		{"standard bearer", "Bearer my-token-123", "my-token-123"},
+		{"lowercase bearer", "bearer my-token-123", "my-token-123"},
+		{"uppercase bearer", "BEARER my-token-123", "my-token-123"},
+		{"mixed case bearer", "bEaReR my-token-123", "my-token-123"},
+		{"empty token", "Bearer ", ""},
+		{"prefix only without space", "Bearer", ""},
+		{"basic scheme", "Basic dXNlcjpwYXNz", ""},
+		{"custom scheme", "Token abcxyz", ""},
+		{"malformed header", "InvalidHeaderFormat", ""},
+		{"empty header", "", ""},
+		{"token with spaces", "Bearer token with spaces", "token with spaces"},
+	}
+
+	app := fiber.New()
+	var extracted string
+	app.Get("/test", func(c *fiber.Ctx) error {
+		extracted = BearerToken(c)
+		return c.SendStatus(http.StatusOK)
+	})
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/test", nil)
+			if tt.header != "" {
+				req.Header.Set("Authorization", tt.header)
+			}
+			resp, err := app.Test(req)
+			if err != nil {
+				t.Fatalf("request failed: %v", err)
+			}
+			resp.Body.Close()
+			if extracted != tt.expected {
+				t.Errorf("header %q: expected %q, got %q", tt.header, tt.expected, extracted)
+			}
+		})
+	}
+}
+
+func BenchmarkBearerToken(b *testing.B) {
+	app := fiber.New()
+	c := app.AcquireCtx(&fasthttp.RequestCtx{})
+	defer app.ReleaseCtx(c)
+	c.Request().Header.Set("Authorization", "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.doNotVerify")
+
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		_ = BearerToken(c)
 	}
 }
 
