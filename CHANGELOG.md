@@ -9,12 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [v0.4.0] - Unreleased
 
-### Webhook hardening
+### Fixed: sign-in, sign-up and lead intake
 
-- **Upgrade note: WhatsApp webhooks now need `WA_APP_SECRET`.** Inbound WhatsApp webhooks are refused (503) while `WA_APP_SECRET` is unset. Before, only an instance with `APP_ENV` exactly `production` refused them, so a misconfigured deployment accepted unsigned messages from anyone. For local testing without a secret, set `WA_INSECURE_SKIP_SIGNATURE=true` (ignored in production).
-- **DocuSign Connect:** any `X-DocuSign-Signature-N` header made with the configured secret is accepted, so rotating Connect keys no longer breaks delivery. The route now has the webhook rate limit. A "completed" event no longer marks a deleted document as signed, and a repeated event keeps the first signing time.
-- **Outbound webhooks no longer follow redirects.** A redirect would resend the signed payload to another host. A `3xx` is recorded as a failed delivery and not retried.
-- `DEVELOPER.md` now explains that inbound WhatsApp goes to the `APP_COMPANY_ID` company: one WhatsApp number per deployment.
+- **Magic-link and SMS sign-ins are audited.** They now go through the same session code as password login, so they write the `login` audit entry they used to skip. The SMS response keeps `user.phone`, which every sign-in response now includes.
+- **Magic-link requests no longer reveal which emails are registered.** The email is sent in the background, as password-reset mail already was; before, only registered addresses waited for the SMTP round trip, so response time gave them away.
+- **`POST /webhooks/leads` counts characters, not bytes.** `name` (200), `notes` (2000), `property_type` and `area` (100) were measured in bytes, so Arabic names over 100 letters were refused as "too long". `name` is also trimmed: a blank name is now a 422.
+- **API docs:** `PATCH /leads/{id}/assign` is documented with its real body field, `assigned_to` (the docs said `user_id`).
+- **Sign-up shows readable errors** for a taken email or subdomain instead of the raw `email_taken` / `subdomain_taken` codes.
 
 ### Fixed: new companies had an empty pipeline
 
