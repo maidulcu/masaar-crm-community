@@ -232,7 +232,8 @@ Content-Type: application/json
   "scopes": "contacts:write,leads:write"
 }
 
-# Revoke key (admin only)
+# Revoke key (admin only): 204, or 404 when no key with that id belongs to your company.
+# Creating and revoking keys is recorded in the audit log.
 DELETE /api/v1/settings/api-keys/{id}
 Authorization: Bearer <jwt_token>
 ```

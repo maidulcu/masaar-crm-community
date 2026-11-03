@@ -392,8 +392,9 @@ func (h *AuthHandler) ForgotPassword(c *fiber.Ctx) error {
 		return c.JSON(fiber.Map{"message": successMsg})
 	}
 
+	// A deactivated account could not sign in with a new password anyway; it gets no reset mail.
 	user, err := h.users.FindByEmail(c.Context(), body.Email)
-	if err != nil {
+	if err != nil || !user.IsActive {
 		return c.JSON(fiber.Map{"message": successMsg})
 	}
 
