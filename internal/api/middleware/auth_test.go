@@ -274,7 +274,7 @@ func BenchmarkBearerToken(b *testing.B) {
 	app := fiber.New()
 	c := app.AcquireCtx(&fasthttp.RequestCtx{})
 	defer app.ReleaseCtx(c)
-	c.Request().Header.Set("Authorization", "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.doNotVerify")
+	c.Request().Header.Set("Authorization", "Bearer benchmark-test-token-value-12345")
 
 	b.ResetTimer()
 	b.ReportAllocs()
