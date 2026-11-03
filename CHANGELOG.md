@@ -9,12 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [v0.4.0] - Unreleased
 
-### Fixed: input handling
+### Fixed: sign-in, sign-up and lead intake
 
-- **Webhooks could not be created from Settings → Webhooks.** The page sent `events` as a list and the API only took a comma-separated string, so every attempt failed with "invalid request". `POST /settings/webhooks` now accepts either form. It also checks the rest of the input: the name is trimmed and capped at 100 characters, the URL must be an absolute `https://` address of at most 2048 characters with no credentials, and unknown event names are refused.
-- **Portal leads with long Arabic text were lost.** `POST /webhooks/portals/{portal}` cut the name and message by bytes, which can split a letter. The database then refused the lead, and the portal kept retrying. Text is now cut by characters. A portal lead id over 128 characters is stored as its hash, so redeliveries are still recognised. The listing reference is capped at 128 characters, and an email that isn't a valid address is dropped.
-- **Contact import** refuses rows with an invalid email or a name over 200 characters before writing anything.
-- **Public listing page:** the enquiry email link encodes its subject and body.
+- **Magic-link and SMS sign-ins are audited.** They now go through the same session code as password login, so they write the `login` audit entry they used to skip. The SMS response keeps `user.phone`, which every sign-in response now includes.
+- **Magic-link requests no longer reveal which emails are registered.** The email is sent in the background, as password-reset mail already was; before, only registered addresses waited for the SMTP round trip, so response time gave them away.
+- **`POST /webhooks/leads` counts characters, not bytes.** `name` (200), `notes` (2000), `property_type` and `area` (100) were measured in bytes, so Arabic names over 100 letters were refused as "too long". `name` is also trimmed: a blank name is now a 422.
+- **API docs:** `PATCH /leads/{id}/assign` is documented with its real body field, `assigned_to` (the docs said `user_id`).
+- **Sign-up shows readable errors** for a taken email or subdomain instead of the raw `email_taken` / `subdomain_taken` codes.
 
 ### Fixed: new companies had an empty pipeline
 

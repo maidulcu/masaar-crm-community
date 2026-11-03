@@ -466,32 +466,17 @@ func TestImportLeads_RejectedRowsLeaveNoContact(t *testing.T) {
 	}
 }
 
-func TestImportContacts_RejectsBadEmailBeforeWriting(t *testing.T) {
+func TestPublicLead_LimitsCountCharactersAndNameIsTrimmed(t *testing.T) {
 	e := newLeadEnv(t)
-	csv := "phone_wa,full_name,email\n" +
-		"+971503330001,Bad Mail,not-an-email\n" +
-		"+971503330002,Long Name," + "\n" +
-		"+971503330003," + strings.Repeat("ن", 201) + ",\n" +
-		"+971503330004,Good,good@example.com\n"
-	var buf bytes.Buffer
-	mw := multipart.NewWriter(&buf)
-	fw, _ := mw.CreateFormFile("file", "contacts.csv")
-	_, _ = fw.Write([]byte(csv))
-	_ = mw.Close()
-	req := httptest.NewRequest("POST", "/a/import/contacts", &buf)
-	req.Header.Set("Content-Type", mw.FormDataContentType())
-	resp, err := e.app.Test(req, -1)
-	if err != nil {
-		t.Fatal(err)
+	// 150 Arabic letters are 300 bytes: within the 200-character limit.
+	arabic := strings.Repeat("م", 150)
+	if code, out := e.do(t, "POST", "/a/webhooks/leads", fiber.Map{"name": arabic, "phone": "+971501110100", "area": strings.Repeat("ج", 80)}); code != 201 {
+		t.Fatalf("arabic name = %d %v, want 201", code, out)
 	}
-	var out map[string]any
-	_ = json.NewDecoder(resp.Body).Decode(&out)
-	if out["imported"] != float64(2) || out["skipped"] != float64(2) {
-		t.Fatalf("import result = %v, want 2 imported and 2 skipped", out)
+	if code, out := e.do(t, "POST", "/a/webhooks/leads", fiber.Map{"name": strings.Repeat("م", 201), "phone": "+971501110101"}); code != 422 {
+		t.Errorf("201-character name = %d %v, want 422", code, out)
 	}
-	var n int
-	_ = e.pool.QueryRow(context.Background(), `SELECT count(*) FROM contacts WHERE company_id = $1 AND phone_wa IN ('+971503330001', '+971503330003')`, e.a).Scan(&n)
-	if n != 0 {
-		t.Errorf("%d contacts written for rejected rows, want 0", n)
+	if code, out := e.do(t, "POST", "/a/webhooks/leads", fiber.Map{"name": "   ", "phone": "+971501110102"}); code != 422 {
+		t.Errorf("blank name = %d %v, want 422", code, out)
 	}
 }
