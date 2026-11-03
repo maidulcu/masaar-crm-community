@@ -20741,7 +20741,7 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "events": {
-                    "description": "comma-separated: \"lead.created,lead.stage_changed\"",
+                    "description": "\"lead.created,lead.stage_changed\" or [\"lead.created\", …]",
                     "type": "string"
                 },
                 "name": {

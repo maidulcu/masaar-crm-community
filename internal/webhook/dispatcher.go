@@ -35,6 +35,17 @@ const (
 	EventTest             = "webhook.test"
 )
 
+// KnownEvent reports whether a subscription may name event: a supported event (including the
+// reserved ones) or "*" for all.
+func KnownEvent(event string) bool {
+	switch event {
+	case "*", EventLeadCreated, EventLeadStageChanged, EventLeadWon, EventLeadLost,
+		EventPaymentReceived, EventLeaseSigned, EventContactCreated, EventTest:
+		return true
+	}
+	return false
+}
+
 // EventInfo describes an event Masaar sends, for the docs and the OpenAPI webhooks section.
 type EventInfo struct {
 	Name, Description string
