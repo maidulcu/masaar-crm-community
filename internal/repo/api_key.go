@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"github.com/maidulcu/masaar-crm/internal/tenant"
 	"strings"
@@ -128,9 +129,19 @@ func (r *ApiKeyRepo) Revoke(ctx context.Context, id uuid.UUID) error {
 	if err != nil {
 		return err
 	}
-	_, err = r.db.Exec(ctx, `UPDATE api_keys SET revoked_at = NOW() WHERE id = $1 AND company_id = $2`, id, cid)
-	return err
+	// An already-revoked key keeps its first revocation time; a missing or foreign one is reported.
+	tag, err := r.db.Exec(ctx, `UPDATE api_keys SET revoked_at = COALESCE(revoked_at, NOW()) WHERE id = $1 AND company_id = $2`, id, cid)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrApiKeyNotFound
+	}
+	return nil
 }
+
+// ErrApiKeyNotFound means no key with that id belongs to the company.
+var ErrApiKeyNotFound = errors.New("api key not found")
 
 // HasScope checks if an API key has a required scope.
 func (k *ApiKey) HasScope(requiredScope string) bool {

@@ -9,12 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [v0.4.0] - Unreleased
 
-### Partner API: updates change only what they send
+### Fixed: sign-in, sign-up and lead intake
 
-- **`PUT /partner/v1/companies/{ref}/users/{user_ref}`** on an existing user changes only the fields in the body. Before, a body with just a new `name` also reset `role` to agent, `lang_pref` to `en` and `active` to true, which could demote an admin or reactivate a deactivated user. `name` is now optional on updates. A different `email` is not applied; the answer says so in `warnings`.
-- **`PUT /partner/v1/companies/{ref}`** answers with `warnings` when an update sends `admin` (used on creation only) or sets `max_users` below the number of active users.
-- **Login links and magic links** now point at the user's id, not their email address, so a link always signs in the account it was issued for. Links issued before the upgrade keep working until they expire.
-- **Idempotency-Key:** a request refused with 401 or 403 (for example a missing scope) is no longer stored, so a retry with the same key runs once the client has the access.
+- **Magic-link and SMS sign-ins are audited.** They now go through the same session code as password login, so they write the `login` audit entry they used to skip. The SMS response keeps `user.phone`, which every sign-in response now includes.
+- **Magic-link requests no longer reveal which emails are registered.** The email is sent in the background, as password-reset mail already was; before, only registered addresses waited for the SMTP round trip, so response time gave them away.
+- **`POST /webhooks/leads` counts characters, not bytes.** `name` (200), `notes` (2000), `property_type` and `area` (100) were measured in bytes, so Arabic names over 100 letters were refused as "too long". `name` is also trimmed: a blank name is now a 422.
+- **API docs:** `PATCH /leads/{id}/assign` is documented with its real body field, `assigned_to` (the docs said `user_id`).
+- **Sign-up shows readable errors** for a taken email or subdomain instead of the raw `email_taken` / `subdomain_taken` codes.
 
 ### Fixed: new companies had an empty pipeline
 

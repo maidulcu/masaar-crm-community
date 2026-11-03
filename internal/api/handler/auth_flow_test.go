@@ -370,26 +370,24 @@ func TestSMSRequest_OnlyTextsRegisteredNumbers(t *testing.T) {
 	}
 }
 
-func TestVerifyMagicLink_SignsInTheUserTheLinkWasIssuedFor(t *testing.T) {
+func TestVerifyMagicLink_AuditsLogin(t *testing.T) {
 	e := newAuthEnv(t)
-	email := e.email("idlink")
-	code, reg := e.register(t, "IdLink", email, "Password1", e.sub("idlink"))
+	email := e.email("magic")
+	code, reg := e.register(t, "Magic", email, "Password1", e.sub("magic"))
 	if code != 201 {
 		t.Fatalf("setup = %d %v", code, reg)
 	}
 	userID := reg["user"].(map[string]any)["id"].(string)
-	id, _ := uuid.Parse(userID)
 
 	tok := uuid.NewString() + e.tag
-	if err := e.rdb.Set(context.Background(), "magic:"+tok, magicLinkSubject(id)+"|en", time.Minute).Err(); err != nil {
+	if err := e.rdb.Set(context.Background(), "magic:"+tok, email+"|en", time.Minute).Err(); err != nil {
 		t.Fatal(err)
 	}
-	// The address changes while the link is valid; the link still means the same account.
-	if _, err := e.pool.Exec(context.Background(), `UPDATE users SET email = $1 WHERE id = $2`, e.email("idlink2"), id); err != nil {
-		t.Fatal(err)
+	if code, out := e.post(t, "/magic/verify", fiber.Map{"token": tok}); code != 200 || out["access_token"] == nil {
+		t.Fatalf("verify = %d %v", code, out)
 	}
-	code, out := e.post(t, "/magic/verify", fiber.Map{"token": tok})
-	if code != 200 || out["user"].(map[string]any)["id"] != userID {
-		t.Fatalf("verify = %d %v, want a session for %s", code, out, userID)
+	// Password, 2FA and magic-link sign-ins all leave the same login entry.
+	if n := e.count(t, `SELECT count(*) FROM audit_logs WHERE actor_id = $1 AND action = 'login'`, userID); n != 1 {
+		t.Errorf("%d login audit entries after a magic-link sign-in, want 1", n)
 	}
 }
