@@ -1,6 +1,27 @@
 package phone
 
-import "testing"
+import (
+	"regexp"
+	"testing"
+)
+
+var benchE164Re = regexp.MustCompile(`^\+[1-9]\d{6,14}$`)
+
+func BenchmarkE164Regex(b *testing.B) {
+	in := "+971501234567"
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		benchE164Re.MatchString(in)
+	}
+}
+
+func BenchmarkIsCanonicalE164(b *testing.B) {
+	in := "+971501234567"
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		IsCanonicalE164(in)
+	}
+}
 
 func BenchmarkNormalize(b *testing.B) {
 	inputs := []string{
