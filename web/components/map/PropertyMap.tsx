@@ -3,6 +3,7 @@
 // Leaflet requires window — this component is always dynamically imported with ssr:false
 import { useEffect, useRef, useState } from 'react'
 import 'leaflet/dist/leaflet.css'
+import { escapeHtml } from '@/lib/safeHtml'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -140,7 +141,7 @@ export default function PropertyMap({
           })
             .addTo(map!)
             .bindPopup(
-              `<div class="text-sm font-medium">${name}</div>` +
+              `<div class="text-sm font-medium">${escapeHtml(name)}</div>` +
               `<div class="text-xs text-gray-500 mt-1">${count} transactions</div>` +
               (avgPrice ? `<div class="text-xs">Avg: AED ${avgPrice.toLocaleString()}</div>` : '')
             )
@@ -155,7 +156,8 @@ export default function PropertyMap({
             weight: 2,
           })
             .addTo(map!)
-            .bindTooltip(name, { direction: 'top' })
+            // Leaflet tooltips render HTML strings directly via innerHTML; escape untrusted text
+            .bindTooltip(escapeHtml(name), { direction: 'top' })
             .on('click', () => onAreaClick?.(area))
         }
       })
@@ -181,11 +183,12 @@ export default function PropertyMap({
           const marker = L.marker(DEFAULT_CENTER, { icon: listingIcon })
           marker
             .addTo(map!)
+            // Leaflet popups render HTML strings directly via innerHTML; escape untrusted text to prevent XSS
             .bindPopup(
-              `<div class="font-medium text-sm">${listing.title}</div>` +
-              `<div class="text-xs text-gray-500">${listing.property_type} · ${listing.listing_type}</div>` +
+              `<div class="font-medium text-sm">${escapeHtml(listing.title)}</div>` +
+              `<div class="text-xs text-gray-500">${escapeHtml(listing.property_type)} · ${escapeHtml(listing.listing_type)}</div>` +
               `<div class="text-xs font-semibold mt-1">AED ${listing.price.toLocaleString()}</div>` +
-              `<a href="/listings/${listing.id}" class="text-xs text-blue-600 mt-1 block">View listing →</a>`
+              `<a href="/listings/${encodeURIComponent(listing.id)}" class="text-xs text-blue-600 mt-1 block">View listing →</a>`
             )
             .on('click', () => onListingClick?.(listing))
         }
@@ -203,7 +206,7 @@ export default function PropertyMap({
         })
         L.marker([poi.lat, poi.lng], { icon: poiIcon })
           .addTo(map!)
-          .bindTooltip(`${poi.name} (${poi.category})`)
+          .bindTooltip(escapeHtml(`${poi.name} (${poi.category})`))
       })
 
       setReady(true)
