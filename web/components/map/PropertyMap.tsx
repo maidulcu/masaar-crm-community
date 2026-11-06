@@ -56,6 +56,16 @@ interface PropertyMapProps {
 const DEFAULT_CENTER: [number, number] = [25.2048, 55.2708]
 const DEFAULT_ZOOM = 11
 
+// Escape HTML to prevent XSS in Leaflet popups and tooltips which render raw innerHTML
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
 // Price color scale — green (cheap) → red (expensive) for transaction heatmap
 function priceToColor(price: number, min: number, max: number): string {
   if (max === min) return '#3b82f6'
@@ -123,7 +133,8 @@ export default function PropertyMap({
         const lng = area.lng ?? area.longitude
         if (!lat || !lng) return
 
-        const name = area.name ?? area.slug ?? ''
+        const rawName = area.name ?? area.slug ?? ''
+        const safeName = escapeHtml(rawName)
         const count = area.transaction_count ?? 0
         const avgPrice = area.avg_price ?? 0
 
@@ -140,7 +151,7 @@ export default function PropertyMap({
           })
             .addTo(map!)
             .bindPopup(
-              `<div class="text-sm font-medium">${name}</div>` +
+              `<div class="text-sm font-medium">${safeName}</div>` +
               `<div class="text-xs text-gray-500 mt-1">${count} transactions</div>` +
               (avgPrice ? `<div class="text-xs">Avg: AED ${avgPrice.toLocaleString()}</div>` : '')
             )
@@ -155,7 +166,7 @@ export default function PropertyMap({
             weight: 2,
           })
             .addTo(map!)
-            .bindTooltip(name, { direction: 'top' })
+            .bindTooltip(safeName, { direction: 'top' })
             .on('click', () => onAreaClick?.(area))
         }
       })
@@ -179,13 +190,17 @@ export default function PropertyMap({
         // TODO: when lat/lng added to listings table, use listing.latitude/listing.longitude
         if (listing.area || listing.city) {
           const marker = L.marker(DEFAULT_CENTER, { icon: listingIcon })
+          const safeTitle = escapeHtml(listing.title)
+          const safePropType = escapeHtml(listing.property_type)
+          const safeListingType = escapeHtml(listing.listing_type)
+          const safeListingId = encodeURIComponent(listing.id)
           marker
             .addTo(map!)
             .bindPopup(
-              `<div class="font-medium text-sm">${listing.title}</div>` +
-              `<div class="text-xs text-gray-500">${listing.property_type} · ${listing.listing_type}</div>` +
+              `<div class="font-medium text-sm">${safeTitle}</div>` +
+              `<div class="text-xs text-gray-500">${safePropType} · ${safeListingType}</div>` +
               `<div class="text-xs font-semibold mt-1">AED ${listing.price.toLocaleString()}</div>` +
-              `<a href="/listings/${listing.id}" class="text-xs text-blue-600 mt-1 block">View listing →</a>`
+              `<a href="/listings/${safeListingId}" class="text-xs text-blue-600 mt-1 block">View listing →</a>`
             )
             .on('click', () => onListingClick?.(listing))
         }
@@ -201,9 +216,11 @@ export default function PropertyMap({
           iconSize: [20, 20],
           iconAnchor: [10, 10],
         })
+        const safePoiName = escapeHtml(poi.name)
+        const safePoiCategory = escapeHtml(poi.category)
         L.marker([poi.lat, poi.lng], { icon: poiIcon })
           .addTo(map!)
-          .bindTooltip(`${poi.name} (${poi.category})`)
+          .bindTooltip(`${safePoiName} (${safePoiCategory})`)
       })
 
       setReady(true)
