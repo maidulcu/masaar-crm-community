@@ -7240,6 +7240,21 @@
               }
             },
             "description": "Bad Request"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Content does not match the extension, or the bank integration is not your company's"
           }
         },
         "security": [
