@@ -15,6 +15,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Suspended companies disappear from public surfaces.** Their public listing pages answer 404, their signing links can no longer be opened or signed, and their portal feed and portal lead intake answer `403 account_suspended`. Everything comes back when the company is reactivated.
 - **Public responses carry only what the pages show.** The public listing no longer includes `company_id`, `created_by`, `updated_by` or the permit-override fields; these keys are now left out rather than sent empty. The public signature response is limited to the signer's name, email and status and the document's title, type, file and status.
 
+### Lockout per address, and a company always keeps an admin
+
+- **Sign-in lockout is per address.** Five wrong passwords now lock the email only for the IP address they came from. Before, they locked the email everywhere, so anyone who knew a user's email could lock them out. A guessing run spread over many addresses still locks the email everywhere after 50 failures in 15 minutes. Unknown emails get exactly the same responses as registered ones. A password reset clears the email-wide lock and the lock for the address it was made from.
+- **The last active admin can't be removed.** Demoting, deactivating or deleting a user is refused with `409 last_admin` when it would leave the company with no active admin. This applies in the Users page and in `PUT /partner/v1/companies/{ref}/users/{user_ref}`, and it is safe against two admins demoting each other at the same time.
+- A user of a suspended company is refused at sign-in before being asked for a two-factor code.
+- Lead scores are no longer updated on deleted leads.
+
+### Audit log covers confidential files and exports
+
+- **Bank statements:** uploading, downloading and deleting a statement is now recorded in the audit log (file name, size and format, never the content). Uploading with another company's `bank_integration_id` answers 422 instead of 404.
+- **Exports:** every contact, lead and listing CSV export is recorded with the row count and filters used.
+
 ### Fixed: sign-in, sign-up and lead intake
 
 - **Magic-link and SMS sign-ins are audited.** They now go through the same session code as password login, so they write the `login` audit entry they used to skip. The SMS response keeps `user.phone`, which every sign-in response now includes.

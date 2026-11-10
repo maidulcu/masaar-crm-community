@@ -5973,6 +5973,14 @@ paths:
               error:
                 type: string
             type: object
+        "422":
+          description: Content does not match the extension, or the bank integration
+            is not your company's
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
       security:
       - BearerAuth: []
       summary: Upload bank statement
@@ -13616,6 +13624,13 @@ paths:
               error:
                 type: string
             type: object
+        "409":
+          description: 'last_admin: the company must keep an active admin'
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
       security:
       - BearerAuth: []
       summary: Delete user
@@ -13656,6 +13671,13 @@ paths:
             type: object
         "403":
           description: Forbidden
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
+        "409":
+          description: 'last_admin: the company must keep an active admin'
           schema:
             properties:
               error:
@@ -13725,6 +13747,13 @@ paths:
             type: object
         "403":
           description: Forbidden
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
+        "409":
+          description: 'last_admin: the company must keep an active admin'
           schema:
             properties:
               error:
