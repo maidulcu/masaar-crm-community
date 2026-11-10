@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -399,5 +400,27 @@ func TestLogin_LockoutIsPerAddress(t *testing.T) {
 	}
 	if code, _ := e.postFrom(t, "203.0.113.9", "/login", fiber.Map{"email": email, "password": "Password1"}); code != 429 {
 		t.Errorf("after %d failures from many addresses = %d, want 429", loginMaxFailuresPerEmail, code)
+	}
+}
+
+func TestVerifyMagicLink_AuditsLogin(t *testing.T) {
+	e := newAuthEnv(t)
+	email := e.email("magic")
+	code, reg := e.register(t, "Magic", email, "Password1", e.sub("magic"))
+	if code != 201 {
+		t.Fatalf("setup = %d %v", code, reg)
+	}
+	userID := reg["user"].(map[string]any)["id"].(string)
+
+	tok := uuid.NewString() + e.tag
+	if err := e.rdb.Set(context.Background(), "magic:"+tok, email+"|en", time.Minute).Err(); err != nil {
+		t.Fatal(err)
+	}
+	if code, out := e.post(t, "/magic/verify", fiber.Map{"token": tok}); code != 200 || out["access_token"] == nil {
+		t.Fatalf("verify = %d %v", code, out)
+	}
+	// Password, 2FA and magic-link sign-ins all leave the same login entry.
+	if n := e.count(t, `SELECT count(*) FROM audit_logs WHERE actor_id = $1 AND action = 'login'`, userID); n != 1 {
+		t.Errorf("%d login audit entries after a magic-link sign-in, want 1", n)
 	}
 }

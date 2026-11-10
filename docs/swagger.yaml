@@ -2426,7 +2426,7 @@ definitions:
   handler.WebhookSubCreateRequest:
     properties:
       events:
-        description: 'comma-separated: "lead.created,lead.stage_changed"'
+        description: '"lead.created,lead.stage_changed" or ["lead.created", …]'
         type: string
       name:
         type: string
@@ -8217,8 +8217,8 @@ paths:
     patch:
       consumes:
       - application/json
-      description: Assigns a lead to a user (agent or admin). Pass null user_id to
-        unassign.
+      description: Assigns a lead to a user (agent or admin). Pass null assigned_to
+        to unassign.
       parameters:
       - description: Lead UUID
         in: path
@@ -8231,7 +8231,7 @@ paths:
         required: true
         schema:
           properties:
-            user_id:
+            assigned_to:
               type: string
           type: object
       produces:
@@ -9955,7 +9955,7 @@ paths:
         name: ref
         required: true
         type: string
-      - description: admin is required on creation
+      - description: admin is required on creation and ignored on updates
         in: body
         name: body
         required: true
@@ -9990,6 +9990,10 @@ paths:
             properties:
               company:
                 $ref: '#/definitions/repo.PartnerCompany'
+              warnings:
+                items:
+                  type: string
+                type: array
             type: object
         "201":
           description: Created
@@ -10051,8 +10055,10 @@ paths:
       consumes:
       - application/json
       description: Creates the user with your reference in the company, or updates
-        name, role, language and active status. Creating or reactivating a user fails
-        with 409 seat_limit when the company has max_users active users.
+        name, role, language and active status. An update changes only the fields
+        it sends; email is set on creation only (a different one is reported in warnings).
+        Creating or reactivating a user fails with 409 seat_limit when the company
+        has max_users active users.
       parameters:
       - description: Your reference for the company
         in: path
@@ -10064,8 +10070,8 @@ paths:
         name: user_ref
         required: true
         type: string
-      - description: email is required on creation; role admin, agent (default) or
-          viewer
+      - description: name and email are required on creation; role admin, agent (default)
+          or viewer
         in: body
         name: body
         required: true
@@ -10091,6 +10097,10 @@ paths:
             properties:
               user:
                 $ref: '#/definitions/repo.PartnerUser'
+              warnings:
+                items:
+                  type: string
+                type: array
             type: object
         "201":
           description: Created
@@ -13658,8 +13668,9 @@ paths:
       - Users
   /users/{id}/2fa/reset:
     post:
-      description: Admin only, for a user of the same company. The user sets two-factor
-        up again at the next sign-in if the company requires it.
+      description: 'Admin only, for another user of the same company (not yourself:
+        use /users/me/2fa/disable). Ends the user''s sessions; they set two-factor
+        up again at the next sign-in if the company requires it.'
       parameters:
       - description: User ID
         in: path
@@ -13669,6 +13680,13 @@ paths:
       responses:
         "204":
           description: No Content
+        "403":
+          description: Forbidden
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
       security:
       - BearerAuth: []
       summary: Reset a user's two-factor (lost phone)
