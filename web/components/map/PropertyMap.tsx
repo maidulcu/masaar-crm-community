@@ -3,6 +3,7 @@
 // Leaflet requires window — this component is always dynamically imported with ssr:false
 import { useEffect, useRef, useState } from 'react'
 import 'leaflet/dist/leaflet.css'
+import { escapeHtml } from '@/lib/escapeHtml'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -131,6 +132,7 @@ export default function PropertyMap({
           // Colored circle sized by transaction volume
           const radius = Math.max(300, Math.min(2000, count * 15))
           const color = priceToColor(avgPrice, minPrice, maxPrice)
+          // Security: Leaflet bindPopup injects HTML directly into the DOM; dynamic text must be escaped
           L.circle([lat, lng], {
             radius,
             color,
@@ -140,13 +142,14 @@ export default function PropertyMap({
           })
             .addTo(map!)
             .bindPopup(
-              `<div class="text-sm font-medium">${name}</div>` +
+              `<div class="text-sm font-medium">${escapeHtml(name)}</div>` +
               `<div class="text-xs text-gray-500 mt-1">${count} transactions</div>` +
               (avgPrice ? `<div class="text-xs">Avg: AED ${avgPrice.toLocaleString()}</div>` : '')
             )
             .on('click', () => onAreaClick?.(area))
         } else {
           // Simple circle marker
+          // Security: Leaflet bindTooltip injects HTML string directly into the DOM; dynamic text must be escaped
           L.circleMarker([lat, lng], {
             radius: 8,
             color: '#3b82f6',
@@ -155,7 +158,7 @@ export default function PropertyMap({
             weight: 2,
           })
             .addTo(map!)
-            .bindTooltip(name, { direction: 'top' })
+            .bindTooltip(escapeHtml(name), { direction: 'top' })
             .on('click', () => onAreaClick?.(area))
         }
       })
@@ -179,13 +182,14 @@ export default function PropertyMap({
         // TODO: when lat/lng added to listings table, use listing.latitude/listing.longitude
         if (listing.area || listing.city) {
           const marker = L.marker(DEFAULT_CENTER, { icon: listingIcon })
+          // Security: Leaflet bindPopup parses raw HTML; escape dynamic listing values and encode URL param
           marker
             .addTo(map!)
             .bindPopup(
-              `<div class="font-medium text-sm">${listing.title}</div>` +
-              `<div class="text-xs text-gray-500">${listing.property_type} · ${listing.listing_type}</div>` +
+              `<div class="font-medium text-sm">${escapeHtml(listing.title)}</div>` +
+              `<div class="text-xs text-gray-500">${escapeHtml(listing.property_type)} · ${escapeHtml(listing.listing_type)}</div>` +
               `<div class="text-xs font-semibold mt-1">AED ${listing.price.toLocaleString()}</div>` +
-              `<a href="/listings/${listing.id}" class="text-xs text-blue-600 mt-1 block">View listing →</a>`
+              `<a href="/listings/${encodeURIComponent(listing.id)}" class="text-xs text-blue-600 mt-1 block">View listing →</a>`
             )
             .on('click', () => onListingClick?.(listing))
         }
@@ -201,9 +205,10 @@ export default function PropertyMap({
           iconSize: [20, 20],
           iconAnchor: [10, 10],
         })
+        // Security: Leaflet bindTooltip injects HTML directly; escape dynamic POI values
         L.marker([poi.lat, poi.lng], { icon: poiIcon })
           .addTo(map!)
-          .bindTooltip(`${poi.name} (${poi.category})`)
+          .bindTooltip(`${escapeHtml(poi.name)} (${escapeHtml(poi.category)})`)
       })
 
       setReady(true)

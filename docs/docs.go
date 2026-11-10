@@ -8078,7 +8078,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Assigns a lead to a user (agent or admin). Pass null user_id to unassign.",
+                "description": "Assigns a lead to a user (agent or admin). Pass null assigned_to to unassign.",
                 "consumes": [
                     "application/json"
                 ],
@@ -8105,7 +8105,7 @@ const docTemplate = `{
                         "schema": {
                             "type": "object",
                             "properties": {
-                                "user_id": {
+                                "assigned_to": {
                                     "type": "string"
                                 }
                             }
@@ -10694,7 +10694,7 @@ const docTemplate = `{
                         "required": true
                     },
                     {
-                        "description": "admin is required on creation",
+                        "description": "admin is required on creation and ignored on updates",
                         "name": "body",
                         "in": "body",
                         "required": true,
@@ -10742,6 +10742,12 @@ const docTemplate = `{
                             "properties": {
                                 "company": {
                                     "$ref": "#/definitions/repo.PartnerCompany"
+                                },
+                                "warnings": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "string"
+                                    }
                                 }
                             }
                         }
@@ -10834,7 +10840,7 @@ const docTemplate = `{
                         "PartnerAuth": []
                     }
                 ],
-                "description": "Creates the user with your reference in the company, or updates name, role, language and active status. Creating or reactivating a user fails with 409 seat_limit when the company has max_users active users.",
+                "description": "Creates the user with your reference in the company, or updates name, role, language and active status. An update changes only the fields it sends; email is set on creation only (a different one is reported in warnings). Creating or reactivating a user fails with 409 seat_limit when the company has max_users active users.",
                 "consumes": [
                     "application/json"
                 ],
@@ -10861,7 +10867,7 @@ const docTemplate = `{
                         "required": true
                     },
                     {
-                        "description": "email is required on creation; role admin, agent (default) or viewer",
+                        "description": "name and email are required on creation; role admin, agent (default) or viewer",
                         "name": "body",
                         "in": "body",
                         "required": true,
@@ -10895,6 +10901,12 @@ const docTemplate = `{
                             "properties": {
                                 "user": {
                                     "$ref": "#/definitions/repo.PartnerUser"
+                                },
+                                "warnings": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "string"
+                                    }
                                 }
                             }
                         }
@@ -16956,7 +16968,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Admin only, for a user of the same company. The user sets two-factor up again at the next sign-in if the company requires it.",
+                "description": "Admin only, for another user of the same company (not yourself: use /users/me/2fa/disable). Ends the user's sessions; they set two-factor up again at the next sign-in if the company requires it.",
                 "tags": [
                     "Users"
                 ],
@@ -16973,6 +16985,17 @@ const docTemplate = `{
                 "responses": {
                     "204": {
                         "description": "No Content"
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "error": {
+                                    "type": "string"
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -20762,7 +20785,7 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "events": {
-                    "description": "comma-separated: \"lead.created,lead.stage_changed\"",
+                    "description": "\"lead.created,lead.stage_changed\" or [\"lead.created\", …]",
                     "type": "string"
                 },
                 "name": {
