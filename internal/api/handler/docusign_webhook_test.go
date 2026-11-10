@@ -92,3 +92,38 @@ func TestDocusignWebhookHandler_HMAC(t *testing.T) {
 		})
 	}
 }
+
+// While Connect keys are rotated, DocuSign sends one signature per key; ours may not be the first.
+func TestDocusignWebhookHandler_AcceptsAnySignatureHeader(t *testing.T) {
+	secret := "test-secret-12345"
+	payload := []byte(`{"event":"envelope-sent","data":{"envelopeId":"env-1","status":"sent"}}`)
+	sign := func(key string) string {
+		mac := hmac.New(sha256.New, []byte(key))
+		mac.Write(payload)
+		return base64.StdEncoding.EncodeToString(mac.Sum(nil))
+	}
+	h := NewDocusignWebhookHandler(nil, secret)
+	app := fiber.New()
+	app.Post("/webhooks/docusign", h.Handle)
+	for name, tc := range map[string]struct {
+		headers map[string]string
+		want    int
+	}{
+		"ours second":     {map[string]string{"X-DocuSign-Signature-1": sign("other-key"), "X-DocuSign-Signature-2": sign(secret)}, http.StatusOK},
+		"only foreign":    {map[string]string{"X-DocuSign-Signature-1": sign("other-key"), "X-DocuSign-Signature-2": sign("third-key")}, http.StatusUnauthorized},
+		"gap before ours": {map[string]string{"X-DocuSign-Signature-3": sign(secret)}, http.StatusOK},
+	} {
+		req := httptest.NewRequest(http.MethodPost, "/webhooks/docusign", bytes.NewReader(payload))
+		req.Header.Set("Content-Type", "application/json")
+		for k, v := range tc.headers {
+			req.Header.Set(k, v)
+		}
+		resp, err := app.Test(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if resp.StatusCode != tc.want {
+			t.Errorf("%s: status %d, want %d", name, resp.StatusCode, tc.want)
+		}
+	}
+}
