@@ -25,6 +25,26 @@ Migration `0085` adds the columns below. Its down migration removes only the exp
 - **Suspended companies disappear from public surfaces.** Their public listing pages answer 404, their signing links can no longer be opened or signed, and their portal feed and portal lead intake answer `403 account_suspended`. Everything comes back when the company is reactivated.
 - **Public responses carry only what the pages show.** The public listing no longer includes `company_id`, `created_by`, `updated_by` or the permit-override fields; these keys are now left out rather than sent empty. The public signature response is limited to the signer's name, email and status and the document's title, type, file and status.
 
+### Lockout per address, and a company always keeps an admin
+
+- **Sign-in lockout is per address.** Five wrong passwords now lock the email only for the IP address they came from. Before, they locked the email everywhere, so anyone who knew a user's email could lock them out. A guessing run spread over many addresses still locks the email everywhere after 50 failures in 15 minutes. Unknown emails get exactly the same responses as registered ones. A password reset clears the email-wide lock and the lock for the address it was made from.
+- **The last active admin can't be removed.** Demoting, deactivating or deleting a user is refused with `409 last_admin` when it would leave the company with no active admin. This applies in the Users page and in `PUT /partner/v1/companies/{ref}/users/{user_ref}`, and it is safe against two admins demoting each other at the same time.
+- A user of a suspended company is refused at sign-in before being asked for a two-factor code.
+- Lead scores are no longer updated on deleted leads.
+
+### Audit log covers confidential files and exports
+
+- **Bank statements:** uploading, downloading and deleting a statement is now recorded in the audit log (file name, size and format, never the content). Uploading with another company's `bank_integration_id` answers 422 instead of 404.
+- **Exports:** every contact, lead and listing CSV export is recorded with the row count and filters used.
+
+### Fixed: sign-in, sign-up and lead intake
+
+- **Magic-link and SMS sign-ins are audited.** They now go through the same session code as password login, so they write the `login` audit entry they used to skip. The SMS response keeps `user.phone`, which every sign-in response now includes.
+- **Magic-link requests no longer reveal which emails are registered.** The email is sent in the background, as password-reset mail already was; before, only registered addresses waited for the SMTP round trip, so response time gave them away.
+- **`POST /webhooks/leads` counts characters, not bytes.** `name` (200), `notes` (2000), `property_type` and `area` (100) were measured in bytes, so Arabic names over 100 letters were refused as "too long". `name` is also trimmed: a blank name is now a 422.
+- **API docs:** `PATCH /leads/{id}/assign` is documented with its real body field, `assigned_to` (the docs said `user_id`).
+- **Sign-up shows readable errors** for a taken email or subdomain instead of the raw `email_taken` / `subdomain_taken` codes.
+
 ### Fixed: new companies had an empty pipeline
 
 - Companies created after the custom pipeline stages were added (sign-up, Partner API) had no stages, so the Pipeline page drew no columns even though their leads were stored. Listing stages now gives a company the default six (`new` … `lost`) the first time it has none, for leads and deals. No migration; existing companies are unaffected.

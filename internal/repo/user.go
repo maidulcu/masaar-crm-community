@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/maidulcu/masaar-crm/internal/domain"
 )
@@ -108,43 +109,64 @@ func (r *UserRepo) List(ctx context.Context) ([]domain.User, error) {
 // ErrUserNotFound is returned when a user does not exist inside the caller's company.
 var ErrUserNotFound = errors.New("user not found")
 
+// ErrLastAdmin refuses a change that would leave a company that has an active admin without one.
+var ErrLastAdmin = errors.New("the company must keep at least one active admin")
+
 // The three mutations below are scoped by company_id so an admin can only
-// touch users that belong to their own company.
+// touch users that belong to their own company. None may remove the company's last active admin.
 
 func (r *UserRepo) UpdateUser(ctx context.Context, companyID, id uuid.UUID, name string, role domain.Role) error {
-	const q = `UPDATE users SET name = $1, role = $2 WHERE id = $3 AND company_id = $4`
-	tag, err := r.db.Exec(ctx, q, strings.TrimSpace(name), role, id, companyID)
-	if err != nil {
-		return err
-	}
-	if tag.RowsAffected() == 0 {
-		return ErrUserNotFound
-	}
-	return nil
+	return r.keepingAnAdmin(ctx, companyID, `UPDATE users SET name = $3, role = $4 WHERE id = $1 AND company_id = $2`,
+		id, companyID, strings.TrimSpace(name), role)
 }
 
 func (r *UserRepo) SetActive(ctx context.Context, companyID, id uuid.UUID, active bool) error {
-	const q = `UPDATE users SET is_active = $1 WHERE id = $2 AND company_id = $3`
-	tag, err := r.db.Exec(ctx, q, active, id, companyID)
-	if err != nil {
-		return err
-	}
-	if tag.RowsAffected() == 0 {
-		return ErrUserNotFound
-	}
-	return nil
+	return r.keepingAnAdmin(ctx, companyID, `UPDATE users SET is_active = $3 WHERE id = $1 AND company_id = $2`,
+		id, companyID, active)
 }
 
 func (r *UserRepo) Delete(ctx context.Context, companyID, id uuid.UUID) error {
-	const q = `DELETE FROM users WHERE id = $1 AND company_id = $2`
-	tag, err := r.db.Exec(ctx, q, id, companyID)
+	return r.keepingAnAdmin(ctx, companyID, `DELETE FROM users WHERE id = $1 AND company_id = $2`, id, companyID)
+}
+
+// keepingAnAdmin runs q (which changes one user, $1, of company $2) and refuses with
+// ErrLastAdmin when it took away the company's last active admin. The company row is locked
+// first (the same lock as the seat checks), so two admins demoting each other at the same
+// moment cannot both succeed.
+func (r *UserRepo) keepingAnAdmin(ctx context.Context, companyID uuid.UUID, q string, args ...any) error {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+	if _, err := tx.Exec(ctx, `SELECT 1 FROM companies WHERE id = $1 FOR UPDATE`, companyID); err != nil {
+		return err
+	}
+	before, err := activeAdmins(ctx, tx, companyID)
+	if err != nil {
+		return err
+	}
+	tag, err := tx.Exec(ctx, q, args...)
 	if err != nil {
 		return err
 	}
 	if tag.RowsAffected() == 0 {
 		return ErrUserNotFound
 	}
-	return nil
+	if before > 0 {
+		if after, err := activeAdmins(ctx, tx, companyID); err != nil {
+			return err
+		} else if after == 0 {
+			return ErrLastAdmin
+		}
+	}
+	return tx.Commit(ctx)
+}
+
+func activeAdmins(ctx context.Context, tx pgx.Tx, companyID uuid.UUID) (int, error) {
+	var n int
+	err := tx.QueryRow(ctx, `SELECT COUNT(*) FROM users WHERE company_id = $1 AND role = 'admin' AND is_active`, companyID).Scan(&n)
+	return n, err
 }
 
 func (r *UserRepo) UpdatePassword(ctx context.Context, id uuid.UUID, passwordHash string) error {
@@ -214,32 +236,6 @@ func (r *UserRepo) EmailExists(ctx context.Context, email string) (bool, error) 
 	return exists, err
 }
 
-func (r *UserRepo) CreateWithDefaults(ctx context.Context, email string, langPref string) (*domain.User, error) {
-	const q = `
-		INSERT INTO users (id, company_id, name, email, password_hash, role, lang_pref, wa_number)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-		RETURNING is_active, created_at
-	`
-	u := &domain.User{
-		ID:           uuid.New(),
-		CompanyID:    uuid.MustParse("00000000-0000-0000-0000-000000000001"),
-		Name:         email,
-		Email:        email,
-		PasswordHash: "",
-		Role:         domain.RoleViewer,
-		LangPref:     langPref,
-		WANumber:     "",
-	}
-	err := r.db.QueryRow(ctx, q,
-		u.ID, u.CompanyID, u.Name, u.Email, u.PasswordHash,
-		u.Role, u.LangPref, u.WANumber,
-	).Scan(&u.IsActive, &u.CreatedAt)
-	if err != nil {
-		return nil, err
-	}
-	return u, nil
-}
-
 func (r *UserRepo) FindByPhone(ctx context.Context, phone string) (*domain.User, error) {
 	const q = `
 		SELECT id, company_id, name, email, password_hash, role, lang_pref,
@@ -254,33 +250,6 @@ func (r *UserRepo) FindByPhone(ctx context.Context, phone string) (*domain.User,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("find user by phone: %w", err)
-	}
-	return u, nil
-}
-
-func (r *UserRepo) CreateWithPhone(ctx context.Context, phone, langPref string) (*domain.User, error) {
-	const q = `
-		INSERT INTO users (id, company_id, name, email, password_hash, role, lang_pref, wa_number, phone)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-		RETURNING created_at
-	`
-	u := &domain.User{
-		ID:           uuid.New(),
-		CompanyID:    uuid.MustParse("00000000-0000-0000-0000-000000000001"),
-		Name:         phone,
-		Email:        fmt.Sprintf("sms_%s@masaar.local", phone),
-		PasswordHash: "",
-		Role:         domain.RoleViewer,
-		LangPref:     langPref,
-		WANumber:     "",
-		Phone:        phone,
-	}
-	err := r.db.QueryRow(ctx, q,
-		u.ID, u.CompanyID, u.Name, u.Email, u.PasswordHash,
-		u.Role, u.LangPref, u.WANumber, u.Phone,
-	).Scan(&u.CreatedAt)
-	if err != nil {
-		return nil, err
 	}
 	return u, nil
 }

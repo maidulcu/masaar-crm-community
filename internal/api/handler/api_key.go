@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"errors"
 	"sort"
 	"time"
 
@@ -13,6 +14,13 @@ import (
 
 type ApiKeyHandler struct {
 	apiKeyRepo *repo.ApiKeyRepo
+	audit      actorAuditLogger
+}
+
+// UseAudit records key creation and revocation in the audit log.
+func (h *ApiKeyHandler) UseAudit(a actorAuditLogger) *ApiKeyHandler {
+	h.audit = a
+	return h
 }
 
 func NewApiKeyHandler(apiKeyRepo *repo.ApiKeyRepo) *ApiKeyHandler {
@@ -146,6 +154,10 @@ func (h *ApiKeyHandler) CreateApiKey(c *fiber.Ctx) error {
 	}
 
 	// Return with plaintext (only shown once)
+	// Never the key itself: only what identifies it.
+	auditWrite(c, h.audit, repo.AuditCreate, repo.AuditAPIKey, id,
+		fiber.Map{"name": req.Name, "key_prefix": keyPrefix, "scopes": req.Scopes})
+
 	resp := ApiKeyResponse{
 		ID:        id,
 		Name:      req.Name,
@@ -184,8 +196,12 @@ func (h *ApiKeyHandler) RevokeApiKey(c *fiber.Ctx) error {
 	}
 
 	if err := h.apiKeyRepo.Revoke(c.Context(), id); err != nil {
+		if errors.Is(err, repo.ErrApiKeyNotFound) {
+			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "api key not found"})
+		}
 		return serverError(c, err)
 	}
+	auditWrite(c, h.audit, repo.AuditDelete, repo.AuditAPIKey, id, nil)
 
 	return c.SendStatus(fiber.StatusNoContent)
 }

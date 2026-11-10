@@ -148,6 +148,7 @@ func newLeadEnv(t *testing.T) *leadEnv {
 		g.Get("/settings/lead-rotation", e.rotation.GetSettings)
 		g.Post("/webhooks/leads", pub.SubmitLead)
 		g.Post("/import/leads", imp.ImportLeads)
+		g.Post("/import/contacts", imp.ImportContacts)
 	}
 	e.app = app
 	return e
@@ -462,5 +463,61 @@ func TestImportLeads_RejectedRowsLeaveNoContact(t *testing.T) {
 	_ = e.pool.QueryRow(context.Background(), `SELECT currency FROM leads WHERE company_id = $1`, e.a).Scan(&cur)
 	if cur != "USD" {
 		t.Errorf("currency = %q, want USD", cur)
+	}
+}
+
+// recordingAudit keeps the audit entries a handler writes.
+type recordingAudit struct {
+	mu      sync.Mutex
+	entries []string // "action entity_type"
+}
+
+func (r *recordingAudit) Log(_ context.Context, _ uuid.UUID, action, entityType string, _ uuid.UUID, _ any) {
+	r.mu.Lock()
+	r.entries = append(r.entries, action+" "+entityType)
+	r.mu.Unlock()
+}
+func (r *recordingAudit) LogAPIKey(ctx context.Context, id uuid.UUID, action, entityType string, eid uuid.UUID, diff any) {
+	r.Log(ctx, id, action, entityType, eid, diff)
+}
+
+func TestExports_AreAudited(t *testing.T) {
+	e := newLeadEnv(t)
+	e.newLead(t)
+	rec := &recordingAudit{}
+	imp := NewImportExportHandler(repo.NewContactRepo(e.pool), repo.NewLeadRepo(e.pool), repo.NewListingRepo(e.pool)).UseAudit(rec)
+	app := fiber.New()
+	g := app.Group("/", func(c *fiber.Ctx) error {
+		c.Locals("company_id", e.a.String())
+		c.Locals("user_id", e.agent1)
+		return c.Next()
+	})
+	g.Get("/export/contacts", imp.ExportContacts)
+	g.Get("/export/leads", imp.ExportLeads)
+	g.Get("/export/listings", imp.ExportListings)
+	for _, p := range []string{"/export/contacts", "/export/leads", "/export/listings"} {
+		resp, err := app.Test(httptest.NewRequest("GET", p, nil), -1)
+		if err != nil || resp.StatusCode != 200 {
+			t.Fatalf("%s = %v %v", p, resp.StatusCode, err)
+		}
+	}
+	want := "export contact,export lead,export listing"
+	if got := strings.Join(rec.entries, ","); got != want {
+		t.Errorf("audit entries = %q, want %q", got, want)
+	}
+}
+
+func TestPublicLead_LimitsCountCharactersAndNameIsTrimmed(t *testing.T) {
+	e := newLeadEnv(t)
+	// 150 Arabic letters are 300 bytes: within the 200-character limit.
+	arabic := strings.Repeat("م", 150)
+	if code, out := e.do(t, "POST", "/a/webhooks/leads", fiber.Map{"name": arabic, "phone": "+971501110100", "area": strings.Repeat("ج", 80)}); code != 201 {
+		t.Fatalf("arabic name = %d %v, want 201", code, out)
+	}
+	if code, out := e.do(t, "POST", "/a/webhooks/leads", fiber.Map{"name": strings.Repeat("م", 201), "phone": "+971501110101"}); code != 422 {
+		t.Errorf("201-character name = %d %v, want 422", code, out)
+	}
+	if code, out := e.do(t, "POST", "/a/webhooks/leads", fiber.Map{"name": "   ", "phone": "+971501110102"}); code != 422 {
+		t.Errorf("blank name = %d %v, want 422", code, out)
 	}
 }

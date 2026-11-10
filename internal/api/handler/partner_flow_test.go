@@ -158,6 +158,37 @@ func TestPartnerFlow(t *testing.T) {
 	if ok, err := repo.NewUserRepo(pool).SeatAvailable(ctx, companyID, uuid.Nil); err != nil || ok {
 		t.Errorf("SeatAvailable on a full company = %v, %v", ok, err)
 	}
+
+	// An update changes only what it sends: renaming must not demote the admin, reset a
+	// language, or reactivate a deactivated user.
+	if code, out = do(ta, "PUT", "/partner/v1/companies/agency-1/users/u-2", fiber.Map{"lang_pref": "ar"}); code != 200 {
+		t.Fatalf("set lang = %d %v", code, out)
+	}
+	for ref, want := range map[string]map[string]any{
+		"u-admin": {"role": "admin", "active": true},
+		"u-1":     {"role": "agent", "active": false},
+		"u-2":     {"role": "viewer", "active": true, "lang_pref": "ar"},
+	} {
+		code, out = do(ta, "PUT", "/partner/v1/companies/agency-1/users/"+ref, fiber.Map{"name": "Renamed " + ref})
+		if code != 200 {
+			t.Fatalf("rename %s = %d %v", ref, code, out)
+		}
+		u := out["user"].(map[string]any)
+		for k, v := range want {
+			if u[k] != v {
+				t.Errorf("after renaming %s: %s = %v, want %v", ref, k, u[k], v)
+			}
+		}
+	}
+	if code, out = do(ta, "PUT", "/partner/v1/companies/agency-1/users/u-2", fiber.Map{"email": "changed-" + run + "@partner.test"}); code != 200 || out["warnings"] == nil {
+		t.Errorf("email change on update = %d %v, want 200 with a warning", code, out)
+	}
+	if code, out = do(ta, "PUT", "/partner/v1/companies/agency-1", fiber.Map{"max_users": 1, "admin": fiber.Map{"ref": "x"}}); code != 200 || len(out["warnings"].([]any)) != 2 {
+		t.Errorf("seats below active users + admin on update = %d %v, want 2 warnings", code, out)
+	}
+	if code, _ = do(ta, "PUT", "/partner/v1/companies/agency-1", fiber.Map{"max_users": 2}); code != 200 {
+		t.Fatalf("restore seats = %d", code)
+	}
 	// The trigger holds the limit on any path, e.g. the admin screens inserting directly.
 	_, err = pool.Exec(ctx, `INSERT INTO users (id, company_id, name, email, password_hash, role, is_active)
 		VALUES ($1, $2, 'Direct', $3, 'x', 'agent', true)`, uuid.New(), companyID, "direct-"+run+"@partner.test")

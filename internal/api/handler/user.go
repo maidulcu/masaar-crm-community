@@ -7,6 +7,7 @@ import (
 	"net/mail"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -212,8 +213,16 @@ func (h *UserHandler) CreateUser(c *fiber.Ctx) error {
 	if err := c.BodyParser(&body); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid request"})
 	}
-	if strings.TrimSpace(body.Name) == "" {
+	body.Name = strings.TrimSpace(body.Name)
+	if body.Name == "" {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "name is required"})
+	}
+	if utf8.RuneCountInString(body.Name) > maxNameRunes {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "name is too long"})
+	}
+	body.WANumber = strings.TrimSpace(body.WANumber)
+	if len(body.WANumber) > 20 {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "wa_number is too long"})
 	}
 	body.Email = strings.ToLower(strings.TrimSpace(body.Email))
 	if body.Email == "" {
@@ -272,6 +281,10 @@ func (h *UserHandler) CreateUser(c *fiber.Ctx) error {
 		}
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to create user"})
 	}
+
+	callerID, _ := uuid.Parse(fmt.Sprint(claims["sub"]))
+	h.audit.Log(c.Context(), callerID, repo.AuditCreate, repo.AuditUser, user.ID,
+		fiber.Map{"email": user.Email, "role": user.Role, "method": "create"})
 
 	return c.Status(fiber.StatusCreated).JSON(fiber.Map{
 		"id":        user.ID,
@@ -380,6 +393,7 @@ func (h *UserHandler) InviteUser(c *fiber.Ctx) error {
 // @Success      204
 // @Failure      400  {object}  object{error=string}
 // @Failure      403  {object}  object{error=string}
+// @Failure      409  {object}  object{error=string}  "last_admin: the company must keep an active admin"
 // @Security     BearerAuth
 // @Router       /users/{id} [patch]
 func (h *UserHandler) UpdateUser(c *fiber.Ctx) error {
@@ -483,6 +497,7 @@ func (h *UserHandler) SetBRN(c *fiber.Ctx) error {
 // @Param        body  body  object{active=bool}     true  "Active status"
 // @Success      200   {object}  object{is_active=bool}
 // @Failure      403   {object}  object{error=string}
+// @Failure      409  {object}  object{error=string}  "last_admin: the company must keep an active admin"
 // @Security     BearerAuth
 // @Router       /users/{id}/active [patch]
 func (h *UserHandler) SetActive(c *fiber.Ctx) error {
@@ -533,6 +548,7 @@ func (h *UserHandler) SetActive(c *fiber.Ctx) error {
 // @Param        id  path  string  true  "User ID"
 // @Success      204
 // @Failure      403  {object}  object{error=string}
+// @Failure      409  {object}  object{error=string}  "last_admin: the company must keep an active admin"
 // @Security     BearerAuth
 // @Router       /users/{id} [delete]
 func (h *UserHandler) DeleteUser(c *fiber.Ctx) error {
@@ -578,6 +594,9 @@ func userMutationError(c *fiber.Ctx, err error, fallback string) error {
 	}
 	if repo.IsSeatLimit(err) {
 		return c.Status(fiber.StatusConflict).JSON(fiber.Map{"error": "seat_limit", "detail": "all seats of your plan are in use; deactivate a user or upgrade the plan"})
+	}
+	if errors.Is(err, repo.ErrLastAdmin) {
+		return c.Status(fiber.StatusConflict).JSON(fiber.Map{"error": "last_admin", "detail": "the company must keep at least one active admin"})
 	}
 	return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": fallback})
 }

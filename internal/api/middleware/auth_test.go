@@ -13,6 +13,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
+	"github.com/valyala/fasthttp"
 )
 
 func TestCheckBlacklist_TokenNotBlacklisted(t *testing.T) {
@@ -115,6 +116,60 @@ func TestCheckBlacklist_NoToken(t *testing.T) {
 	// Should allow through if no token present
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+}
+
+func TestBearerToken_Variations(t *testing.T) {
+	app := fiber.New()
+	app.Get("/test", func(c *fiber.Ctx) error {
+		return c.SendString(BearerToken(c))
+	})
+
+	cases := []struct {
+		header string
+		want   string
+	}{
+		{"Bearer my-token-123", "my-token-123"},
+		{"BEARER my-token-123", "my-token-123"},
+		{"bearer my-token-123", "my-token-123"},
+		{"Bearer ", ""},
+		{"Bearer", ""},
+		{"Basic dXNlcjpwYXNz", ""},
+		{"", ""},
+		{"short", ""},
+		{"Bearer12345", ""},
+	}
+
+	for _, tc := range cases {
+		req := httptest.NewRequest(http.MethodGet, "/test", nil)
+		if tc.header != "" {
+			req.Header.Set("Authorization", tc.header)
+		}
+		resp, err := app.Test(req)
+		if err != nil {
+			t.Fatalf("header %q failed: %v", tc.header, err)
+		}
+		defer resp.Body.Close()
+		buf := make([]byte, 128)
+		n, _ := resp.Body.Read(buf)
+		got := string(buf[:n])
+		if got != tc.want {
+			t.Errorf("header %q: got %q, want %q", tc.header, got, tc.want)
+		}
+	}
+}
+
+func BenchmarkBearerToken(b *testing.B) {
+	app := fiber.New()
+	c := app.AcquireCtx(&fasthttp.RequestCtx{})
+	defer app.ReleaseCtx(c)
+
+	c.Request().Header.Set("Authorization", "Bearer sk_live_test_secret_token_12345")
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = BearerToken(c)
 	}
 }
 

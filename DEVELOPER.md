@@ -149,9 +149,9 @@ Revoke with `POST /oauth/revoke` (`token=…`, same client authentication).
 
 | Call | Does |
 |------|------|
-| `PUT /partner/v1/companies/{ref}` | Creates the company with its first admin and returns `lead_api_key` (once, `201`); later calls update `name`, `plan`, `max_users` (seats, `null` = no limit) and `active` (`false` suspends: users and keys are refused within 15 seconds) |
+| `PUT /partner/v1/companies/{ref}` | Creates the company with its first admin and returns `lead_api_key` (once, `201`); later calls update `name`, `plan`, `max_users` (seats, `null` = no limit) and `active` (`false` suspends: users and keys are refused within 15 seconds). On an update `admin` is ignored, and the answer carries `warnings` when it is sent or when `max_users` is below the active users |
 | `GET /partner/v1/companies/{ref}` | Company status, including `active_users` |
-| `PUT /partner/v1/companies/{ref}/users/{user_ref}` | Creates or updates a user (`name`, `email` on creation, `role` admin/agent/viewer, `lang_pref`, `active`); `409 seat_limit` when the seats are used up |
+| `PUT /partner/v1/companies/{ref}/users/{user_ref}` | Creates a user (`name` and `email` required, `role` admin/agent/viewer, default agent, `lang_pref` default `en`, `active` default true) or updates one: an update changes only the fields it sends, and a different `email` is not applied (`warnings` says so); `409 seat_limit` when the seats are used up |
 | `POST /partner/v1/companies/{ref}/api-keys` | Another `lead:create` key for `POST /webhooks/leads` |
 | `POST /partner/v1/companies/{ref}/users/{user_ref}/login-link` | A single-use login URL valid two minutes: redirect the user's browser to it ("Open CRM"); never email it |
 
@@ -235,7 +235,8 @@ Content-Type: application/json
   "scopes": "contacts:write,leads:write"
 }
 
-# Revoke key (admin only)
+# Revoke key (admin only): 204, or 404 when no key with that id belongs to your company.
+# Creating and revoking keys is recorded in the audit log.
 DELETE /api/v1/settings/api-keys/{id}
 Authorization: Bearer <jwt_token>
 ```
@@ -418,7 +419,8 @@ Authorization: Bearer <jwt_token>
 | `ALLOWED_ORIGINS` | ✅ | `*` | CORS — set to your frontend URL in production |
 | `APP_COMPANY_ID` | — | `00000000-0000-0000-0000-000000000001` | Single-tenant company UUID |
 | `WA_VERIFY_TOKEN` | WhatsApp | — | Meta webhook verification token |
-| `WA_APP_SECRET` | WhatsApp | — | App secret for HMAC signature validation |
+| `WA_APP_SECRET` | WhatsApp | — | App secret for HMAC signature validation. Without it inbound webhooks are refused (503) |
+| `WA_INSECURE_SKIP_SIGNATURE` | — | `false` | Local testing only: `true` accepts unsigned webhooks while `WA_APP_SECRET` is empty. Ignored when `APP_ENV=production` |
 | `WA_PHONE_NUMBER_ID` | WhatsApp outbound | — | Meta phone number ID |
 | `WA_ACCESS_TOKEN` | WhatsApp outbound | — | Meta Business API token |
 | `AI_PROVIDER` | — | `ollama` | `ollama` or `gemini` |
@@ -453,7 +455,9 @@ https://your-domain.com/webhooks/whatsapp
 
 **Verification:** On first setup, Meta sends a GET request. The CRM responds automatically using `WA_VERIFY_TOKEN`.
 
-**Security:** Set `WA_APP_SECRET` to your Meta App Secret. The CRM validates every inbound request using HMAC-SHA256.
+**Security:** Set `WA_APP_SECRET` to your Meta App Secret. The CRM validates every inbound request using HMAC-SHA256 and refuses requests while the secret is unset.
+
+**One number per deployment:** inbound messages and delivery statuses are stored in the `APP_COMPANY_ID` company; the `phone_number_id` in Meta's payload is not used to pick a company. Subscribe the Meta app to one WhatsApp number per deployment: if one app received several companies' numbers, all their conversations would land in that one company.
 
 **Rate limit:** 300 requests/minute per IP.
 
@@ -480,6 +484,8 @@ curl -X POST https://crm.yourcompany.ae/api/v1/settings/webhooks \
   -H "Content-Type: application/json" \
   -d '{"name":"My App","url":"https://myapp.com/crm-events","events":"lead.created,lead.won"}'
 # Returns: {"id":"...","secret":"whsec_..."}  ← store secret, shown once
+# events: a comma-separated string or a JSON array of the event names above ("*" or empty = all);
+# unknown names are refused. url: absolute https, no credentials, at most 2048 characters.
 
 # List registered webhooks
 GET /api/v1/settings/webhooks
@@ -538,7 +544,7 @@ Verify the raw request body, before any JSON parsing.
 
 **Legacy header.** Requests also still carry `X-Masaar-Signature: sha256=<hex HMAC-SHA256 of the body, keyed with the secret string>`, plus `X-Masaar-Event` and `X-Masaar-Delivery` (now the same as `webhook-id`). Existing receivers keep working; new ones should use the headers above.
 
-Delivery retries: 3 attempts with 1s / 4s backoff. Failures tracked in `webhook_deliveries` table.
+Delivery retries: 3 attempts with 1s / 4s backoff. Failures tracked in `webhook_deliveries` table. Redirects are not followed: a `3xx` answer is recorded as a failed delivery (and not retried), so register the final URL.
 
 ---
 

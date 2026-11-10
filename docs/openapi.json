@@ -3681,7 +3681,7 @@
       "handler.WebhookSubCreateRequest": {
         "properties": {
           "events": {
-            "description": "comma-separated: \"lead.created,lead.stage_changed\"",
+            "description": "\"lead.created,lead.stage_changed\" or [\"lead.created\", …]",
             "type": "string"
           },
           "name": {
@@ -7306,6 +7306,21 @@
               }
             },
             "description": "Bad Request"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Content does not match the extension, or the bank integration is not your company's"
           }
         },
         "security": [
@@ -13139,7 +13154,7 @@
     },
     "/api/v1/leads/{id}/assign": {
       "patch": {
-        "description": "Assigns a lead to a user (agent or admin). Pass null user_id to unassign.",
+        "description": "Assigns a lead to a user (agent or admin). Pass null assigned_to to unassign.",
         "operationId": "patchLeadsByIdAssign",
         "parameters": [
           {
@@ -13157,7 +13172,7 @@
             "application/json": {
               "schema": {
                 "properties": {
-                  "user_id": {
+                  "assigned_to": {
                     "type": "string"
                   }
                 },
@@ -25892,6 +25907,21 @@
               }
             },
             "description": "Forbidden"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "last_admin: the company must keep an active admin"
           }
         },
         "security": [
@@ -25970,6 +26000,21 @@
               }
             },
             "description": "Forbidden"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "last_admin: the company must keep an active admin"
           }
         },
         "security": [
@@ -25985,7 +26030,7 @@
     },
     "/api/v1/users/{id}/2fa/reset": {
       "post": {
-        "description": "Admin only, for a user of the same company. The user sets two-factor up again at the next sign-in if the company requires it.",
+        "description": "Admin only, for another user of the same company (not yourself: use /users/me/2fa/disable). Ends the user's sessions; they set two-factor up again at the next sign-in if the company requires it.",
         "operationId": "postUsersById2faReset",
         "parameters": [
           {
@@ -26002,15 +26047,20 @@
           "204": {
             "description": "No Content"
           },
-          "4XX": {
+          "403": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Error"
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
                 }
               }
             },
-            "description": "Client error"
+            "description": "Forbidden"
           }
         },
         "security": [
@@ -26085,6 +26135,21 @@
               }
             },
             "description": "Forbidden"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "last_admin: the company must keep an active admin"
           }
         },
         "security": [
@@ -26410,7 +26475,7 @@
               }
             }
           },
-          "description": "admin is required on creation",
+          "description": "admin is required on creation and ignored on updates",
           "required": true
         },
         "responses": {
@@ -26421,6 +26486,12 @@
                   "properties": {
                     "company": {
                       "$ref": "#/components/schemas/repo.PartnerCompany"
+                    },
+                    "warnings": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
                     }
                   },
                   "type": "object"
@@ -26551,7 +26622,7 @@
     },
     "/partner/v1/companies/{ref}/users/{user_ref}": {
       "put": {
-        "description": "Creates the user with your reference in the company, or updates name, role, language and active status. Creating or reactivating a user fails with 409 seat_limit when the company has max_users active users.",
+        "description": "Creates the user with your reference in the company, or updates name, role, language and active status. An update changes only the fields it sends; email is set on creation only (a different one is reported in warnings). Creating or reactivating a user fails with 409 seat_limit when the company has max_users active users.",
         "operationId": "putPartnerV1CompaniesByRefUsersByUserRef",
         "parameters": [
           {
@@ -26598,7 +26669,7 @@
               }
             }
           },
-          "description": "email is required on creation; role admin, agent (default) or viewer",
+          "description": "name and email are required on creation; role admin, agent (default) or viewer",
           "required": true
         },
         "responses": {
@@ -26609,6 +26680,12 @@
                   "properties": {
                     "user": {
                       "$ref": "#/components/schemas/repo.PartnerUser"
+                    },
+                    "warnings": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
                     }
                   },
                   "type": "object"

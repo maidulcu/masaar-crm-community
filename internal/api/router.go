@@ -151,7 +151,7 @@ func RegisterRoutes(app *fiber.App, h *Handlers, hub *ws.Hub, cfg *config.Config
 
 	// DocuSign Connect webhook — receives signature completion events
 	if h.DocusignWebhook != nil {
-		app.Post("/webhooks/docusign", h.DocusignWebhook.Handle)
+		app.Post("/webhooks/docusign", lim.webhook, h.DocusignWebhook.Handle)
 	}
 
 	// Public listing page — no auth required (for shareable links)

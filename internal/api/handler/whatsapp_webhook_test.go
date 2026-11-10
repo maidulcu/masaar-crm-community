@@ -519,3 +519,28 @@ func TestWAWebhook_RedeliveryDoesNotReopenClosedThread(t *testing.T) {
 }
 
 func tenantCtx(id uuid.UUID) context.Context { return tenant.With(context.Background(), id) }
+
+func TestWAWebhook_UnsignedRefusedUnlessDevOptIn(t *testing.T) {
+	for name, tc := range map[string]struct {
+		cfg     config.Config
+		refused bool
+	}{
+		"no secret, default env":          {config.Config{AppEnv: "development"}, true},
+		"no secret, misspelt production":  {config.Config{AppEnv: "prod"}, true},
+		"no secret, dev opt-in":           {config.Config{AppEnv: "development", WAInsecureSkipSignature: true}, false},
+		"no secret, opt-in in production": {config.Config{AppEnv: "production", WAInsecureSkipSignature: true}, true},
+	} {
+		cfg := tc.cfg
+		h := &WhatsAppHandler{config: &cfg}
+		app := fiber.New()
+		app.Post("/webhooks/whatsapp", h.Receive)
+		resp, err := app.Test(httptest.NewRequest("POST", "/webhooks/whatsapp", strings.NewReader(`{}`)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		// Past the signature step the handler fails on the empty APP_COMPANY_ID (500); refused is 503.
+		if got := resp.StatusCode == fiber.StatusServiceUnavailable; got != tc.refused {
+			t.Errorf("%s: status %d, refused=%v want %v", name, resp.StatusCode, got, tc.refused)
+		}
+	}
+}

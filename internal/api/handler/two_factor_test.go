@@ -21,6 +21,7 @@ import (
 
 	"github.com/maidulcu/masaar-crm/internal/config"
 	"github.com/maidulcu/masaar-crm/internal/repo"
+	"github.com/maidulcu/masaar-crm/internal/session"
 	"github.com/maidulcu/masaar-crm/internal/testdb"
 	"github.com/maidulcu/masaar-crm/internal/totp"
 )
@@ -198,5 +199,70 @@ func TestTwoFactorSignIn(t *testing.T) {
 	}
 	if code, _ := call("/login", map[string]string{"email": bobEmail, "password": password}); code != 429 {
 		t.Fatalf("password login while locked: %d", code)
+	}
+}
+
+func TestResetUserTwoFactor_RefusesSelfAndEndsTargetSessions(t *testing.T) {
+	url, addr := os.Getenv("TEST_DATABASE_URL"), os.Getenv("TEST_REDIS_ADDR")
+	if url == "" || addr == "" {
+		t.Skip("TEST_DATABASE_URL and TEST_REDIS_ADDR not set")
+	}
+	testdb.Migrate(t, url)
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	rdb := redis.NewClient(&redis.Options{Addr: addr})
+	t.Cleanup(func() { rdb.Close() })
+
+	cid, admin, other := uuid.New(), uuid.New(), uuid.New()
+	exec := func(q string, args ...any) {
+		t.Helper()
+		if _, err := pool.Exec(ctx, q, args...); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+	}
+	exec(`INSERT INTO companies (id, name, subdomain) VALUES ($1, '2FA reset', $2)`, cid, "tr-"+cid.String()[:8])
+	exec(`INSERT INTO company_settings (company_id, name, vat_number, business_address) VALUES ($1, '2FA reset', '', '')`, cid)
+	exec(`INSERT INTO users (id, company_id, name, email, password_hash, role) VALUES ($1, $2, 'Admin', $3, 'x', 'admin'), ($4, $2, 'Other', $5, 'x', 'agent')`,
+		admin, cid, admin.String()+"@test.local", other, other.String()+"@test.local")
+	t.Cleanup(func() {
+		for _, q := range []string{`DELETE FROM audit_logs WHERE company_id = $1`, `DELETE FROM users WHERE company_id = $1`,
+			`DELETE FROM company_settings WHERE company_id = $1`, `DELETE FROM companies WHERE id = $1`} {
+			_, _ = pool.Exec(ctx, q, cid)
+		}
+		rdb.Del(ctx, "session_cutoff:"+admin.String(), "session_cutoff:"+other.String())
+	})
+
+	box, _ := totp.NewBox("test key")
+	cfg := &config.Config{JWTSecret: uuid.NewString(), JWTAccessExpiryMin: 15, JWTRefreshExpiryDays: 7}
+	h := NewAuthHandler(repo.NewUserRepo(pool), repo.NewCompanyRepo(pool), rdb, cfg, repo.NewAuditLogRepo(pool), nil, nil).
+		UseTwoFactor(repo.NewTwoFactorRepo(pool), box)
+	app := fiber.New()
+	app.Post("/users/:id/2fa/reset", func(c *fiber.Ctx) error {
+		c.Locals("user_id", admin)
+		c.Locals("company_id", cid.String())
+		return c.Next()
+	}, h.ResetUserTwoFactor)
+	reset := func(id uuid.UUID) int {
+		t.Helper()
+		resp, err := app.Test(httptest.NewRequest("POST", "/users/"+id.String()+"/2fa/reset", nil), 10_000)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return resp.StatusCode
+	}
+
+	before := time.Now().Add(-time.Minute)
+	if code := reset(admin); code != fiber.StatusForbidden {
+		t.Errorf("admin resetting own 2FA = %d, want 403", code)
+	}
+	if code := reset(other); code != fiber.StatusNoContent {
+		t.Fatalf("reset other = %d, want 204", code)
+	}
+	if revoked, err := session.IssuedBeforeCutoff(ctx, rdb, other, before); err != nil || !revoked {
+		t.Errorf("target's earlier sessions still valid after a 2FA reset (revoked=%v err=%v)", revoked, err)
 	}
 }
