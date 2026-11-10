@@ -260,7 +260,7 @@ func main() {
 		Maintenance:         handler.NewMaintenanceTaskHandler(maintenanceRepo),
 		LeaseRenewal:        handler.NewLeaseRenewalHandler(leaseRenewalRepo, renewalTemplateRepo, renewalLogRepo, leaseRepo),
 		Document:            handler.NewDocumentHandler(documentRepo, auditRepo, dsClient).UseRera(reraRepo),
-		ApiKey:              handler.NewApiKeyHandler(apiKeyRepo),
+		ApiKey:              handler.NewApiKeyHandler(apiKeyRepo).UseAudit(auditRepo),
 		OAuth:               handler.NewOAuthHandler(partnerClients, repo.NewPartnerTokenRepo(pool), cfg.PublicAPIURL),
 		Partner:             handler.NewPartnerHandler(repo.NewPartnerRepo(pool), apiKeyRepo, auditRepo, rdb, cfg.MagicLinkBaseURL),
 		PublicLead:          handler.NewPublicLeadHandler(contactRepo, leadRepo, auditRepo, dispatcher).UsePrivacy(privacyRepo),
