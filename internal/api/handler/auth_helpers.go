@@ -24,8 +24,12 @@ const (
 	// used to surface as a 500 "failed to hash password".
 	maxPasswordBytes = 72
 
-	loginMaxFailures = 5
-	loginLockout     = 15 * time.Minute
+	// Five wrong passwords lock an email for the address (IP) they came from. Locking the email
+	// everywhere after five let anyone lock a user out by guessing badly on purpose; the much
+	// higher per-email cap still stops a guessing run spread over many addresses.
+	loginMaxFailures         = 5
+	loginMaxFailuresPerEmail = 50
+	loginLockout             = 15 * time.Minute
 )
 
 var subdomainRE = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$`)
@@ -99,24 +103,49 @@ func allowRate(ctx context.Context, rdb *redis.Client, key string, max int, wind
 	return n <= int64(max), nil
 }
 
-// recordLoginFailure counts a failed sign-in for email and reports whether the account is now
-// locked. It is applied identically to known and unknown emails: otherwise the "account locked"
-// response would only ever appear for registered addresses and reveal which ones exist.
-func (h *AuthHandler) recordLoginFailure(ctx context.Context, email string) (locked bool) {
-	failKey := fmt.Sprintf("loginfail:%s", email)
-	count, _ := h.redis.Incr(ctx, failKey).Result()
-	h.redis.Expire(ctx, failKey, loginLockout)
-	if count >= loginMaxFailures {
-		h.redis.Set(ctx, fmt.Sprintf("lockout:%s", email), "1", loginLockout)
-		h.redis.Del(ctx, failKey)
-		return true
-	}
-	return false
+// loginKeys are the Redis keys of an email's sign-in failures: per source address, and for the
+// email as a whole. "lockout:<email>" is also set by too many wrong two-factor codes.
+func loginKeys(email, ip string) (failIP, lockIP, failAll, lockAll string) {
+	return fmt.Sprintf("loginfail:%s|%s", email, ip), fmt.Sprintf("lockout:%s|%s", email, ip),
+		fmt.Sprintf("loginfail:%s", email), fmt.Sprintf("lockout:%s", email)
 }
 
-// clearLoginFailures resets the lockout state for email (after a successful login or password reset).
-func (h *AuthHandler) clearLoginFailures(ctx context.Context, email string) {
-	h.redis.Del(ctx, fmt.Sprintf("loginfail:%s", email), fmt.Sprintf("lockout:%s", email))
+// loginLocked reports whether sign-in for email is locked, for this address or everywhere.
+func (h *AuthHandler) loginLocked(ctx context.Context, email, ip string) bool {
+	_, lockIP, _, lockAll := loginKeys(email, ip)
+	n, _ := h.redis.Exists(ctx, lockIP, lockAll).Result()
+	return n > 0
+}
+
+// recordLoginFailure counts a failed sign-in for email from ip and reports whether it is now
+// locked. It is applied identically to known and unknown emails: otherwise the "account locked"
+// response would only ever appear for registered addresses and reveal which ones exist.
+func (h *AuthHandler) recordLoginFailure(ctx context.Context, email, ip string) (locked bool) {
+	failIP, lockIP, failAll, lockAll := loginKeys(email, ip)
+	if n := h.countFailure(ctx, failAll); n >= loginMaxFailuresPerEmail {
+		h.redis.Set(ctx, lockAll, "1", loginLockout)
+		h.redis.Del(ctx, failAll)
+		locked = true
+	}
+	if n := h.countFailure(ctx, failIP); n >= loginMaxFailures {
+		h.redis.Set(ctx, lockIP, "1", loginLockout)
+		h.redis.Del(ctx, failIP)
+		locked = true
+	}
+	return locked
+}
+
+func (h *AuthHandler) countFailure(ctx context.Context, key string) int64 {
+	n, _ := h.redis.Incr(ctx, key).Result()
+	h.redis.Expire(ctx, key, loginLockout)
+	return n
+}
+
+// clearLoginFailures resets the lockout state for email: everywhere, and for ip (after a
+// successful login or password reset from that address).
+func (h *AuthHandler) clearLoginFailures(ctx context.Context, email, ip string) {
+	failIP, lockIP, failAll, lockAll := loginKeys(email, ip)
+	h.redis.Del(ctx, failIP, lockIP, failAll, lockAll)
 }
 
 var errAccountSuspended = errors.New("account suspended")

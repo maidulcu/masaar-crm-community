@@ -807,7 +807,7 @@ export interface Expense {
 // ─── Documents ─────────────────────────────────────────────────────────────────
 
 export type DocumentType = 'lease' | 'offer' | 'inspection_report' | 'maintenance_waiver' | 'custom'
-export type SignatureStatus = 'not_required' | 'pending' | 'signed'
+export type SignatureStatus = 'not_required' | 'pending' | 'signed' | 'cancelled'
 export interface Document {
   id: string
   company_id: string
@@ -840,6 +840,8 @@ export interface DocumentSignature {
   ip_address: string
   user_agent: string
   created_at: string
+  expires_at?: string
+  cancelled_at?: string
 }
 
 export interface DocumentTemplate {

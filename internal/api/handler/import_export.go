@@ -33,6 +33,21 @@ type ImportExportHandler struct {
 	privacy     consentStore
 	assigner    NewLeadAssigner
 	profiles    *repo.ContactProfileRepo
+	audit       actorAuditLogger
+}
+
+// UseAudit records every export (who pulled how many rows, with which filters) in the audit log.
+func (h *ImportExportHandler) UseAudit(a actorAuditLogger) *ImportExportHandler {
+	h.audit = a
+	return h
+}
+
+// logExport writes one audit entry for an export. The entity id is the actor: an export is
+// about many records, not one.
+func (h *ImportExportHandler) logExport(c *fiber.Ctx, entityType string, rows int, filters fiber.Map) {
+	if actor := localsUserPtr(c); actor != nil {
+		auditWrite(c, h.audit, "export", entityType, *actor, fiber.Map{"rows": rows, "filters": filters})
+	}
 }
 
 // UseProfiles imports and exports contact custom fields as cf_<field_name> columns.
@@ -373,6 +388,7 @@ func (h *ImportExportHandler) ExportContacts(c *fiber.Ctx) error {
 		_ = w.Write(csvSafeRow(row))
 	}
 	w.Flush()
+	h.logExport(c, repo.AuditContact, len(result.Data), fiber.Map{"search": search})
 
 	c.Set("Content-Type", "text/csv; charset=utf-8")
 	c.Set("X-Content-Type-Options", "nosniff")
@@ -411,6 +427,7 @@ func (h *ImportExportHandler) ExportLeads(c *fiber.Ctx) error {
 		}))
 	}
 	w.Flush()
+	h.logExport(c, repo.AuditLead, len(leads), fiber.Map{"stage": stage, "source": source})
 
 	c.Set("Content-Type", "text/csv; charset=utf-8")
 	c.Set("X-Content-Type-Options", "nosniff")
@@ -449,6 +466,7 @@ func (h *ImportExportHandler) ExportListings(c *fiber.Ctx) error {
 		}))
 	}
 	w.Flush()
+	h.logExport(c, "listing", len(result.Data), nil)
 
 	c.Set("Content-Type", "text/csv; charset=utf-8")
 	c.Set("X-Content-Type-Options", "nosniff")

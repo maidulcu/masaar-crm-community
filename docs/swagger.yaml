@@ -594,11 +594,18 @@ definitions:
     type: object
   domain.DocumentSignature:
     properties:
+      cancelled_at:
+        type: string
       created_at:
         type: string
       document_id:
         type: string
       envelope_id:
+        type: string
+      expires_at:
+        description: |-
+          ExpiresAt is when the signing link stops working (nil: never, for links made before
+          expiry existed). CancelledAt is set when the sender withdrew it.
         type: string
       id:
         type: string
@@ -1808,11 +1815,13 @@ definitions:
     - not_required
     - pending
     - signed
+    - cancelled
     type: string
     x-enum-varnames:
     - SignatureNotRequired
     - SignaturePending
     - SignatureSigned
+    - SignatureCancelled
   domain.Stats:
     properties:
       active_leads:
@@ -2207,6 +2216,11 @@ definitions:
     type: object
   handler.ApiKeyCreateRequest:
     properties:
+      expires_in_days:
+        description: |-
+          ExpiresInDays makes the key stop working after that many days (1-3650); omitted, the key
+          works until it is revoked.
+        type: integer
       name:
         type: string
       scopes:
@@ -2216,6 +2230,8 @@ definitions:
   handler.ApiKeyResponse:
     properties:
       created_at:
+        type: string
+      expires_at:
         type: string
       id:
         type: string
@@ -3199,6 +3215,20 @@ paths:
       responses:
         "200":
           description: OK
+        "401":
+          description: Invalid token
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
+        "403":
+          description: 'account_suspended: the company is suspended'
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
       summary: Listing feed for a portal
       tags:
       - Public
@@ -3226,6 +3256,13 @@ paths:
             type: object
         "404":
           description: Not Found
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
+        "410":
+          description: The link was cancelled or has expired
           schema:
             properties:
               error:
@@ -3270,6 +3307,13 @@ paths:
             type: object
         "409":
           description: Conflict
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
+        "410":
+          description: The link was cancelled or has expired
           schema:
             properties:
               error:
@@ -5959,6 +6003,14 @@ paths:
               error:
                 type: string
             type: object
+        "422":
+          description: Content does not match the extension, or the bank integration
+            is not your company's
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
       security:
       - BearerAuth: []
       summary: Upload bank statement
@@ -7426,12 +7478,15 @@ paths:
         name: id
         required: true
         type: string
-      - description: Signer info
+      - description: Signer info; the link expires after expires_in_days (1-365, default
+          30)
         in: body
         name: body
         required: true
         schema:
           properties:
+            expires_in_days:
+              type: integer
             signer_email:
               type: string
             signer_name:
@@ -7456,6 +7511,44 @@ paths:
       security:
       - BearerAuth: []
       summary: Send document for signature
+      tags:
+      - Documents
+  /documents/{id}/signatures/{sig_id}/cancel:
+    post:
+      description: 'Withdraws a pending signature request (e.g. sent to the wrong
+        person): its public link stops working. Signed or already cancelled signatures
+        answer 409.'
+      parameters:
+      - description: Document UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Signature UUID
+        in: path
+        name: sig_id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: Not Found
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
+        "409":
+          description: Conflict
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Cancel a signing link
       tags:
       - Documents
   /documents/signatures/{id}/mark-signed:
@@ -13602,6 +13695,13 @@ paths:
               error:
                 type: string
             type: object
+        "409":
+          description: 'last_admin: the company must keep an active admin'
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
       security:
       - BearerAuth: []
       summary: Delete user
@@ -13642,6 +13742,13 @@ paths:
             type: object
         "403":
           description: Forbidden
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
+        "409":
+          description: 'last_admin: the company must keep an active admin'
           schema:
             properties:
               error:
@@ -13711,6 +13818,13 @@ paths:
             type: object
         "403":
           description: Forbidden
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
+        "409":
+          description: 'last_admin: the company must keep an active admin'
           schema:
             properties:
               error:
@@ -14120,6 +14234,20 @@ paths:
           schema:
             properties:
               lead_id:
+                type: string
+            type: object
+        "401":
+          description: Invalid token
+          schema:
+            properties:
+              error:
+                type: string
+            type: object
+        "403":
+          description: 'account_suspended: the company is suspended'
+          schema:
+            properties:
+              error:
                 type: string
             type: object
       summary: Receive a lead from a property portal

@@ -62,9 +62,11 @@ func (r *ListingRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.Listin
 }
 
 // GetPublicByID returns a PUBLISHED listing regardless of company, for the unauthenticated
-// share page where the listing id is the credential. Unpublished listings are never returned.
+// share page where the listing id is the credential. Unpublished listings, and listings of a
+// suspended company, are never returned.
 func (r *ListingRepo) GetPublicByID(ctx context.Context, id uuid.UUID) (*domain.Listing, error) {
-	return r.getOne(ctx, listSelect+` WHERE l.id = $1 AND l.status = $2`, id, domain.ListingStatusPublished)
+	return r.getOne(ctx, listSelect+` WHERE l.id = $1 AND l.status = $2
+		AND EXISTS (SELECT 1 FROM companies co WHERE co.id = l.company_id AND co.is_active)`, id, domain.ListingStatusPublished)
 }
 
 func (r *ListingRepo) getOne(ctx context.Context, q string, args ...any) (*domain.Listing, error) {
