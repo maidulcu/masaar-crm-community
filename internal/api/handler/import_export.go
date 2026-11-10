@@ -140,7 +140,11 @@ func (h *ImportExportHandler) ImportContacts(c *fiber.Ctx) error {
 	}
 	defer f.Close()
 
-	records, err := parseCSV(f)
+	lr := &io.LimitedReader{R: f, N: maxImportFileSize + 1}
+	records, err := parseCSV(lr)
+	if lr.N == 0 {
+		return c.Status(fiber.StatusRequestEntityTooLarge).JSON(fiber.Map{"error": "file is too large (max 5 MB)"})
+	}
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": safeMsg("invalid CSV", err)})
 	}
@@ -228,7 +232,11 @@ func (h *ImportExportHandler) ImportLeads(c *fiber.Ctx) error {
 	}
 	defer f.Close()
 
-	records, err := parseCSV(f)
+	lr := &io.LimitedReader{R: f, N: maxImportFileSize + 1}
+	records, err := parseCSV(lr)
+	if lr.N == 0 {
+		return c.Status(fiber.StatusRequestEntityTooLarge).JSON(fiber.Map{"error": "file is too large (max 5 MB)"})
+	}
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": safeMsg("invalid CSV", err)})
 	}

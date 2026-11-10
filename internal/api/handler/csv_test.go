@@ -1,7 +1,9 @@
 package handler
 
 import (
+	"io"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gofiber/fiber/v2"
@@ -36,6 +38,21 @@ func TestCSVSafeCell(t *testing.T) {
 func TestMaxImportFileSizeConstant(t *testing.T) {
 	if maxImportFileSize != 5<<20 {
 		t.Errorf("maxImportFileSize = %d, want %d", maxImportFileSize, 5<<20)
+	}
+}
+
+func TestParseCSVLimitedReaderOversized(t *testing.T) {
+	// Create an oversized stream that exceeds maxImportFileSize
+	oversized := strings.Repeat("full_name,phone_wa\nAhmed,+971501234567\n", 300000)
+	r := strings.NewReader(oversized)
+	if int64(r.Len()) <= maxImportFileSize {
+		t.Fatalf("test stream length %d must exceed maxImportFileSize %d", r.Len(), maxImportFileSize)
+	}
+
+	lr := &io.LimitedReader{R: r, N: maxImportFileSize + 1}
+	_, _ = parseCSV(lr)
+	if lr.N != 0 {
+		t.Errorf("expected lr.N == 0 for oversized stream, got %d", lr.N)
 	}
 }
 
