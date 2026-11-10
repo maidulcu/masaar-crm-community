@@ -169,14 +169,23 @@ func (r *DocumentRepo) GetDocument(ctx context.Context, id uuid.UUID) (*domain.D
 // public e-signature flow, where possession of the signature UUID is the credential and the
 // caller has already resolved the document through that signature. Never expose it to
 // authenticated endpoints that take a document id from the client.
+// CompanyActive reports whether the company is active; a suspended company's documents cannot be
+// opened or signed through public links.
+func (r *DocumentRepo) CompanyActive(ctx context.Context, companyID uuid.UUID) bool {
+	var active bool
+	_ = r.db.QueryRow(ctx, `SELECT is_active FROM companies WHERE id = $1`, companyID).Scan(&active)
+	return active
+}
+
 func (r *DocumentRepo) GetDocumentForSigning(ctx context.Context, id uuid.UUID) (*domain.Document, error) {
 	return r.getDocument(ctx, id, nil)
 }
 
 func (r *DocumentRepo) getDocument(ctx context.Context, id uuid.UUID, companyID *uuid.UUID) (*domain.Document, error) {
 	const q = `
-		SELECT id, company_id, document_type, original_template_id, related_entity_type, related_entity_id,
-		       document_title, file_url, file_size_bytes, content_hash, signature_status, created_by, created_at, updated_at, data_classification, retention_until, deleted_at
+		SELECT id, company_id, COALESCE(document_type, ''), original_template_id, COALESCE(related_entity_type, ''), related_entity_id,
+		       COALESCE(document_title, ''), COALESCE(file_url, ''), COALESCE(file_size_bytes, 0), COALESCE(content_hash, ''),
+		       COALESCE(signature_status, ''), created_by, created_at, updated_at, COALESCE(data_classification, ''), retention_until, deleted_at
 		FROM documents WHERE id = $1 AND ($2::uuid IS NULL OR company_id = $2)
 	`
 	d := &domain.Document{}
@@ -196,8 +205,9 @@ func (r *DocumentRepo) ListDocumentsByEntity(ctx context.Context, entityType str
 		return nil, err
 	}
 	const q = `
-		SELECT id, company_id, document_type, original_template_id, related_entity_type, related_entity_id,
-		       document_title, file_url, file_size_bytes, content_hash, signature_status, created_by, created_at, updated_at, data_classification, retention_until, deleted_at
+		SELECT id, company_id, COALESCE(document_type, ''), original_template_id, COALESCE(related_entity_type, ''), related_entity_id,
+		       COALESCE(document_title, ''), COALESCE(file_url, ''), COALESCE(file_size_bytes, 0), COALESCE(content_hash, ''),
+		       COALESCE(signature_status, ''), created_by, created_at, updated_at, COALESCE(data_classification, ''), retention_until, deleted_at
 		FROM documents WHERE related_entity_type = $1 AND related_entity_id = $2 AND company_id = $3 AND deleted_at IS NULL
 		ORDER BY created_at DESC
 	`
@@ -240,15 +250,28 @@ func (r *DocumentRepo) CreateSignature(ctx context.Context, s *domain.DocumentSi
 	}
 	// The document must belong to the caller's company.
 	const q = `
-		INSERT INTO document_signatures (id, document_id, signer_name, signer_email, signature_field_name, signature_status, signed_at, signature_image_url, ip_address, user_agent, envelope_id)
-		SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11
+		INSERT INTO document_signatures (id, document_id, signer_name, signer_email, signature_field_name, signature_status, signed_at, signature_image_url, ip_address, user_agent, envelope_id, expires_at)
+		SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$13
 		WHERE EXISTS (SELECT 1 FROM documents WHERE id = $2 AND company_id = $12)
 		RETURNING created_at
 	`
 	s.ID = uuid.New()
 	return r.db.QueryRow(ctx, q,
-		s.ID, s.DocumentID, s.SignerName, s.SignerEmail, s.SignatureFieldName, s.SignatureStatus, s.SignedAt, s.SignatureImageURL, s.IPAddress, s.UserAgent, nullIfEmpty(s.EnvelopeID), cid,
+		s.ID, s.DocumentID, s.SignerName, s.SignerEmail, s.SignatureFieldName, s.SignatureStatus, s.SignedAt, s.SignatureImageURL, s.IPAddress, s.UserAgent, nullIfEmpty(s.EnvelopeID), cid, s.ExpiresAt,
 	).Scan(&s.CreatedAt)
+}
+
+// signatureCols and signatureTailCols read a signature's text columns, which are nullable:
+// envelope_id in particular is NULL for every signature not sent through DocuSign, and reading
+// it into a string failed, so in-app signing links answered 404.
+func signatureCols(p string) string {
+	return "COALESCE(" + p + "signer_name, ''), COALESCE(" + p + "signer_email, ''), COALESCE(" + p +
+		"signature_field_name, ''), COALESCE(" + p + "signature_status, '')"
+}
+
+func signatureTailCols(p string) string {
+	return "COALESCE(" + p + "signature_image_url, ''), COALESCE(" + p + "ip_address, ''), COALESCE(" + p +
+		"user_agent, ''), COALESCE(" + p + "envelope_id, '')"
 }
 
 func (r *DocumentRepo) GetSignatures(ctx context.Context, documentID uuid.UUID) ([]domain.DocumentSignature, error) {
@@ -256,8 +279,8 @@ func (r *DocumentRepo) GetSignatures(ctx context.Context, documentID uuid.UUID) 
 	if err != nil {
 		return nil, err
 	}
-	const q = `
-		SELECT s.id, s.document_id, s.signer_name, s.signer_email, s.signature_field_name, s.signature_status, s.signed_at, s.signature_image_url, s.ip_address, s.user_agent, s.envelope_id, s.created_at
+	q := `
+		SELECT s.id, s.document_id, ` + signatureCols("s.") + `, s.signed_at, ` + signatureTailCols("s.") + `, s.created_at, s.expires_at, s.cancelled_at
 		FROM document_signatures s JOIN documents d ON d.id = s.document_id
 		WHERE s.document_id = $1 AND d.company_id = $2
 		ORDER BY s.created_at ASC
@@ -273,6 +296,7 @@ func (r *DocumentRepo) GetSignatures(ctx context.Context, documentID uuid.UUID) 
 		var s domain.DocumentSignature
 		if err := rows.Scan(
 			&s.ID, &s.DocumentID, &s.SignerName, &s.SignerEmail, &s.SignatureFieldName, &s.SignatureStatus, &s.SignedAt, &s.SignatureImageURL, &s.IPAddress, &s.UserAgent, &s.EnvelopeID, &s.CreatedAt,
+			&s.ExpiresAt, &s.CancelledAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan signature: %w", err)
 		}
@@ -284,20 +308,54 @@ func (r *DocumentRepo) GetSignatures(ctx context.Context, documentID uuid.UUID) 
 // GetSignatureByToken looks a signature up by its UUID without company scoping. It backs the
 // public e-signature page, where the signature UUID itself is the access credential.
 func (r *DocumentRepo) GetSignatureByToken(ctx context.Context, sigID uuid.UUID) (*domain.DocumentSignature, error) {
-	const q = `
-		SELECT id, document_id, signer_name, signer_email, signature_field_name, signature_status, signed_at, signature_image_url, ip_address, user_agent, envelope_id, created_at
+	q := `
+		SELECT id, document_id, ` + signatureCols("") + `, signed_at, ` + signatureTailCols("") + `, created_at, expires_at, cancelled_at
 		FROM document_signatures WHERE id = $1
 	`
 	s := &domain.DocumentSignature{}
 	err := r.db.QueryRow(ctx, q, sigID).Scan(
 		&s.ID, &s.DocumentID, &s.SignerName, &s.SignerEmail, &s.SignatureFieldName, &s.SignatureStatus,
 		&s.SignedAt, &s.SignatureImageURL, &s.IPAddress, &s.UserAgent, &s.EnvelopeID, &s.CreatedAt,
+		&s.ExpiresAt, &s.CancelledAt,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("get signature: %w", err)
 	}
 	return s, nil
 }
+
+// CancelSignature withdraws a pending signing link of a document in the caller's company. It
+// returns ErrSignatureNotFound for an unknown or foreign signature, and ErrNotSignable when the
+// signature is no longer pending (already signed or cancelled).
+func (r *DocumentRepo) CancelSignature(ctx context.Context, docID, sigID uuid.UUID) error {
+	cid, err := tenant.From(ctx)
+	if err != nil {
+		return err
+	}
+	tag, err := r.db.Exec(ctx, `
+		UPDATE document_signatures s SET signature_status = $1, cancelled_at = NOW()
+		WHERE s.id = $2 AND s.document_id = $3 AND s.signature_status = $4
+		  AND EXISTS (SELECT 1 FROM documents d WHERE d.id = s.document_id AND d.company_id = $5)`,
+		domain.SignatureCancelled, sigID, docID, domain.SignaturePending, cid)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 1 {
+		return nil
+	}
+	var exists bool
+	if err := r.db.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM document_signatures s JOIN documents d ON d.id = s.document_id
+		WHERE s.id = $1 AND s.document_id = $2 AND d.company_id = $3)`, sigID, docID, cid).Scan(&exists); err != nil {
+		return err
+	}
+	if !exists {
+		return ErrSignatureNotFound
+	}
+	return ErrNotSignable
+}
+
+// ErrSignatureNotFound means no such signature on a document of the caller's company.
+var ErrSignatureNotFound = errors.New("signature not found")
 
 // MarkSigned records a signature for an authenticated user; the document must be in their company.
 func (r *DocumentRepo) MarkSigned(ctx context.Context, sigID uuid.UUID, signedAt time.Time) error {
@@ -307,14 +365,15 @@ func (r *DocumentRepo) MarkSigned(ctx context.Context, sigID uuid.UUID, signedAt
 	}
 	_, err = r.db.Exec(ctx,
 		`UPDATE document_signatures s SET signature_status=$1, signed_at=$2
-		 WHERE s.id=$3 AND EXISTS (SELECT 1 FROM documents d WHERE d.id = s.document_id AND d.company_id = $4)`,
+		 WHERE s.id=$3 AND COALESCE(s.signature_status, '') <> 'cancelled'
+		   AND EXISTS (SELECT 1 FROM documents d WHERE d.id = s.document_id AND d.company_id = $4)`,
 		domain.SignatureSigned, signedAt, sigID, cid,
 	)
 	return err
 }
 
 // ErrNotSignable is returned by SignByToken when the signature does not exist, was already
-// signed, is handled by DocuSign, or belongs to a deleted document.
+// signed, was cancelled or has expired, is handled by DocuSign, or belongs to a deleted document.
 var ErrNotSignable = errors.New("signature is not signable")
 
 // SignByToken records a signature from the public e-signature page, where the signature UUID
@@ -335,8 +394,10 @@ func (r *DocumentRepo) SignByToken(ctx context.Context, sigID uuid.UUID, signedA
 		SET signature_status = $1, signed_at = $2, ip_address = $3, user_agent = $4
 		WHERE s.id = $5
 		  AND s.signature_status = $6
+		  AND (s.expires_at IS NULL OR s.expires_at > NOW())
 		  AND (s.envelope_id IS NULL OR s.envelope_id = '')
-		  AND EXISTS (SELECT 1 FROM documents d WHERE d.id = s.document_id AND d.deleted_at IS NULL)
+		  AND EXISTS (SELECT 1 FROM documents d JOIN companies co ON co.id = d.company_id
+		              WHERE d.id = s.document_id AND d.deleted_at IS NULL AND co.is_active)
 		RETURNING s.document_id`,
 		domain.SignatureSigned, signedAt, ip, userAgent, sigID, domain.SignaturePending,
 	).Scan(&docID)

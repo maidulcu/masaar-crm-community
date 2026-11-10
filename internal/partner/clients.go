@@ -70,6 +70,13 @@ func Parse(cfg string) (Clients, error) {
 	return out, nil
 }
 
+// Fingerprint identifies the client's current secret without revealing it (a hash of its hash).
+// Tokens record it when issued, so a token issued under a rotated-out secret stops working.
+func (c Client) Fingerprint() string {
+	sum := sha256.Sum256(append([]byte("masaar-partner-token:"), c.secretHash...))
+	return hex.EncodeToString(sum[:8])
+}
+
 // Authenticate returns the client when secret matches, comparing in constant time.
 func (cs Clients) Authenticate(id, secret string) (Client, bool) {
 	c, ok := cs[id]

@@ -13,6 +13,7 @@ interface ApiKey {
   scopes: string
   created_at: string
   last_used_at: string | null
+  expires_at?: string
 }
 
 interface Scope {
@@ -42,6 +43,7 @@ export default function ApiKeysPage() {
   const [newKeyName, setNewKeyName] = useState('')
   const [scopes, setScopes] = useState<Scope[]>([])
   const [newKeyScopes, setNewKeyScopes] = useState<string[]>(['lead:create'])
+  const [newKeyDays, setNewKeyDays] = useState('') // '' = until revoked
   const [showNewKey, setShowNewKey] = useState(false)
   const [createdKey, setCreatedKey] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -68,9 +70,12 @@ export default function ApiKeysPage() {
     if (!newKeyName.trim() || newKeyScopes.length === 0) return
     setSubmitting(true); setError(''); setCreatedKey('')
     try {
-      const r = await api.settings.apiKeys.create({ name: newKeyName, scopes: newKeyScopes.join(',') }) as { plaintext: string }
+      const r = await api.settings.apiKeys.create({
+        name: newKeyName, scopes: newKeyScopes.join(','),
+        ...(newKeyDays ? { expires_in_days: Number(newKeyDays) } : {}),
+      }) as { plaintext: string }
       setCreatedKey(r.plaintext)
-      setNewKeyName(''); setNewKeyScopes(['lead:create']); setShowNewKey(false)
+      setNewKeyName(''); setNewKeyScopes(['lead:create']); setNewKeyDays(''); setShowNewKey(false)
       loadKeys()
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to create key')
@@ -120,6 +125,16 @@ export default function ApiKeysPage() {
                   <input value={newKeyName} onChange={e => setNewKeyName(e.target.value)}
                     className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent"
                     placeholder={t('مثلاً: تكامل مع موقعي', 'e.g. Website integration')} />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">{t('الصلاحية الزمنية', 'Expires')}</label>
+                  <select value={newKeyDays} onChange={e => setNewKeyDays(e.target.value)}
+                    className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-brand-500">
+                    <option value="">{t('عند الإلغاء فقط', 'Never (until revoked)')}</option>
+                    <option value="30">{t('بعد 30 يوماً', 'In 30 days')}</option>
+                    <option value="90">{t('بعد 90 يوماً', 'In 90 days')}</option>
+                    <option value="365">{t('بعد سنة', 'In 1 year')}</option>
+                  </select>
                 </div>
                 <div>
                   <span className="block text-xs font-medium text-gray-600 mb-1">{t('الصلاحيات', 'Permissions')}</span>
@@ -180,6 +195,7 @@ export default function ApiKeysPage() {
                       <p className="text-[10px] text-gray-400 mt-0.5">
                         {t('تاريخ الإنشاء:', 'Created:')} {new Date(key.created_at).toLocaleDateString()}
                         {key.last_used_at ? ` · ${t('آخر استخدام:', 'Last used:')} ${new Date(key.last_used_at).toLocaleDateString()}` : ''}
+                        {key.expires_at ? ` · ${new Date(key.expires_at) < new Date() ? t('منتهي:', 'Expired:') : t('ينتهي:', 'Expires:')} ${new Date(key.expires_at).toLocaleDateString()}` : ''}
                       </p>
                     </div>
                     {!isDemo && (

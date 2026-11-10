@@ -134,6 +134,8 @@ printf %s "$secret" | sha256sum           # PARTNER_CLIENTS=portal:<this hash>
 
 Scopes: `partner:provision` (companies, users, keys) and `partner:login` (login links). A client listed without scopes gets both; `portal:<hash>:partner:login` limits it.
 
+**Rotating a secret:** replace the hash in `PARTNER_CLIENTS` and restart. Tokens issued under the old secret stop working at once; the partner requests a new token with the new secret.
+
 **1. Get a token** (OAuth 2.0 client credentials, RFC 6749 §4.4; valid one hour; metadata at `/.well-known/oauth-authorization-server`):
 
 ```bash
@@ -220,10 +222,11 @@ Content-Type: application/json
 
 {
   "name": "Zapier Integration",
-  "scopes": "leads:write,contacts:write"
+  "scopes": "leads:write,contacts:write",
+  "expires_in_days": 365          // optional (1-3650): the key stops working after that; omitted = until revoked
 }
 
-# Response (plaintext shown ONCE — save immediately)
+# Response (plaintext shown ONCE — save immediately; expires_at only when an expiry was set)
 {
   "id": "uuid",
   "name": "Zapier Integration",

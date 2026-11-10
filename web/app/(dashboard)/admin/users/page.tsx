@@ -58,6 +58,13 @@ export default function AdminUsersPage() {
 
   useEffect(() => { load() }, [load])
 
+  // The API answers refusals with codes; show a sentence instead.
+  const userError = (err: any): string => {
+    if (err?.message === 'last_admin') return t('يجب أن يبقى مسؤول نشط واحد على الأقل في الشركة', 'The company must keep at least one active admin.')
+    if (err?.message === 'seat_limit') return t('جميع المقاعد مستخدمة', 'All seats of your plan are in use.')
+    return err?.message || t('حدث خطأ', 'Something went wrong')
+  }
+
   const handleInvite = async (e: React.FormEvent) => {
     e.preventDefault()
     setInviteError('')
@@ -96,7 +103,7 @@ export default function AdminUsersPage() {
       setEditTarget(null)
       load()
     } catch (err: any) {
-      setEditError(err.message || t('حدث خطأ', 'Something went wrong'))
+      setEditError(userError(err))
     } finally { setSaving(false) }
   }
 
@@ -104,7 +111,7 @@ export default function AdminUsersPage() {
     try {
       await api.users.setActive(user.id, !user.is_active)
       load()
-    } catch { /* silent */ }
+    } catch (err: any) { alert(userError(err)) }
   }
 
   const handleDelete = async () => {
@@ -114,7 +121,7 @@ export default function AdminUsersPage() {
       await api.users.delete(deleteTarget.id)
       setDeleteTarget(null)
       load()
-    } catch { /* silent */ } finally { setDeleting(false) }
+    } catch (err: any) { alert(userError(err)) } finally { setDeleting(false) }
   }
 
   return (
