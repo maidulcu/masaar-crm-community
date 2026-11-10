@@ -9,3 +9,7 @@
 ## 2026-10-30 - Zero-Allocation Scope Verification in Middleware
 **Learning:** Replacing `strings.Fields` in hot-path scope authorization middleware (`RequirePartnerScope`) with space-delimited substring scanning eliminates heap slice allocations (1 alloc/op -> 0 allocs/op) and reduces scope verification latency by over 80% (159 ns/op -> 28.5 ns/op).
 **Action:** Avoid `strings.Fields` or `strings.Split` in HTTP middleware; use zero-allocation substring indexing loops (`strings.IndexByte`) and string slicing instead.
+
+## 2026-11-04 - Zero-Allocation Bearer Token Extraction in Fiber Middleware
+**Learning:** In hot-path middleware executed on every authenticated request (e.g., JWT blacklist checking, API key checks, token extraction), parsing the `Authorization` header using `strings.SplitN` and `strings.ToLower` creates heap slice allocations and allocates lowercase string copies (40 B/op, 2 allocs/op). Checking `strings.EqualFold` on the fixed prefix slice and returning the token slice directly reduces per-request latency by over 71% (210 ns -> 60 ns) and achieves 0 B/op, 0 allocs/op.
+**Action:** Use direct bounds checking and `strings.EqualFold` on the prefix of header values instead of `strings.SplitN` + `strings.ToLower` on hot request authentication paths.
