@@ -147,9 +147,9 @@ Revoke with `POST /oauth/revoke` (`token=…`, same client authentication).
 
 | Call | Does |
 |------|------|
-| `PUT /partner/v1/companies/{ref}` | Creates the company with its first admin and returns `lead_api_key` (once, `201`); later calls update `name`, `plan`, `max_users` (seats, `null` = no limit) and `active` (`false` suspends: users and keys are refused within 15 seconds) |
+| `PUT /partner/v1/companies/{ref}` | Creates the company with its first admin and returns `lead_api_key` (once, `201`); later calls update `name`, `plan`, `max_users` (seats, `null` = no limit) and `active` (`false` suspends: users and keys are refused within 15 seconds). On an update `admin` is ignored, and the answer carries `warnings` when it is sent or when `max_users` is below the active users |
 | `GET /partner/v1/companies/{ref}` | Company status, including `active_users` |
-| `PUT /partner/v1/companies/{ref}/users/{user_ref}` | Creates or updates a user (`name`, `email` on creation, `role` admin/agent/viewer, `lang_pref`, `active`); `409 seat_limit` when the seats are used up |
+| `PUT /partner/v1/companies/{ref}/users/{user_ref}` | Creates a user (`name` and `email` required, `role` admin/agent/viewer, default agent, `lang_pref` default `en`, `active` default true) or updates one: an update changes only the fields it sends, and a different `email` is not applied (`warnings` says so); `409 seat_limit` when the seats are used up |
 | `POST /partner/v1/companies/{ref}/api-keys` | Another `lead:create` key for `POST /webhooks/leads` |
 | `POST /partner/v1/companies/{ref}/users/{user_ref}/login-link` | A single-use login URL valid two minutes: redirect the user's browser to it ("Open CRM"); never email it |
 
@@ -232,7 +232,8 @@ Content-Type: application/json
   "scopes": "contacts:write,leads:write"
 }
 
-# Revoke key (admin only)
+# Revoke key (admin only): 204, or 404 when no key with that id belongs to your company.
+# Creating and revoking keys is recorded in the audit log.
 DELETE /api/v1/settings/api-keys/{id}
 Authorization: Bearer <jwt_token>
 ```
@@ -477,6 +478,8 @@ curl -X POST https://crm.yourcompany.ae/api/v1/settings/webhooks \
   -H "Content-Type: application/json" \
   -d '{"name":"My App","url":"https://myapp.com/crm-events","events":"lead.created,lead.won"}'
 # Returns: {"id":"...","secret":"whsec_..."}  ← store secret, shown once
+# events: a comma-separated string or a JSON array of the event names above ("*" or empty = all);
+# unknown names are refused. url: absolute https, no credentials, at most 2048 characters.
 
 # List registered webhooks
 GET /api/v1/settings/webhooks
