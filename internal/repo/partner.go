@@ -307,11 +307,22 @@ func (r *PartnerRepo) UpsertUser(ctx context.Context, companyID uuid.UUID, in Pa
 	if in.Active && !existing.Active && maxUsers != nil && active >= *maxUsers {
 		return nil, false, ErrSeatLimit
 	}
+	admins, err := activeAdmins(ctx, tx, companyID)
+	if err != nil {
+		return nil, false, err
+	}
 	if _, err := tx.Exec(ctx, `
 		UPDATE users SET name = $3, role = $4, lang_pref = $5, is_active = $6
 		WHERE company_id = $1 AND id = $2`,
 		companyID, existing.ID, in.Name, in.Role, in.LangPref, in.Active); err != nil {
 		return nil, false, mapPartnerErr(err)
+	}
+	if admins > 0 {
+		if after, err := activeAdmins(ctx, tx, companyID); err != nil {
+			return nil, false, err
+		} else if after == 0 {
+			return nil, false, ErrLastAdmin
+		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, false, err

@@ -16875,6 +16875,17 @@ const docTemplate = `{
                                 }
                             }
                         }
+                    },
+                    "409": {
+                        "description": "last_admin: the company must keep an active admin",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "error": {
+                                    "type": "string"
+                                }
+                            }
+                        }
                     }
                 }
             },
@@ -16938,6 +16949,17 @@ const docTemplate = `{
                     },
                     "403": {
                         "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "error": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    },
+                    "409": {
+                        "description": "last_admin: the company must keep an active admin",
                         "schema": {
                             "type": "object",
                             "properties": {
@@ -17044,6 +17066,17 @@ const docTemplate = `{
                     },
                     "403": {
                         "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "error": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    },
+                    "409": {
+                        "description": "last_admin: the company must keep an active admin",
                         "schema": {
                             "type": "object",
                             "properties": {
