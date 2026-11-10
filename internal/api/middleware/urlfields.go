@@ -88,6 +88,11 @@ func SafeURL(s string) bool {
 	if err != nil {
 		return false
 	}
+	// Reject URLs with embedded credentials (user:pass@host) to prevent URL spoofing,
+	// credential smuggling, and phishing attacks.
+	if u.User != nil {
+		return false
+	}
 	switch strings.ToLower(u.Scheme) {
 	case "http", "https":
 		return u.Host != ""
