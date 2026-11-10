@@ -400,11 +400,22 @@ func (h *DocumentHandler) PublicGetSignature(c *fiber.Ctx) error {
 	if err != nil || doc.DeletedAt != nil {
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "document not found"})
 	}
+	if !h.docs.CompanyActive(c.Context(), doc.CompanyID) {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "document not found"})
+	}
 
-	// Network details captured when the request was created belong to the sender, not the
-	// signer, and the DocuSign envelope id is internal: neither is shown on the public page.
-	sigs.IPAddress, sigs.UserAgent, sigs.EnvelopeID = "", "", ""
-	resp := fiber.Map{"signature": sigs, "document": doc}
+	// Only what the signing page shows. Internal ids (company, creator, related record), the
+	// sender's network details and the DocuSign envelope id stay private.
+	resp := fiber.Map{
+		"signature": fiber.Map{
+			"id": sigs.ID, "document_id": sigs.DocumentID, "signer_name": sigs.SignerName,
+			"signer_email": sigs.SignerEmail, "signature_status": sigs.SignatureStatus, "signed_at": sigs.SignedAt,
+		},
+		"document": fiber.Map{
+			"id": doc.ID, "document_title": doc.DocumentTitle, "document_type": doc.DocumentType,
+			"file_url": doc.FileURL, "signature_status": doc.SignatureStatus,
+		},
+	}
 	// A RERA form carries its contents, so the signer sees what they are signing.
 	if h.rera != nil {
 		if f, err := h.rera.ForDocument(c.Context(), doc.ID); err == nil {

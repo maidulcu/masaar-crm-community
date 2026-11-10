@@ -95,3 +95,33 @@ func TestSignByToken(t *testing.T) {
 		t.Fatalf("deleted document: got %v, want ErrNotSignable", err)
 	}
 }
+
+// A signature made in the app (not sent through DocuSign) has no envelope id; reading it back
+// used to fail, which broke every in-app signing link.
+func TestSignatureWithoutEnvelopeCanBeRead(t *testing.T) {
+	e := setup(t)
+	ctx := context.Background()
+	r := NewDocumentRepo(e.pool)
+	doc := &domain.Document{DocumentType: domain.DocTypeOffer, DocumentTitle: "Offer", SignatureStatus: domain.SignaturePending,
+		CreatedBy: e.a.user, DataClassification: domain.ClassConfidential}
+	if err := r.CreateDocument(e.a.ctx, doc); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = e.pool.Exec(ctx, `DELETE FROM document_signatures WHERE document_id = $1`, doc.ID)
+		_, _ = e.pool.Exec(ctx, `DELETE FROM documents WHERE id = $1`, doc.ID)
+	})
+	sig := &domain.DocumentSignature{DocumentID: doc.ID, SignerName: "S", SignerEmail: "s@example.com", SignatureStatus: domain.SignaturePending}
+	if err := r.CreateSignature(e.a.ctx, sig); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := r.GetSignatureByToken(ctx, sig.ID); err != nil || got.SignerName != "S" || got.EnvelopeID != "" {
+		t.Fatalf("GetSignatureByToken = %+v, %v", got, err)
+	}
+	if list, err := r.GetSignatures(e.a.ctx, doc.ID); err != nil || len(list) != 1 {
+		t.Fatalf("GetSignatures = %v, %v", list, err)
+	}
+	if _, err := r.GetDocumentForSigning(ctx, doc.ID); err != nil {
+		t.Fatalf("GetDocumentForSigning: %v", err)
+	}
+}

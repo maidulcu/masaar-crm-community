@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [v0.4.0] - Unreleased
 
+### Fixed: in-app e-signing; suspended companies stop being public
+
+- **In-app signing links were broken.** A signature that isn't sent through DocuSign has no envelope id. Reading it back failed, so `GET /api/public/sign/{id}` answered 404 for every in-app signing link, and listing a document's signatures failed. Nullable document and signature columns are now read safely.
+- **Suspended companies disappear from public surfaces.** Their public listing pages answer 404, their signing links can no longer be opened or signed, and their portal feed and portal lead intake answer `403 account_suspended`. Everything comes back when the company is reactivated.
+- **Public responses carry only what the pages show.** The public listing no longer includes `company_id`, `created_by`, `updated_by` or the permit-override fields; these keys are now left out rather than sent empty. The public signature response is limited to the signer's name, email and status and the document's title, type, file and status.
+
 ### Lockout per address, and a company always keeps an admin
 
 - **Sign-in lockout is per address.** Five wrong passwords now lock the email only for the IP address they came from. Before, they locked the email everywhere, so anyone who knew a user's email could lock them out. A guessing run spread over many addresses still locks the email everywhere after 50 failures in 15 minutes. Unknown emails get exactly the same responses as registered ones. A password reset clears the email-wide lock and the lock for the address it was made from.
