@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [v0.4.0] - Unreleased
 
+### Signing links expire and can be withdrawn; API keys can expire
+
+Migration `0085` adds the columns below. Its down migration removes only the expiry metadata: withdrawn links keep the status `cancelled`.
+
+- **Signing links expire.** A link made with `POST /documents/{id}/request-signature` stops working after 30 days, or after `expires_in_days` (1-365). Links made before the upgrade have no expiry.
+- **Signing links can be withdrawn.** `POST /documents/{id}/signatures/{sig_id}/cancel` withdraws a pending link (for example one sent to the wrong person); the document page has a **Withdraw** button. "Mark signed" can no longer revive a withdrawn link.
+- **The signing page explains a dead link.** `GET` and `POST /api/public/sign/{id}` answer `410` with `cancelled` or `expired`, and the page tells the signer to ask the sender for a new link.
+- **API keys can expire.** `POST /settings/api-keys` takes an optional `expires_in_days` (1-3650), and Settings → API keys offers 30 days, 90 days or one year. An expired key is refused like a revoked one, and the list shows `expires_at`.
+- **Rotating a partner secret ends its tokens.** Partner tokens record a fingerprint of the client secret they were issued under. After the hash in `PARTNER_CLIENTS` is replaced, older tokens are refused at once instead of living out their hour.
+
 ### Fixed: in-app e-signing; suspended companies stop being public
 
 - **In-app signing links were broken.** A signature that isn't sent through DocuSign has no envelope id. Reading it back failed, so `GET /api/public/sign/{id}` answered 404 for every in-app signing link, and listing a document's signatures failed. Nullable document and signature columns are now read safely.

@@ -261,7 +261,7 @@ func (h *DocumentHandler) ListDocuments(c *fiber.Ctx) error {
 // @Accept       json
 // @Produce      json
 // @Param        id    path      string                                                              true  "Document UUID"
-// @Param        body  body      object{signer_name=string,signer_email=string,use_docusign=bool}  true  "Signer info"
+// @Param        body  body      object{signer_name=string,signer_email=string,use_docusign=bool,expires_in_days=int}  true  "Signer info; the link expires after expires_in_days (1-365, default 30)"
 // @Success      201   {object}  domain.DocumentSignature
 // @Failure      404   {object}  object{error=string}
 // @Security     BearerAuth
@@ -273,9 +273,10 @@ func (h *DocumentHandler) SendForSignature(c *fiber.Ctx) error {
 	}
 
 	var body struct {
-		SignerName  string `json:"signer_name"`
-		SignerEmail string `json:"signer_email"`
-		UseDocusign bool   `json:"use_docusign"`
+		SignerName    string `json:"signer_name"`
+		SignerEmail   string `json:"signer_email"`
+		UseDocusign   bool   `json:"use_docusign"`
+		ExpiresInDays *int   `json:"expires_in_days"`
 	}
 	if err := c.BodyParser(&body); err != nil || strings.TrimSpace(body.SignerName) == "" || strings.TrimSpace(body.SignerEmail) == "" {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "signer_name and signer_email required"})
@@ -290,6 +291,14 @@ func (h *DocumentHandler) SendForSignature(c *fiber.Ctx) error {
 	if len(body.SignerEmail) > 254 {
 		return c.Status(fiber.StatusUnprocessableEntity).JSON(fiber.Map{"error": "signer_email is too long (max 254 characters)"})
 	}
+	days := defaultSignatureLinkDays
+	if body.ExpiresInDays != nil {
+		if *body.ExpiresInDays < 1 || *body.ExpiresInDays > 365 {
+			return c.Status(fiber.StatusUnprocessableEntity).JSON(fiber.Map{"error": "expires_in_days must be 1-365"})
+		}
+		days = *body.ExpiresInDays
+	}
+	expires := time.Now().Add(time.Duration(days) * 24 * time.Hour)
 
 	d, err := h.docs.GetDocument(c.Context(), docID)
 	if err != nil {
@@ -309,6 +318,7 @@ func (h *DocumentHandler) SendForSignature(c *fiber.Ctx) error {
 		SignatureStatus:    domain.SignaturePending,
 		IPAddress:          c.IP(),
 		UserAgent:          ua,
+		ExpiresAt:          &expires,
 	}
 
 	// DocuSign flow
@@ -336,6 +346,43 @@ func (h *DocumentHandler) SendForSignature(c *fiber.Ctx) error {
 	}
 
 	return c.Status(fiber.StatusCreated).JSON(sig)
+}
+
+// defaultSignatureLinkDays is how long a signing link works unless the request says otherwise.
+const defaultSignatureLinkDays = 30
+
+// CancelSignature godoc
+// @Summary      Cancel a signing link
+// @Description  Withdraws a pending signature request (e.g. sent to the wrong person): its public link stops working. Signed or already cancelled signatures answer 409.
+// @Tags         Documents
+// @Param        id      path  string  true  "Document UUID"
+// @Param        sig_id  path  string  true  "Signature UUID"
+// @Success      204
+// @Failure      404  {object}  object{error=string}
+// @Failure      409  {object}  object{error=string}
+// @Security     BearerAuth
+// @Router       /documents/{id}/signatures/{sig_id}/cancel [post]
+func (h *DocumentHandler) CancelSignature(c *fiber.Ctx) error {
+	docID, err := uuid.Parse(c.Params("id"))
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid id"})
+	}
+	sigID, err := uuid.Parse(c.Params("sig_id"))
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid signature id"})
+	}
+	switch err := h.docs.CancelSignature(c.Context(), docID, sigID); {
+	case errors.Is(err, repo.ErrSignatureNotFound):
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "signature not found"})
+	case errors.Is(err, repo.ErrNotSignable):
+		return c.Status(fiber.StatusConflict).JSON(fiber.Map{"error": "only a pending signature can be cancelled"})
+	case err != nil:
+		return serverError(c, err)
+	}
+	if actor := localsUserPtr(c); actor != nil {
+		h.audit.Log(c.Context(), *actor, "signature_cancel", repo.AuditDocument, docID, fiber.Map{"signature_id": sigID})
+	}
+	return c.SendStatus(fiber.StatusNoContent)
 }
 
 // fetchDocumentContent retrieves document bytes from a URL or file path.
@@ -384,6 +431,7 @@ func (h *DocumentHandler) MarkSigned(c *fiber.Ctx) error {
 // @Param        id  path      string  true  "Signature UUID"
 // @Success      200  {object}  object{signature=domain.DocumentSignature,document=domain.Document}
 // @Failure      404  {object}  object{error=string}
+// @Failure      410  {object}  object{error=string}  "The link was cancelled or has expired"
 // @Router       /api/public/sign/{id} [get]
 func (h *DocumentHandler) PublicGetSignature(c *fiber.Ctx) error {
 	sigID, err := uuid.Parse(c.Params("id"))
@@ -394,6 +442,9 @@ func (h *DocumentHandler) PublicGetSignature(c *fiber.Ctx) error {
 	sigs, err := h.docs.GetSignatureByToken(c.Context(), sigID)
 	if err != nil {
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "signature not found"})
+	}
+	if msg := linkGone(sigs); msg != "" {
+		return c.Status(fiber.StatusGone).JSON(fiber.Map{"error": msg})
 	}
 
 	doc, err := h.docs.GetDocumentForSigning(c.Context(), sigs.DocumentID)
@@ -426,6 +477,17 @@ func (h *DocumentHandler) PublicGetSignature(c *fiber.Ctx) error {
 	return c.JSON(resp)
 }
 
+// linkGone says why a signing link no longer works ("cancelled", "expired"), or "".
+func linkGone(s *domain.DocumentSignature) string {
+	switch {
+	case s.SignatureStatus == domain.SignatureCancelled:
+		return "cancelled"
+	case s.SignatureStatus == domain.SignaturePending && s.ExpiresAt != nil && !s.ExpiresAt.After(time.Now()):
+		return "expired"
+	}
+	return ""
+}
+
 // PublicSign godoc
 // @Summary      Sign a document (public)
 // @Description  Marks a signature as signed. No auth required — the signature UUID is the access token. A signature can be signed once; DocuSign-managed signatures cannot be signed here.
@@ -436,6 +498,7 @@ func (h *DocumentHandler) PublicGetSignature(c *fiber.Ctx) error {
 // @Failure      400  {object}  object{error=string}
 // @Failure      404  {object}  object{error=string}
 // @Failure      409  {object}  object{error=string}
+// @Failure      410  {object}  object{error=string}  "The link was cancelled or has expired"
 // @Router       /api/public/sign/{id} [post]
 func (h *DocumentHandler) PublicSign(c *fiber.Ctx) error {
 	sigID, err := uuid.Parse(c.Params("id"))
@@ -451,8 +514,12 @@ func (h *DocumentHandler) PublicSign(c *fiber.Ctx) error {
 	case err == nil:
 		return c.JSON(fiber.Map{"status": "signed"})
 	case errors.Is(err, repo.ErrNotSignable):
-		if _, gerr := h.docs.GetSignatureByToken(c.Context(), sigID); gerr != nil {
+		sig, gerr := h.docs.GetSignatureByToken(c.Context(), sigID)
+		if gerr != nil {
 			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "signature not found"})
+		}
+		if msg := linkGone(sig); msg != "" {
+			return c.Status(fiber.StatusGone).JSON(fiber.Map{"error": msg})
 		}
 		return c.Status(fiber.StatusConflict).JSON(fiber.Map{"error": "this signature cannot be signed (already signed or managed by DocuSign)"})
 	default:

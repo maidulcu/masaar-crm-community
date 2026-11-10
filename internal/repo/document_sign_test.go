@@ -125,3 +125,77 @@ func TestSignatureWithoutEnvelopeCanBeRead(t *testing.T) {
 		t.Fatalf("GetDocumentForSigning: %v", err)
 	}
 }
+
+func TestSignatureLinksExpireAndCanBeCancelled(t *testing.T) {
+	e := setup(t)
+	ctx := context.Background()
+	r := NewDocumentRepo(e.pool)
+	doc := &domain.Document{DocumentType: domain.DocTypeOffer, DocumentTitle: "Offer", SignatureStatus: domain.SignaturePending,
+		CreatedBy: e.a.user, DataClassification: domain.ClassConfidential}
+	if err := r.CreateDocument(e.a.ctx, doc); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = e.pool.Exec(ctx, `DELETE FROM document_signatures WHERE document_id = $1`, doc.ID)
+		_, _ = e.pool.Exec(ctx, `DELETE FROM documents WHERE id = $1`, doc.ID)
+	})
+	newSig := func(expires time.Time) *domain.DocumentSignature {
+		s := &domain.DocumentSignature{DocumentID: doc.ID, SignerName: "S", SignerEmail: "s@example.com",
+			SignatureStatus: domain.SignaturePending, ExpiresAt: &expires}
+		if err := r.CreateSignature(e.a.ctx, s); err != nil {
+			t.Fatal(err)
+		}
+		return s
+	}
+
+	expired := newSig(time.Now().Add(-time.Hour))
+	if err := r.SignByToken(ctx, expired.ID, time.Now(), "203.0.113.1", "ua"); !errors.Is(err, ErrNotSignable) {
+		t.Errorf("signing an expired link: %v, want ErrNotSignable", err)
+	}
+	if got, err := r.GetSignatureByToken(ctx, expired.ID); err != nil || got.ExpiresAt == nil {
+		t.Errorf("expires_at not read back: %+v %v", got, err)
+	}
+
+	live := newSig(time.Now().Add(24 * time.Hour))
+	if err := r.CancelSignature(e.b.ctx, doc.ID, live.ID); !errors.Is(err, ErrSignatureNotFound) {
+		t.Errorf("another company cancelling: %v, want ErrSignatureNotFound", err)
+	}
+	if err := r.CancelSignature(e.a.ctx, doc.ID, live.ID); err != nil {
+		t.Fatalf("cancel: %v", err)
+	}
+	if err := r.CancelSignature(e.a.ctx, doc.ID, live.ID); !errors.Is(err, ErrNotSignable) {
+		t.Errorf("cancelling twice: %v, want ErrNotSignable", err)
+	}
+	if err := r.SignByToken(ctx, live.ID, time.Now(), "203.0.113.1", "ua"); !errors.Is(err, ErrNotSignable) {
+		t.Errorf("signing a cancelled link: %v, want ErrNotSignable", err)
+	}
+	if got, _ := r.GetSignatureByToken(ctx, live.ID); got.SignatureStatus != domain.SignatureCancelled || got.CancelledAt == nil {
+		t.Errorf("after cancel: status %s cancelled_at %v", got.SignatureStatus, got.CancelledAt)
+	}
+	if err := r.MarkSigned(e.a.ctx, live.ID, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := r.GetSignatureByToken(ctx, live.ID); got.SignatureStatus != domain.SignatureCancelled {
+		t.Errorf("mark-signed revived a cancelled link: %s", got.SignatureStatus)
+	}
+}
+
+func TestExpiredAPIKeyIsRefused(t *testing.T) {
+	e := setup(t)
+	keys := NewApiKeyRepo(e.pool)
+	for name, exp := range map[string]*time.Time{"expired": ptrTime(time.Now().Add(-time.Minute)), "live": ptrTime(time.Now().Add(time.Hour)), "open": nil} {
+		_, hash, prefix, err := keys.GenerateKey()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := keys.CreateExpiring(context.Background(), e.a.id, name, hash, prefix, "leads:read", exp); err != nil {
+			t.Fatal(err)
+		}
+		_, err = keys.ValidateKey(context.Background(), hash)
+		if (err == nil) != (name != "expired") {
+			t.Errorf("%s key: validate err = %v", name, err)
+		}
+	}
+}
+
+func ptrTime(t time.Time) *time.Time { return &t }

@@ -25,7 +25,7 @@ type memTokens struct {
 	revoked map[string]bool
 }
 
-func (m *memTokens) Issue(_ context.Context, h, client, _ string, _ time.Time) error {
+func (m *memTokens) Issue(_ context.Context, h, client, _, _ string, _ time.Time) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.issued[h] = client
