@@ -221,7 +221,7 @@ func (m *memIdem) Release(_ context.Context, key string) error {
 func TestIdempotency(t *testing.T) {
 	store := &memIdem{recs: map[string][]byte{}}
 	keyID := uuid.New()
-	created, failNext := 0, false
+	created, failNext, forbidNext := 0, false, false
 	app := fiber.New()
 	app.Use(recover.New()) // as in production: a panic becomes a 500
 	app.Use(func(c *fiber.Ctx) error {
@@ -238,6 +238,10 @@ func TestIdempotency(t *testing.T) {
 		if failNext {
 			failNext = false
 			return c.Status(500).JSON(fiber.Map{"error": "boom"})
+		}
+		if forbidNext {
+			forbidNext = false
+			return c.Status(403).JSON(fiber.Map{"error": "insufficient_scope"})
 		}
 		created++
 		return c.Status(201).JSON(fiber.Map{"n": created})
@@ -280,6 +284,15 @@ func TestIdempotency(t *testing.T) {
 	}
 	if s, _, r := post("retry", `{}`, true); s != 201 || r != "" {
 		t.Fatalf("retry after 500: %d %q", s, r)
+	}
+
+	// A permission refusal is not kept: once the client has the scope, the retry runs.
+	forbidNext = true
+	if s, _, _ := post("scoped", `{}`, true); s != 403 {
+		t.Fatalf("first attempt: %d", s)
+	}
+	if s, _, r := post("scoped", `{}`, true); s != 201 || r != "" {
+		t.Fatalf("retry after 403: %d %q, want a fresh 201", s, r)
 	}
 
 	// A panic frees the key too.

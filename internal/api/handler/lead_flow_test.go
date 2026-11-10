@@ -148,6 +148,7 @@ func newLeadEnv(t *testing.T) *leadEnv {
 		g.Get("/settings/lead-rotation", e.rotation.GetSettings)
 		g.Post("/webhooks/leads", pub.SubmitLead)
 		g.Post("/import/leads", imp.ImportLeads)
+		g.Post("/import/contacts", imp.ImportContacts)
 	}
 	e.app = app
 	return e

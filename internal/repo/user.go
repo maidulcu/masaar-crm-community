@@ -214,32 +214,6 @@ func (r *UserRepo) EmailExists(ctx context.Context, email string) (bool, error) 
 	return exists, err
 }
 
-func (r *UserRepo) CreateWithDefaults(ctx context.Context, email string, langPref string) (*domain.User, error) {
-	const q = `
-		INSERT INTO users (id, company_id, name, email, password_hash, role, lang_pref, wa_number)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-		RETURNING is_active, created_at
-	`
-	u := &domain.User{
-		ID:           uuid.New(),
-		CompanyID:    uuid.MustParse("00000000-0000-0000-0000-000000000001"),
-		Name:         email,
-		Email:        email,
-		PasswordHash: "",
-		Role:         domain.RoleViewer,
-		LangPref:     langPref,
-		WANumber:     "",
-	}
-	err := r.db.QueryRow(ctx, q,
-		u.ID, u.CompanyID, u.Name, u.Email, u.PasswordHash,
-		u.Role, u.LangPref, u.WANumber,
-	).Scan(&u.IsActive, &u.CreatedAt)
-	if err != nil {
-		return nil, err
-	}
-	return u, nil
-}
-
 func (r *UserRepo) FindByPhone(ctx context.Context, phone string) (*domain.User, error) {
 	const q = `
 		SELECT id, company_id, name, email, password_hash, role, lang_pref,
@@ -254,33 +228,6 @@ func (r *UserRepo) FindByPhone(ctx context.Context, phone string) (*domain.User,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("find user by phone: %w", err)
-	}
-	return u, nil
-}
-
-func (r *UserRepo) CreateWithPhone(ctx context.Context, phone, langPref string) (*domain.User, error) {
-	const q = `
-		INSERT INTO users (id, company_id, name, email, password_hash, role, lang_pref, wa_number, phone)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-		RETURNING created_at
-	`
-	u := &domain.User{
-		ID:           uuid.New(),
-		CompanyID:    uuid.MustParse("00000000-0000-0000-0000-000000000001"),
-		Name:         phone,
-		Email:        fmt.Sprintf("sms_%s@masaar.local", phone),
-		PasswordHash: "",
-		Role:         domain.RoleViewer,
-		LangPref:     langPref,
-		WANumber:     "",
-		Phone:        phone,
-	}
-	err := r.db.QueryRow(ctx, q,
-		u.ID, u.CompanyID, u.Name, u.Email, u.PasswordHash,
-		u.Role, u.LangPref, u.WANumber, u.Phone,
-	).Scan(&u.CreatedAt)
-	if err != nil {
-		return nil, err
 	}
 	return u, nil
 }
