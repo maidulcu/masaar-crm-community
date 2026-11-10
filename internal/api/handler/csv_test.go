@@ -2,8 +2,11 @@ package handler
 
 import (
 	"io"
+	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/gofiber/fiber/v2"
 )
 
 func TestCSVSafeCell(t *testing.T) {
@@ -50,5 +53,23 @@ func TestParseCSVLimitedReaderOversized(t *testing.T) {
 	_, _ = parseCSV(lr)
 	if lr.N != 0 {
 		t.Errorf("expected lr.N == 0 for oversized stream, got %d", lr.N)
+	}
+}
+
+func TestCSVExportSecurityHeaders(t *testing.T) {
+	h := NewImportExportHandler(nil, nil, nil)
+	app := fiber.New()
+	app.Get("/template/:entity", h.Template)
+
+	req := httptest.NewRequest("GET", "/template/contacts", nil)
+	resp, err := app.Test(req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Header.Get("X-Content-Type-Options") != "nosniff" {
+		t.Errorf("X-Content-Type-Options = %q, want nosniff", resp.Header.Get("X-Content-Type-Options"))
+	}
+	if resp.Header.Get("Content-Type") != "text/csv; charset=utf-8" {
+		t.Errorf("Content-Type = %q, want text/csv; charset=utf-8", resp.Header.Get("Content-Type"))
 	}
 }
