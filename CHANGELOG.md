@@ -16,6 +16,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A user of a suspended company is refused at sign-in before being asked for a two-factor code.
 - Lead scores are no longer updated on deleted leads.
 
+### Audit log covers confidential files and exports
+
+- **Bank statements:** uploading, downloading and deleting a statement is now recorded in the audit log (file name, size and format, never the content). Uploading with another company's `bank_integration_id` answers 422 instead of 404.
+- **Exports:** every contact, lead and listing CSV export is recorded with the row count and filters used.
+
 ### Fixed: sign-in, sign-up and lead intake
 
 - **Magic-link and SMS sign-ins are audited.** They now go through the same session code as password login, so they write the `login` audit entry they used to skip. The SMS response keeps `user.phone`, which every sign-in response now includes.
