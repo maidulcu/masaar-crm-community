@@ -112,7 +112,8 @@ func (h *ImportExportHandler) Template(c *fiber.Ctx) error {
 	_ = w.Write(headers)
 	w.Flush()
 
-	c.Set("Content-Type", "text/csv")
+	c.Set("Content-Type", "text/csv; charset=utf-8")
+	c.Set("X-Content-Type-Options", "nosniff")
 	c.Set("Content-Disposition", fmt.Sprintf(`attachment; filename="template-%s.csv"`, entity))
 	return c.Send(buf.Bytes())
 }
@@ -139,7 +140,11 @@ func (h *ImportExportHandler) ImportContacts(c *fiber.Ctx) error {
 	}
 	defer f.Close()
 
-	records, err := parseCSV(f)
+	lr := &io.LimitedReader{R: f, N: maxImportFileSize + 1}
+	records, err := parseCSV(lr)
+	if lr.N == 0 {
+		return c.Status(fiber.StatusRequestEntityTooLarge).JSON(fiber.Map{"error": "file is too large (max 5 MB)"})
+	}
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": safeMsg("invalid CSV", err)})
 	}
@@ -227,7 +232,11 @@ func (h *ImportExportHandler) ImportLeads(c *fiber.Ctx) error {
 	}
 	defer f.Close()
 
-	records, err := parseCSV(f)
+	lr := &io.LimitedReader{R: f, N: maxImportFileSize + 1}
+	records, err := parseCSV(lr)
+	if lr.N == 0 {
+		return c.Status(fiber.StatusRequestEntityTooLarge).JSON(fiber.Map{"error": "file is too large (max 5 MB)"})
+	}
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": safeMsg("invalid CSV", err)})
 	}
@@ -366,6 +375,7 @@ func (h *ImportExportHandler) ExportContacts(c *fiber.Ctx) error {
 	w.Flush()
 
 	c.Set("Content-Type", "text/csv; charset=utf-8")
+	c.Set("X-Content-Type-Options", "nosniff")
 	c.Set("Content-Disposition", fmt.Sprintf(`attachment; filename="contacts-%s.csv"`, time.Now().Format("2006-01-02")))
 	return c.Send(buf.Bytes())
 }
@@ -403,6 +413,7 @@ func (h *ImportExportHandler) ExportLeads(c *fiber.Ctx) error {
 	w.Flush()
 
 	c.Set("Content-Type", "text/csv; charset=utf-8")
+	c.Set("X-Content-Type-Options", "nosniff")
 	c.Set("Content-Disposition", fmt.Sprintf(`attachment; filename="leads-%s.csv"`, time.Now().Format("2006-01-02")))
 	return c.Send(buf.Bytes())
 }
@@ -440,6 +451,7 @@ func (h *ImportExportHandler) ExportListings(c *fiber.Ctx) error {
 	w.Flush()
 
 	c.Set("Content-Type", "text/csv; charset=utf-8")
+	c.Set("X-Content-Type-Options", "nosniff")
 	c.Set("Content-Disposition", fmt.Sprintf(`attachment; filename="listings-%s.csv"`, time.Now().Format("2006-01-02")))
 	return c.Send(buf.Bytes())
 }
