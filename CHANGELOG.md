@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [v0.4.0] - Unreleased
 
+### WhatsApp accounts are per company (groundwork)
+
+- **New `wa_accounts` table** (migration `0084`): a WhatsApp connection is now a row owned by a company, with its provider (`cloud_api`, `bsp`, `waha`), status and Meta identifiers. Threads gain `account_id`; the legacy `wa_account_id` (Meta phone number id) stays during the transition.
+- **Existing data is backfilled**: one account per company and phone number id found on its threads, and the threads are linked to it. At startup the number in `WA_PHONE_NUMBER_ID` is also recorded as an account for `APP_COMPANY_ID`.
+- **No behaviour change yet.** The connection is still deployment-wide, and there is no API or screen for accounts; sending and the inbound webhook work as before.
+- The down migration removes `whatsapp_threads.account_id` but keeps `wa_accounts`.
+
 ### Fixed: new companies had an empty pipeline
 
 - Companies created after the custom pipeline stages were added (sign-up, Partner API) had no stages, so the Pipeline page drew no columns even though their leads were stored. Listing stages now gives a company the default six (`new` … `lost`) the first time it has none, for leads and deals. No migration; existing companies are unaffected.

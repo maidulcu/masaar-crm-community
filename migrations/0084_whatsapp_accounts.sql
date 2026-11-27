@@ -77,4 +77,5 @@ WHERE t.account_id IS NULL
 -- +goose Down
 DROP INDEX IF EXISTS idx_threads_account;
 ALTER TABLE whatsapp_threads DROP COLUMN IF EXISTS account_id;
-DROP TABLE IF EXISTS wa_accounts;
+-- wa_accounts is kept: it holds linked accounts, which the threads cannot rebuild. Re-running
+-- Up is safe (IF NOT EXISTS / ON CONFLICT) and re-links threads to the surviving rows.
