@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -53,7 +54,7 @@ func newAuthEnv(t *testing.T) *authEnv {
 		AppURL: "http://localhost:3000",
 	}
 	h := NewAuthHandler(e.users, repo.NewCompanyRepo(pool), rdb, cfg, repo.NewAuditLogRepo(pool), nil, sms.NewClient("k", "t", "s"))
-	app := fiber.New()
+	app := fiber.New(fiber.Config{ProxyHeader: "X-Real-IP"}) // lets a test choose the client address
 	app.Post("/login", h.Login)
 	app.Post("/register", h.Register)
 	app.Post("/refresh", h.Refresh)
@@ -86,9 +87,16 @@ func (e *authEnv) sub(name string) string   { return fmt.Sprintf("%s-%s", name, 
 
 func (e *authEnv) post(t *testing.T, path string, body any) (int, map[string]any) {
 	t.Helper()
+	return e.postFrom(t, "192.0.2.1", path, body)
+}
+
+// postFrom sends the request as if from the client address ip.
+func (e *authEnv) postFrom(t *testing.T, ip, path string, body any) (int, map[string]any) {
+	t.Helper()
 	b, _ := json.Marshal(body)
 	req := httptest.NewRequest("POST", path, bytes.NewReader(b))
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Real-IP", ip)
 	resp, err := e.app.Test(req, -1)
 	if err != nil {
 		t.Fatal(err)
@@ -366,5 +374,53 @@ func TestSMSRequest_OnlyTextsRegisteredNumbers(t *testing.T) {
 	}
 	if fmt.Sprint(codes) != "[200 200 429 429 429]" { // one request already counted above
 		t.Errorf("rate limit sequence = %v", codes)
+	}
+}
+
+func TestLogin_LockoutIsPerAddress(t *testing.T) {
+	e := newAuthEnv(t)
+	email := e.email("victim")
+	if code, _ := e.register(t, "Victim", email, "Password1", e.sub("victim")); code != 201 {
+		t.Fatal("setup failed")
+	}
+	// Someone guessing from one address locks only that address out...
+	for i := 0; i < loginMaxFailures; i++ {
+		e.postFrom(t, "198.51.100.7", "/login", fiber.Map{"email": email, "password": "Wrong-pass1"})
+	}
+	if code, _ := e.postFrom(t, "198.51.100.7", "/login", fiber.Map{"email": email, "password": "Password1"}); code != 429 {
+		t.Fatalf("attacker address after %d failures = %d, want 429", loginMaxFailures, code)
+	}
+	// ...the real user, elsewhere, still signs in.
+	if code, out := e.postFrom(t, "203.0.113.9", "/login", fiber.Map{"email": email, "password": "Password1"}); code != 200 {
+		t.Fatalf("user from another address = %d %v, want 200", code, out)
+	}
+	// A run spread over many addresses still hits the per-email cap.
+	for i := 0; i < loginMaxFailuresPerEmail; i++ {
+		e.postFrom(t, fmt.Sprintf("10.9.%d.%d", i/250, i%250+1), "/login", fiber.Map{"email": email, "password": "Wrong-pass1"})
+	}
+	if code, _ := e.postFrom(t, "203.0.113.9", "/login", fiber.Map{"email": email, "password": "Password1"}); code != 429 {
+		t.Errorf("after %d failures from many addresses = %d, want 429", loginMaxFailuresPerEmail, code)
+	}
+}
+
+func TestVerifyMagicLink_AuditsLogin(t *testing.T) {
+	e := newAuthEnv(t)
+	email := e.email("magic")
+	code, reg := e.register(t, "Magic", email, "Password1", e.sub("magic"))
+	if code != 201 {
+		t.Fatalf("setup = %d %v", code, reg)
+	}
+	userID := reg["user"].(map[string]any)["id"].(string)
+
+	tok := uuid.NewString() + e.tag
+	if err := e.rdb.Set(context.Background(), "magic:"+tok, email+"|en", time.Minute).Err(); err != nil {
+		t.Fatal(err)
+	}
+	if code, out := e.post(t, "/magic/verify", fiber.Map{"token": tok}); code != 200 || out["access_token"] == nil {
+		t.Fatalf("verify = %d %v", code, out)
+	}
+	// Password, 2FA and magic-link sign-ins all leave the same login entry.
+	if n := e.count(t, `SELECT count(*) FROM audit_logs WHERE actor_id = $1 AND action = 'login'`, userID); n != 1 {
+		t.Errorf("%d login audit entries after a magic-link sign-in, want 1", n)
 	}
 }

@@ -105,10 +105,9 @@ func (h *AuthHandler) Login(c *fiber.Ctx) error {
 	body.Email = strings.ToLower(strings.TrimSpace(body.Email))
 
 	// Check lockout before touching the database
-	lockKey := fmt.Sprintf("lockout:%s", body.Email)
 	ctx := context.Background()
 
-	if locked, _ := h.redis.Exists(ctx, lockKey).Result(); locked > 0 {
+	if h.loginLocked(ctx, body.Email, c.IP()) {
 		return c.Status(fiber.StatusTooManyRequests).JSON(fiber.Map{
 			"error": "account temporarily locked due to too many failed attempts; try again in 15 minutes",
 		})
@@ -131,7 +130,7 @@ func (h *AuthHandler) Login(c *fiber.Ctx) error {
 	}
 
 	// Successful password check — clear the failure counter.
-	h.clearLoginFailures(ctx, body.Email)
+	h.clearLoginFailures(ctx, body.Email, c.IP())
 
 	if pending, err := h.twoFactorGate(c, user, "password"); pending || err != nil {
 		return err
@@ -174,6 +173,7 @@ func (h *AuthHandler) completeLogin(c *fiber.Ctx, user *domain.User, extra fiber
 			"email":     user.Email,
 			"role":      user.Role,
 			"lang_pref": user.LangPref,
+			"phone":     user.Phone,
 		},
 	}
 	if company != nil {
@@ -188,7 +188,7 @@ func (h *AuthHandler) completeLogin(c *fiber.Ctx, user *domain.User, extra fiber
 // loginFailed counts a failed attempt and answers with the same response whether or not the
 // email is registered (see recordLoginFailure).
 func (h *AuthHandler) loginFailed(c *fiber.Ctx, ctx context.Context, email string) error {
-	if h.recordLoginFailure(ctx, email) {
+	if h.recordLoginFailure(ctx, email, c.IP()) {
 		return c.Status(fiber.StatusTooManyRequests).JSON(fiber.Map{
 			"error": "account locked for 15 minutes after too many failed attempts",
 		})
@@ -391,8 +391,9 @@ func (h *AuthHandler) ForgotPassword(c *fiber.Ctx) error {
 		return c.JSON(fiber.Map{"message": successMsg})
 	}
 
+	// A deactivated account could not sign in with a new password anyway; it gets no reset mail.
 	user, err := h.users.FindByEmail(c.Context(), body.Email)
-	if err != nil {
+	if err != nil || !user.IsActive {
 		return c.JSON(fiber.Map{"message": successMsg})
 	}
 
@@ -473,7 +474,7 @@ func (h *AuthHandler) ResetPassword(c *fiber.Ctx) error {
 	// Someone who forgot their password has usually also been locked out by failed attempts; the
 	// new password must work straight away.
 	if u, err := h.users.FindByID(c.Context(), userID); err == nil {
-		h.clearLoginFailures(context.Background(), u.Email)
+		h.clearLoginFailures(context.Background(), u.Email, c.IP())
 	}
 
 	h.audit.Log(c.Context(), userID, repo.AuditPasswordChange, repo.AuditUser, userID, fiber.Map{
@@ -714,14 +715,15 @@ func (h *AuthHandler) RequestMagicLink(c *fiber.Ctx) error {
 	// Only registered, active accounts get a link. Anything else gets the same generic response
 	// (no enumeration) but no email — otherwise this endpoint is a free way to send unsolicited
 	// mail to arbitrary addresses.
-	if u, uerr := h.users.FindByEmail(c.Context(), body.Email); uerr != nil || !u.IsActive {
+	u, uerr := h.users.FindByEmail(c.Context(), body.Email)
+	if uerr != nil || !u.IsActive {
 		return c.JSON(fiber.Map{"message": "if the email exists, a magic link has been sent"})
 	}
 
 	// Generate magic token
 	token := uuid.New().String()
 	tokenKey := fmt.Sprintf("magic:%s", token)
-	tokenData := fmt.Sprintf("%s|%s", body.Email, body.LangPref)
+	tokenData := fmt.Sprintf("%s|%s", magicLinkSubject(u.ID), body.LangPref)
 
 	// Store in Redis with expiry
 	expiry := time.Duration(h.config.MagicLinkExpiryMin) * time.Minute
@@ -742,12 +744,19 @@ func (h *AuthHandler) RequestMagicLink(c *fiber.Ctx) error {
 		})
 		if renderErr != nil {
 			log.Printf("[magic-link] template render error: %v", renderErr)
-		} else if sendErr := h.email.Send(&domain.EmailHistory{
-			ToEmail:  body.Email,
-			Subject:  "Your Masaar CRM Login Link",
-			HTMLBody: htmlBody,
-		}); sendErr != nil {
-			log.Printf("[magic-link] email send error: %v", sendErr)
+		} else {
+			msg := &domain.EmailHistory{
+				ToEmail:  body.Email,
+				Subject:  "Your Masaar CRM Login Link",
+				HTMLBody: htmlBody,
+			}
+			// Sent in the background: the SMTP round trip only happens for registered addresses,
+			// so waiting for it would reveal (by response time) which emails exist.
+			go func() {
+				if sendErr := h.email.Send(msg); sendErr != nil {
+					log.Printf("[magic-link] email send error: %v", sendErr)
+				}
+			}()
 		}
 	} else {
 		log.Printf("[magic-link] email service not configured, skipping send")
@@ -796,13 +805,12 @@ func (h *AuthHandler) VerifyMagicLink(c *fiber.Ctx) error {
 	if len(parts) != 2 {
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "invalid token data"})
 	}
-	email := parts[0]
 	// lang_pref is stored in token but not needed here — user record already has it.
 	_ = parts[1]
 
 	// Find user — magic link does NOT auto-create accounts in multi-tenant mode.
 	// New users must register via POST /auth/register to create a company workspace first.
-	user, err := h.users.FindByEmail(ctx, email)
+	user, err := h.magicLinkUser(ctx, parts[0])
 	if err != nil {
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
 			"error": "no account found for this email — please register at /signup first",
@@ -815,42 +823,25 @@ func (h *AuthHandler) VerifyMagicLink(c *fiber.Ctx) error {
 	if pending, err := h.twoFactorGate(c, user, "magic_link"); pending || err != nil {
 		return err
 	}
+	// Same company checks, session and login audit entry as password login.
+	return h.completeLogin(c, user, nil)
+}
 
-	// Same company checks as password login: suspended workspaces are refused and an expired
-	// trial is downgraded; the trial countdown is reported instead of a hard-coded 0.
-	company, daysRemaining, cerr := h.loadCompany(ctx, user)
-	if cerr != nil {
-		return companyError(c, cerr)
-	}
+// magicLinkSubject is who a magic link signs in: the user's id, so the link keeps pointing at
+// the same account even if an email address changes hands while it is valid.
+func magicLinkSubject(id uuid.UUID) string { return "id:" + id.String() }
 
-	// Generate JWT tokens
-	access, refresh, err := h.generateTokenPair(user)
-	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "token generation failed"})
+// magicLinkUser resolves a magic-link subject. Links issued before subjects were ids hold an
+// email; they expire within minutes, so that branch only bridges a deploy.
+func (h *AuthHandler) magicLinkUser(ctx context.Context, subject string) (*domain.User, error) {
+	if s, ok := strings.CutPrefix(subject, "id:"); ok {
+		id, err := uuid.Parse(s)
+		if err != nil {
+			return nil, err
+		}
+		return h.users.FindByID(ctx, id)
 	}
-
-	// Store refresh token in Redis
-	key := fmt.Sprintf("refresh:%s", refresh)
-	ttl := time.Duration(h.config.JWTRefreshExpiryDays) * 24 * time.Hour
-	if err := h.redis.Set(ctx, key, user.ID.String(), ttl).Err(); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "session error"})
-	}
-
-	resp := fiber.Map{
-		"access_token": access,
-		"expires_in":   h.config.JWTAccessExpiryMin * 60,
-		"user": fiber.Map{
-			"id":        user.ID,
-			"name":      user.Name,
-			"email":     user.Email,
-			"role":      user.Role,
-			"lang_pref": user.LangPref,
-		},
-	}
-	if company != nil {
-		resp["company"] = companyPayload(company, daysRemaining)
-	}
-	return c.JSON(h.attachRefresh(c, resp, refresh))
+	return h.users.FindByEmail(ctx, subject)
 }
 
 var (
@@ -1101,37 +1092,5 @@ func (h *AuthHandler) VerifySMSOTP(c *fiber.Ctx) error {
 	if pending, err := h.twoFactorGate(c, user, "sms"); pending || err != nil {
 		return err
 	}
-
-	company, daysRemaining, cerr := h.loadCompany(ctx, user)
-	if cerr != nil {
-		return companyError(c, cerr)
-	}
-
-	access, refresh, err := h.generateTokenPair(user)
-	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "token generation failed"})
-	}
-
-	key := fmt.Sprintf("refresh:%s", refresh)
-	ttl := time.Duration(h.config.JWTRefreshExpiryDays) * 24 * time.Hour
-	if err := h.redis.Set(ctx, key, user.ID.String(), ttl).Err(); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "session error"})
-	}
-
-	resp := fiber.Map{
-		"access_token": access,
-		"expires_in":   h.config.JWTAccessExpiryMin * 60,
-		"user": fiber.Map{
-			"id":        user.ID,
-			"name":      user.Name,
-			"email":     user.Email,
-			"role":      user.Role,
-			"lang_pref": user.LangPref,
-			"phone":     user.Phone,
-		},
-	}
-	if company != nil {
-		resp["company"] = companyPayload(company, daysRemaining)
-	}
-	return c.JSON(h.attachRefresh(c, resp, refresh))
+	return h.completeLogin(c, user, nil)
 }

@@ -98,6 +98,11 @@ func Idempotency(store IdempotencyStore) fiber.Handler {
 		if herr != nil || status >= 500 {
 			return herr
 		}
+		// Refused for authentication or permission (e.g. a missing scope): not the request's
+		// outcome. Once the client has the access, a retry with the same key must run.
+		if status == fiber.StatusUnauthorized || status == fiber.StatusForbidden {
+			return nil
+		}
 		// A response carrying a secret (a new key, a login link) is marked no-store and is not
 		// kept for replay; the key is released and a retry runs again.
 		if strings.Contains(string(c.Response().Header.Peek(fiber.HeaderCacheControl)), "no-store") {

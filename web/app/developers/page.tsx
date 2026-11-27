@@ -216,7 +216,7 @@ DELETE /api/v1/auth/logout  // invalidates token in Redis`}</Pre>
             <div className="grid md:grid-cols-3 gap-4 mb-4">
               {[
                 ['GET', '/api/v1/settings/api-keys', 'List active keys'],
-                ['POST', '/api/v1/settings/api-keys', 'Generate new key'],
+                ['POST', '/api/v1/settings/api-keys', 'Generate new key (optional expires_in_days)'],
                 ['DELETE', '/api/v1/settings/api-keys/:id', 'Revoke key'],
               ].map(([m, p, d]) => <Endpoint key={p} method={m} path={p} desc={d} auth="admin" />)}
             </div>

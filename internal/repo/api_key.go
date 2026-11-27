@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"github.com/maidulcu/masaar-crm/internal/tenant"
 	"strings"
@@ -24,6 +25,8 @@ type ApiKey struct {
 	LastUsedAt *time.Time
 	CreatedAt  time.Time
 	RevokedAt  *time.Time
+	// ExpiresAt is when the key stops working on its own; nil means until revoked.
+	ExpiresAt *time.Time
 	// CompanyActive is set by ValidateKey: false when the key's company is suspended.
 	CompanyActive bool
 	// CompanyDemo is set by ValidateKey: true for the read-only demo company.
@@ -54,15 +57,20 @@ func (r *ApiKeyRepo) GenerateKey() (plaintext, hash, prefix string, err error) {
 	return plaintext, hash, prefix, nil
 }
 
-// Create inserts a new API key (hash is pre-computed by caller).
+// Create inserts a new API key that works until revoked (hash is pre-computed by caller).
 func (r *ApiKeyRepo) Create(ctx context.Context, companyID uuid.UUID, name, keyHash, keyPrefix, scopes string) (uuid.UUID, error) {
+	return r.CreateExpiring(ctx, companyID, name, keyHash, keyPrefix, scopes, nil)
+}
+
+// CreateExpiring inserts a new API key that stops working at expiresAt (nil: until revoked).
+func (r *ApiKeyRepo) CreateExpiring(ctx context.Context, companyID uuid.UUID, name, keyHash, keyPrefix, scopes string, expiresAt *time.Time) (uuid.UUID, error) {
 	id := uuid.New()
 	err := r.db.QueryRow(
 		ctx,
-		`INSERT INTO api_keys (id, company_id, name, key_hash, key_prefix, scopes)
-		 VALUES ($1, $2, $3, $4, $5, $6)
+		`INSERT INTO api_keys (id, company_id, name, key_hash, key_prefix, scopes, expires_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7)
 		 RETURNING id`,
-		id, companyID, name, keyHash, keyPrefix, scopes,
+		id, companyID, name, keyHash, keyPrefix, scopes, expiresAt,
 	).Scan(&id)
 	return id, err
 }
@@ -76,7 +84,7 @@ func (r *ApiKeyRepo) ValidateKey(ctx context.Context, keyHash string) (*ApiKey, 
 		        c.is_active, c.is_demo
 		 FROM api_keys k
 		 JOIN companies c ON c.id = k.company_id
-		 WHERE k.key_hash = $1 AND k.revoked_at IS NULL`,
+		 WHERE k.key_hash = $1 AND k.revoked_at IS NULL AND (k.expires_at IS NULL OR k.expires_at > NOW())`,
 		keyHash,
 	).Scan(&key.ID, &key.CompanyID, &key.Name, &key.KeyHash, &key.KeyPrefix, &key.Scopes, &key.LastUsedAt, &key.CreatedAt, &key.RevokedAt,
 		&key.CompanyActive, &key.CompanyDemo)
@@ -100,7 +108,7 @@ func (r *ApiKeyRepo) ValidateKey(ctx context.Context, keyHash string) (*ApiKey, 
 func (r *ApiKeyRepo) List(ctx context.Context, companyID uuid.UUID) ([]ApiKey, error) {
 	rows, err := r.db.Query(
 		ctx,
-		`SELECT id, company_id, name, key_hash, key_prefix, scopes, last_used_at, created_at, revoked_at
+		`SELECT id, company_id, name, key_hash, key_prefix, scopes, last_used_at, created_at, revoked_at, expires_at
 		 FROM api_keys
 		 WHERE company_id = $1 AND revoked_at IS NULL
 		 ORDER BY created_at DESC`,
@@ -114,7 +122,7 @@ func (r *ApiKeyRepo) List(ctx context.Context, companyID uuid.UUID) ([]ApiKey, e
 	var keys []ApiKey
 	for rows.Next() {
 		key := ApiKey{}
-		if err := rows.Scan(&key.ID, &key.CompanyID, &key.Name, &key.KeyHash, &key.KeyPrefix, &key.Scopes, &key.LastUsedAt, &key.CreatedAt, &key.RevokedAt); err != nil {
+		if err := rows.Scan(&key.ID, &key.CompanyID, &key.Name, &key.KeyHash, &key.KeyPrefix, &key.Scopes, &key.LastUsedAt, &key.CreatedAt, &key.RevokedAt, &key.ExpiresAt); err != nil {
 			return nil, err
 		}
 		keys = append(keys, key)
@@ -128,9 +136,19 @@ func (r *ApiKeyRepo) Revoke(ctx context.Context, id uuid.UUID) error {
 	if err != nil {
 		return err
 	}
-	_, err = r.db.Exec(ctx, `UPDATE api_keys SET revoked_at = NOW() WHERE id = $1 AND company_id = $2`, id, cid)
-	return err
+	// An already-revoked key keeps its first revocation time; a missing or foreign one is reported.
+	tag, err := r.db.Exec(ctx, `UPDATE api_keys SET revoked_at = COALESCE(revoked_at, NOW()) WHERE id = $1 AND company_id = $2`, id, cid)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrApiKeyNotFound
+	}
+	return nil
 }
+
+// ErrApiKeyNotFound means no key with that id belongs to the company.
+var ErrApiKeyNotFound = errors.New("api key not found")
 
 // HasScope checks if an API key has a required scope.
 func (k *ApiKey) HasScope(requiredScope string) bool {

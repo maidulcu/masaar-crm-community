@@ -20,12 +20,12 @@ import (
 func Normalize(raw string) (string, bool) {
 	// Fast path: if input is already canonical E.164 (+ followed by 7-15 digits, no leading 0),
 	// return raw directly with 0 heap allocations (~11 ns/op).
-	if isCanonicalE164(raw) {
+	if IsCanonicalE164(raw) {
 		return raw, true
 	}
 
 	trimmed := strings.TrimSpace(raw)
-	if isCanonicalE164(trimmed) {
+	if IsCanonicalE164(trimmed) {
 		return trimmed, true
 	}
 
@@ -84,8 +84,9 @@ func Normalize(raw string) (string, bool) {
 	return string(buf[outStart:n]), true
 }
 
-// isCanonicalE164 checks if s is already in valid E.164 canonical format (+ followed by 7-15 digits, not starting with 0).
-func isCanonicalE164(s string) bool {
+// IsCanonicalE164 checks if s is in valid E.164 canonical format (+ followed by 7-15 digits, not starting with 0).
+// Fast, zero-allocation replacement for e164 regexp matching (`^\+[1-9]\d{6,14}$`).
+func IsCanonicalE164(s string) bool {
 	if len(s) < 8 || len(s) > 16 || s[0] != '+' || s[1] == '0' {
 		return false
 	}

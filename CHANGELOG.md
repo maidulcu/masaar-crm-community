@@ -9,12 +9,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [v0.4.0] - Unreleased
 
-### WhatsApp accounts are per company (groundwork)
+### Signing links expire and can be withdrawn; API keys can expire
 
-- **New `wa_accounts` table** (migration `0084`): a WhatsApp connection is now a row owned by a company, with its provider (`cloud_api`, `bsp`, `waha`), status and Meta identifiers. Threads gain `account_id`; the legacy `wa_account_id` (Meta phone number id) stays during the transition.
-- **Existing data is backfilled**: one account per company and phone number id found on its threads, and the threads are linked to it. At startup the number in `WA_PHONE_NUMBER_ID` is also recorded as an account for `APP_COMPANY_ID`.
-- **No behaviour change yet.** The connection is still deployment-wide, and there is no API or screen for accounts; sending and the inbound webhook work as before.
-- The down migration removes `whatsapp_threads.account_id` but keeps `wa_accounts`.
+Migration `0085` adds the columns below. Its down migration removes only the expiry metadata: withdrawn links keep the status `cancelled`.
+
+- **Signing links expire.** A link made with `POST /documents/{id}/request-signature` stops working after 30 days, or after `expires_in_days` (1-365). Links made before the upgrade have no expiry.
+- **Signing links can be withdrawn.** `POST /documents/{id}/signatures/{sig_id}/cancel` withdraws a pending link (for example one sent to the wrong person); the document page has a **Withdraw** button. "Mark signed" can no longer revive a withdrawn link.
+- **The signing page explains a dead link.** `GET` and `POST /api/public/sign/{id}` answer `410` with `cancelled` or `expired`, and the page tells the signer to ask the sender for a new link.
+- **API keys can expire.** `POST /settings/api-keys` takes an optional `expires_in_days` (1-3650), and Settings → API keys offers 30 days, 90 days or one year. An expired key is refused like a revoked one, and the list shows `expires_at`.
+- **Rotating a partner secret ends its tokens.** Partner tokens record a fingerprint of the client secret they were issued under. After the hash in `PARTNER_CLIENTS` is replaced, older tokens are refused at once instead of living out their hour.
+
+### Fixed: in-app e-signing; suspended companies stop being public
+
+- **In-app signing links were broken.** A signature that isn't sent through DocuSign has no envelope id. Reading it back failed, so `GET /api/public/sign/{id}` answered 404 for every in-app signing link, and listing a document's signatures failed. Nullable document and signature columns are now read safely.
+- **Suspended companies disappear from public surfaces.** Their public listing pages answer 404, their signing links can no longer be opened or signed, and their portal feed and portal lead intake answer `403 account_suspended`. Everything comes back when the company is reactivated.
+- **Public responses carry only what the pages show.** The public listing no longer includes `company_id`, `created_by`, `updated_by` or the permit-override fields; these keys are now left out rather than sent empty. The public signature response is limited to the signer's name, email and status and the document's title, type, file and status.
+
+### Lockout per address, and a company always keeps an admin
+
+- **Sign-in lockout is per address.** Five wrong passwords now lock the email only for the IP address they came from. Before, they locked the email everywhere, so anyone who knew a user's email could lock them out. A guessing run spread over many addresses still locks the email everywhere after 50 failures in 15 minutes. Unknown emails get exactly the same responses as registered ones. A password reset clears the email-wide lock and the lock for the address it was made from.
+- **The last active admin can't be removed.** Demoting, deactivating or deleting a user is refused with `409 last_admin` when it would leave the company with no active admin. This applies in the Users page and in `PUT /partner/v1/companies/{ref}/users/{user_ref}`, and it is safe against two admins demoting each other at the same time.
+- A user of a suspended company is refused at sign-in before being asked for a two-factor code.
+- Lead scores are no longer updated on deleted leads.
+
+### Audit log covers confidential files and exports
+
+- **Bank statements:** uploading, downloading and deleting a statement is now recorded in the audit log (file name, size and format, never the content). Uploading with another company's `bank_integration_id` answers 422 instead of 404.
+- **Exports:** every contact, lead and listing CSV export is recorded with the row count and filters used.
+
+### Fixed: sign-in, sign-up and lead intake
+
+- **Magic-link and SMS sign-ins are audited.** They now go through the same session code as password login, so they write the `login` audit entry they used to skip. The SMS response keeps `user.phone`, which every sign-in response now includes.
+- **Magic-link requests no longer reveal which emails are registered.** The email is sent in the background, as password-reset mail already was; before, only registered addresses waited for the SMTP round trip, so response time gave them away.
+- **`POST /webhooks/leads` counts characters, not bytes.** `name` (200), `notes` (2000), `property_type` and `area` (100) were measured in bytes, so Arabic names over 100 letters were refused as "too long". `name` is also trimmed: a blank name is now a 422.
+- **API docs:** `PATCH /leads/{id}/assign` is documented with its real body field, `assigned_to` (the docs said `user_id`).
+- **Sign-up shows readable errors** for a taken email or subdomain instead of the raw `email_taken` / `subdomain_taken` codes.
 
 ### Fixed: new companies had an empty pipeline
 

@@ -397,7 +397,7 @@ func (r *LeadRepo) UpdateScore(ctx context.Context, id uuid.UUID, score int) err
 		return err
 	}
 	_, err = r.db.Exec(ctx,
-		`UPDATE leads SET lead_score=$1, score_updated_at=NOW(), updated_at=NOW() WHERE id=$2 AND company_id=$3`,
+		`UPDATE leads SET lead_score=$1, score_updated_at=NOW(), updated_at=NOW() WHERE id=$2 AND company_id=$3 AND deleted_at IS NULL`,
 		score, id, cid,
 	)
 	return err

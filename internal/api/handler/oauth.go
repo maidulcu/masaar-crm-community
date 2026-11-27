@@ -24,7 +24,7 @@ import (
 const partnerTokenTTL = time.Hour
 
 type partnerTokenStore interface {
-	Issue(ctx context.Context, tokenHash, clientID, scopes string, expiresAt time.Time) error
+	Issue(ctx context.Context, tokenHash, clientID, scopes, secretFingerprint string, expiresAt time.Time) error
 	Revoke(ctx context.Context, tokenHash, clientID string) error
 }
 
@@ -123,7 +123,7 @@ func (h *OAuthHandler) Token(c *fiber.Ctx) error {
 	token := middleware.PartnerTokenPrefix + hex.EncodeToString(b)
 	sum := sha256.Sum256([]byte(token))
 	scope := strings.Join(scopes, " ")
-	if err := h.tokens.Issue(c.Context(), hex.EncodeToString(sum[:]), client.ID, scope, time.Now().Add(partnerTokenTTL)); err != nil {
+	if err := h.tokens.Issue(c.Context(), hex.EncodeToString(sum[:]), client.ID, scope, client.Fingerprint(), time.Now().Add(partnerTokenTTL)); err != nil {
 		return serverError(c, err)
 	}
 	c.Set(fiber.HeaderCacheControl, "no-store")

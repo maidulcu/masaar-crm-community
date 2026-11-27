@@ -73,6 +73,28 @@ const docTemplate = `{
                 "responses": {
                     "200": {
                         "description": "OK"
+                    },
+                    "401": {
+                        "description": "Invalid token",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "error": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "account_suspended: the company is suspended",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "error": {
+                                    "type": "string"
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -113,6 +135,17 @@ const docTemplate = `{
                     },
                     "404": {
                         "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "error": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    },
+                    "410": {
+                        "description": "The link was cancelled or has expired",
                         "schema": {
                             "type": "object",
                             "properties": {
@@ -178,6 +211,17 @@ const docTemplate = `{
                     },
                     "409": {
                         "description": "Conflict",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "error": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    },
+                    "410": {
+                        "description": "The link was cancelled or has expired",
                         "schema": {
                             "type": "object",
                             "properties": {
@@ -4262,6 +4306,17 @@ const docTemplate = `{
                                 }
                             }
                         }
+                    },
+                    "422": {
+                        "description": "Content does not match the extension, or the bank integration is not your company's",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "error": {
+                                    "type": "string"
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -6986,13 +7041,16 @@ const docTemplate = `{
                         "required": true
                     },
                     {
-                        "description": "Signer info",
+                        "description": "Signer info; the link expires after expires_in_days (1-365, default 30)",
                         "name": "body",
                         "in": "body",
                         "required": true,
                         "schema": {
                             "type": "object",
                             "properties": {
+                                "expires_in_days": {
+                                    "type": "integer"
+                                },
                                 "signer_email": {
                                     "type": "string"
                                 },
@@ -7015,6 +7073,63 @@ const docTemplate = `{
                     },
                     "404": {
                         "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "error": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/documents/{id}/signatures/{sig_id}/cancel": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Withdraws a pending signature request (e.g. sent to the wrong person): its public link stops working. Signed or already cancelled signatures answer 409.",
+                "tags": [
+                    "Documents"
+                ],
+                "summary": "Cancel a signing link",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Document UUID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Signature UUID",
+                        "name": "sig_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "error": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
                         "schema": {
                             "type": "object",
                             "properties": {
@@ -8056,7 +8171,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Assigns a lead to a user (agent or admin). Pass null user_id to unassign.",
+                "description": "Assigns a lead to a user (agent or admin). Pass null assigned_to to unassign.",
                 "consumes": [
                     "application/json"
                 ],
@@ -8083,7 +8198,7 @@ const docTemplate = `{
                         "schema": {
                             "type": "object",
                             "properties": {
-                                "user_id": {
+                                "assigned_to": {
                                     "type": "string"
                                 }
                             }
@@ -10672,7 +10787,7 @@ const docTemplate = `{
                         "required": true
                     },
                     {
-                        "description": "admin is required on creation",
+                        "description": "admin is required on creation and ignored on updates",
                         "name": "body",
                         "in": "body",
                         "required": true,
@@ -10720,6 +10835,12 @@ const docTemplate = `{
                             "properties": {
                                 "company": {
                                     "$ref": "#/definitions/repo.PartnerCompany"
+                                },
+                                "warnings": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "string"
+                                    }
                                 }
                             }
                         }
@@ -10812,7 +10933,7 @@ const docTemplate = `{
                         "PartnerAuth": []
                     }
                 ],
-                "description": "Creates the user with your reference in the company, or updates name, role, language and active status. Creating or reactivating a user fails with 409 seat_limit when the company has max_users active users.",
+                "description": "Creates the user with your reference in the company, or updates name, role, language and active status. An update changes only the fields it sends; email is set on creation only (a different one is reported in warnings). Creating or reactivating a user fails with 409 seat_limit when the company has max_users active users.",
                 "consumes": [
                     "application/json"
                 ],
@@ -10839,7 +10960,7 @@ const docTemplate = `{
                         "required": true
                     },
                     {
-                        "description": "email is required on creation; role admin, agent (default) or viewer",
+                        "description": "name and email are required on creation; role admin, agent (default) or viewer",
                         "name": "body",
                         "in": "body",
                         "required": true,
@@ -10873,6 +10994,12 @@ const docTemplate = `{
                             "properties": {
                                 "user": {
                                     "$ref": "#/definitions/repo.PartnerUser"
+                                },
+                                "warnings": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "string"
+                                    }
                                 }
                             }
                         }
@@ -16852,6 +16979,17 @@ const docTemplate = `{
                                 }
                             }
                         }
+                    },
+                    "409": {
+                        "description": "last_admin: the company must keep an active admin",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "error": {
+                                    "type": "string"
+                                }
+                            }
+                        }
                     }
                 }
             },
@@ -16923,6 +17061,17 @@ const docTemplate = `{
                                 }
                             }
                         }
+                    },
+                    "409": {
+                        "description": "last_admin: the company must keep an active admin",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "error": {
+                                    "type": "string"
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -16934,7 +17083,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Admin only, for a user of the same company. The user sets two-factor up again at the next sign-in if the company requires it.",
+                "description": "Admin only, for another user of the same company (not yourself: use /users/me/2fa/disable). Ends the user's sessions; they set two-factor up again at the next sign-in if the company requires it.",
                 "tags": [
                     "Users"
                 ],
@@ -16951,6 +17100,17 @@ const docTemplate = `{
                 "responses": {
                     "204": {
                         "description": "No Content"
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "error": {
+                                    "type": "string"
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -17010,6 +17170,17 @@ const docTemplate = `{
                     },
                     "403": {
                         "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "error": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    },
+                    "409": {
+                        "description": "last_admin: the company must keep an active admin",
                         "schema": {
                             "type": "object",
                             "properties": {
@@ -17195,6 +17366,28 @@ const docTemplate = `{
                             "type": "object",
                             "properties": {
                                 "lead_id": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Invalid token",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "error": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "account_suspended: the company is suspended",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "error": {
                                     "type": "string"
                                 }
                             }
@@ -18071,6 +18264,9 @@ const docTemplate = `{
         "domain.DocumentSignature": {
             "type": "object",
             "properties": {
+                "cancelled_at": {
+                    "type": "string"
+                },
                 "created_at": {
                     "type": "string"
                 },
@@ -18078,6 +18274,10 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "envelope_id": {
+                    "type": "string"
+                },
+                "expires_at": {
+                    "description": "ExpiresAt is when the signing link stops working (nil: never, for links made before\nexpiry existed). CancelledAt is set when the sender withdrew it.",
                     "type": "string"
                 },
                 "id": {
@@ -19820,12 +20020,14 @@ const docTemplate = `{
             "enum": [
                 "not_required",
                 "pending",
-                "signed"
+                "signed",
+                "cancelled"
             ],
             "x-enum-varnames": [
                 "SignatureNotRequired",
                 "SignaturePending",
-                "SignatureSigned"
+                "SignatureSigned",
+                "SignatureCancelled"
             ]
         },
         "domain.Stats": {
@@ -20399,6 +20601,10 @@ const docTemplate = `{
         "handler.ApiKeyCreateRequest": {
             "type": "object",
             "properties": {
+                "expires_in_days": {
+                    "description": "ExpiresInDays makes the key stop working after that many days (1-3650); omitted, the key\nworks until it is revoked.",
+                    "type": "integer"
+                },
                 "name": {
                     "type": "string"
                 },
@@ -20412,6 +20618,9 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "created_at": {
+                    "type": "string"
+                },
+                "expires_at": {
                     "type": "string"
                 },
                 "id": {
@@ -20718,7 +20927,7 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "events": {
-                    "description": "comma-separated: \"lead.created,lead.stage_changed\"",
+                    "description": "\"lead.created,lead.stage_changed\" or [\"lead.created\", …]",
                     "type": "string"
                 },
                 "name": {

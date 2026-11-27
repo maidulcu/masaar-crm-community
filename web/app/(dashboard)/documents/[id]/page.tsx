@@ -22,6 +22,7 @@ const sigStatusColors: Record<string, string> = {
   not_required: 'bg-gray-100 text-gray-600',
   pending: 'bg-yellow-100 text-yellow-700',
   signed: 'bg-green-100 text-green-700',
+  cancelled: 'bg-red-100 text-red-700',
 }
 
 const docTypeColors: Record<string, string> = {
@@ -75,6 +76,14 @@ export default function DocumentDetailPage() {
   const handleMarkSigned = async (sigId: string) => {
     setError(''); setActionLoading(true)
     try { await api.documents.markSigned(sigId); load() }
+    catch (err: unknown) { setError(err instanceof Error ? err.message : t('حدث خطأ', 'Error')) }
+    finally { setActionLoading(false) }
+  }
+
+  const handleCancelSignature = async (sigId: string) => {
+    if (!confirm(t('إلغاء رابط التوقيع؟ لن يعمل الرابط بعد الآن.', 'Withdraw this signing link? It will stop working.'))) return
+    setError(''); setActionLoading(true)
+    try { await api.documents.cancelSignature(id, sigId); load() }
     catch (err: unknown) { setError(err instanceof Error ? err.message : t('حدث خطأ', 'Error')) }
     finally { setActionLoading(false) }
   }
@@ -194,12 +203,19 @@ export default function DocumentDetailPage() {
                   <span className={clsx('px-2 py-0.5 rounded text-[10px] font-medium', sigStatusColors[s.signature_status])}>
                     {s.signature_status === 'signed' ? (lang === 'ar' ? 'موقع' : 'Signed')
                       : s.signature_status === 'pending' ? (lang === 'ar' ? 'معلق' : 'Pending')
+                      : s.signature_status === 'cancelled' ? (lang === 'ar' ? 'ملغى' : 'Withdrawn')
                       : (lang === 'ar' ? 'غير مطلوب' : 'Not Required')}
                   </span>
                   {isAgent && s.signature_status === 'pending' && (
                     <button onClick={() => handleMarkSigned(s.id)} disabled={actionLoading}
                       className="text-xs px-3 py-1 bg-green-100 text-green-700 rounded-md hover:bg-green-200 font-medium">
                       {t('تأكيد', 'Mark Signed')}
+                    </button>
+                  )}
+                  {isAgent && s.signature_status === 'pending' && (
+                    <button onClick={() => handleCancelSignature(s.id)} disabled={actionLoading}
+                      className="text-xs px-3 py-1 bg-red-50 text-red-700 rounded-md hover:bg-red-100 font-medium">
+                      {t('سحب', 'Withdraw')}
                     </button>
                   )}
                 </div>

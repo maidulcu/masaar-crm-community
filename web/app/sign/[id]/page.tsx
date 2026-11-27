@@ -31,6 +31,13 @@ interface SignatureData {
 
 type PageState = 'loading' | 'ready' | 'signing' | 'already_signed' | 'signed' | 'error'
 
+// The API answers a withdrawn or lapsed link with a code; the signer gets a sentence.
+function linkMessage(code: string): string {
+  if (code === 'cancelled') return 'This signature request was withdrawn by the sender. Please contact them for a new link.'
+  if (code === 'expired') return 'This signature link has expired. Please ask the sender for a new one.'
+  return code
+}
+
 export default function PublicSignPage() {
   const { id } = useParams<{ id: string }>()
 
@@ -51,7 +58,7 @@ export default function PublicSignPage() {
         }
       })
       .catch((err) => {
-        setErrorMsg(err.message || 'Failed to load signature request')
+        setErrorMsg(linkMessage(err.message) || 'Failed to load signature request')
         setPageState('error')
       })
   }, [id])
@@ -63,7 +70,7 @@ export default function PublicSignPage() {
       await api.public.sign(id)
       setPageState('signed')
     } catch (err) {
-      setErrorMsg(err instanceof Error ? err.message : 'Signing failed')
+      setErrorMsg(err instanceof Error ? linkMessage(err.message) : 'Signing failed')
       setPageState('error')
     }
   }

@@ -114,6 +114,10 @@ func (r *PortalRepo) Disconnect(ctx context.Context, portal string) error {
 // ErrBadPortalToken is returned for an unknown, disabled or wrong-portal token.
 var ErrBadPortalToken = errors.New("invalid portal token")
 
+// ErrPortalCompanySuspended is returned for a valid token of a suspended company: it neither
+// receives leads nor publishes its feed until it is reactivated.
+var ErrPortalCompanySuspended = errors.New("company suspended")
+
 // CompanyForToken resolves an enabled connection by token. kind is "inbound" or "feed".
 func (r *PortalRepo) CompanyForToken(ctx context.Context, portal, kind, token string) (uuid.UUID, error) {
 	col := "inbound_token_hash"
@@ -121,10 +125,15 @@ func (r *PortalRepo) CompanyForToken(ctx context.Context, portal, kind, token st
 		col = "feed_token_hash"
 	}
 	var cid uuid.UUID
-	err := r.db.QueryRow(ctx, `SELECT company_id FROM portal_connections WHERE `+col+` = $1 AND portal = $2 AND enabled`,
-		HashToken(token), portal).Scan(&cid)
+	var active bool
+	err := r.db.QueryRow(ctx, `SELECT pc.company_id, co.is_active FROM portal_connections pc JOIN companies co ON co.id = pc.company_id
+		WHERE pc.`+col+` = $1 AND pc.portal = $2 AND pc.enabled`,
+		HashToken(token), portal).Scan(&cid, &active)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return uuid.Nil, ErrBadPortalToken
+	}
+	if err == nil && !active {
+		return uuid.Nil, ErrPortalCompanySuspended
 	}
 	return cid, err
 }

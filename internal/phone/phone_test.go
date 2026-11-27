@@ -31,6 +31,35 @@ func TestNormalize(t *testing.T) {
 	}
 }
 
+func TestIsCanonicalE164(t *testing.T) {
+	valid := []string{
+		"+971501234567",
+		"+1234567",
+		"+123456789012345",
+	}
+	invalid := []string{
+		"",
+		"971501234567",
+		"+0501234567",
+		"+123456",           // 6 digits - too short
+		"+1234567890123456", // 16 digits - too long
+		"+971 501234567",
+		"+971a501234567",
+	}
+
+	for _, s := range valid {
+		if !IsCanonicalE164(s) {
+			t.Errorf("IsCanonicalE164(%q) = false, want true", s)
+		}
+	}
+
+	for _, s := range invalid {
+		if IsCanonicalE164(s) {
+			t.Errorf("IsCanonicalE164(%q) = true, want false", s)
+		}
+	}
+}
+
 func TestNormalizeIsIdempotent(t *testing.T) {
 	once, _ := Normalize("00971 50 123 4567")
 	twice, ok := Normalize(once)

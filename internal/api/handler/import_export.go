@@ -5,10 +5,12 @@ import (
 	"encoding/csv"
 	"fmt"
 	"io"
+	"net/mail"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -31,6 +33,21 @@ type ImportExportHandler struct {
 	privacy     consentStore
 	assigner    NewLeadAssigner
 	profiles    *repo.ContactProfileRepo
+	audit       actorAuditLogger
+}
+
+// UseAudit records every export (who pulled how many rows, with which filters) in the audit log.
+func (h *ImportExportHandler) UseAudit(a actorAuditLogger) *ImportExportHandler {
+	h.audit = a
+	return h
+}
+
+// logExport writes one audit entry for an export. The entity id is the actor: an export is
+// about many records, not one.
+func (h *ImportExportHandler) logExport(c *fiber.Ctx, entityType string, rows int, filters fiber.Map) {
+	if actor := localsUserPtr(c); actor != nil {
+		auditWrite(c, h.audit, "export", entityType, *actor, fiber.Map{"rows": rows, "filters": filters})
+	}
 }
 
 // UseProfiles imports and exports contact custom fields as cf_<field_name> columns.
@@ -110,7 +127,8 @@ func (h *ImportExportHandler) Template(c *fiber.Ctx) error {
 	_ = w.Write(headers)
 	w.Flush()
 
-	c.Set("Content-Type", "text/csv")
+	c.Set("Content-Type", "text/csv; charset=utf-8")
+	c.Set("X-Content-Type-Options", "nosniff")
 	c.Set("Content-Disposition", fmt.Sprintf(`attachment; filename="template-%s.csv"`, entity))
 	return c.Send(buf.Bytes())
 }
@@ -137,7 +155,11 @@ func (h *ImportExportHandler) ImportContacts(c *fiber.Ctx) error {
 	}
 	defer f.Close()
 
-	records, err := parseCSV(f)
+	lr := &io.LimitedReader{R: f, N: maxImportFileSize + 1}
+	records, err := parseCSV(lr)
+	if lr.N == 0 {
+		return c.Status(fiber.StatusRequestEntityTooLarge).JSON(fiber.Map{"error": "file is too large (max 5 MB)"})
+	}
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": safeMsg("invalid CSV", err)})
 	}
@@ -163,6 +185,20 @@ func (h *ImportExportHandler) ImportContacts(c *fiber.Ctx) error {
 			skipped++
 			continue
 		}
+		if utf8.RuneCountInString(name) > 200 {
+			errors = append(errors, fiber.Map{"row": rowNum, "error": "full_name is too long (max 200 characters)"})
+			skipped++
+			continue
+		}
+		// Checked before the contact is written, so a rejected row leaves nothing behind.
+		email := strings.TrimSpace(m["email"])
+		if email != "" {
+			if addr, err := mail.ParseAddress(email); err != nil || addr.Address != email || len(email) > 254 {
+				errors = append(errors, fiber.Map{"row": rowNum, "error": "invalid email"})
+				skipped++
+				continue
+			}
+		}
 
 		contact, err := h.contactRepo.Upsert(c.Context(), phone, name)
 		if err != nil {
@@ -172,7 +208,7 @@ func (h *ImportExportHandler) ImportContacts(c *fiber.Ctx) error {
 		}
 
 		// Update optional fields
-		if email := strings.TrimSpace(m["email"]); email != "" && contact.Email == "" {
+		if email != "" && contact.Email == "" {
 			contact.Email = email
 			_ = h.contactRepo.Update(c.Context(), contact)
 		}
@@ -211,7 +247,11 @@ func (h *ImportExportHandler) ImportLeads(c *fiber.Ctx) error {
 	}
 	defer f.Close()
 
-	records, err := parseCSV(f)
+	lr := &io.LimitedReader{R: f, N: maxImportFileSize + 1}
+	records, err := parseCSV(lr)
+	if lr.N == 0 {
+		return c.Status(fiber.StatusRequestEntityTooLarge).JSON(fiber.Map{"error": "file is too large (max 5 MB)"})
+	}
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": safeMsg("invalid CSV", err)})
 	}
@@ -348,8 +388,10 @@ func (h *ImportExportHandler) ExportContacts(c *fiber.Ctx) error {
 		_ = w.Write(csvSafeRow(row))
 	}
 	w.Flush()
+	h.logExport(c, repo.AuditContact, len(result.Data), fiber.Map{"search": search})
 
 	c.Set("Content-Type", "text/csv; charset=utf-8")
+	c.Set("X-Content-Type-Options", "nosniff")
 	c.Set("Content-Disposition", fmt.Sprintf(`attachment; filename="contacts-%s.csv"`, time.Now().Format("2006-01-02")))
 	return c.Send(buf.Bytes())
 }
@@ -385,8 +427,10 @@ func (h *ImportExportHandler) ExportLeads(c *fiber.Ctx) error {
 		}))
 	}
 	w.Flush()
+	h.logExport(c, repo.AuditLead, len(leads), fiber.Map{"stage": stage, "source": source})
 
 	c.Set("Content-Type", "text/csv; charset=utf-8")
+	c.Set("X-Content-Type-Options", "nosniff")
 	c.Set("Content-Disposition", fmt.Sprintf(`attachment; filename="leads-%s.csv"`, time.Now().Format("2006-01-02")))
 	return c.Send(buf.Bytes())
 }
@@ -422,8 +466,10 @@ func (h *ImportExportHandler) ExportListings(c *fiber.Ctx) error {
 		}))
 	}
 	w.Flush()
+	h.logExport(c, "listing", len(result.Data), nil)
 
 	c.Set("Content-Type", "text/csv; charset=utf-8")
+	c.Set("X-Content-Type-Options", "nosniff")
 	c.Set("Content-Disposition", fmt.Sprintf(`attachment; filename="listings-%s.csv"`, time.Now().Format("2006-01-02")))
 	return c.Send(buf.Bytes())
 }

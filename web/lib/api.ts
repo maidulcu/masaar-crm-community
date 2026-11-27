@@ -1358,6 +1358,8 @@ export const api = {
       }),
     markSigned: (signatureId: string) =>
       request(`/api/v1/documents/signatures/${signatureId}/mark-signed`, { method: 'PATCH' }),
+    cancelSignature: (docId: string, signatureId: string) =>
+      request<void>(`/api/v1/documents/${docId}/signatures/${signatureId}/cancel`, { method: 'POST' }),
   },
 
   // ─── BOS24 / DLD Market Data ──────────────────────────────────────────────

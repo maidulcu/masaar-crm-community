@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/gofiber/fiber/v2"
@@ -64,7 +65,8 @@ func TestBankStatementUploadStoresFile(t *testing.T) {
 		_, _ = e.pool.Exec(ctx, `DELETE FROM bank_integrations WHERE company_id = $1`, e.companyID)
 	})
 
-	h := NewBankStatementHandler(repo.NewBankStatementRepo(e.pool), store, 1)
+	rec := &recordingAudit{}
+	h := NewBankStatementHandler(repo.NewBankStatementRepo(e.pool), store, 1).UseAudit(rec)
 	app := fiber.New(fiber.Config{BodyLimit: 10 * 1024 * 1024})
 	for prefix, company := range map[string]uuid.UUID{"/a": e.companyID, "/b": e.otherCo} {
 		company := company
@@ -105,8 +107,8 @@ func TestBankStatementUploadStoresFile(t *testing.T) {
 		t.Fatalf("fake pdf = %d, want 422", code)
 	}
 	// a foreign company's integration id is refused and the stored file is cleaned up
-	if code, _ := upload("/b", "ok.csv", []byte("date,amount\n")); code == 201 {
-		t.Fatal("company B attached a statement to company A's bank integration")
+	if code, _ := upload("/b", "ok.csv", []byte("date,amount\n")); code != 422 {
+		t.Fatalf("company B attaching A's bank integration = %d, want 422", code)
 	}
 	if n := storedFiles(); n != 0 {
 		t.Fatalf("%d files left behind after rejected uploads", n)
@@ -164,5 +166,10 @@ func TestBankStatementUploadStoresFile(t *testing.T) {
 	}
 	if n := storedFiles(); n != 0 {
 		t.Errorf("%d files remain after delete", n)
+	}
+	// Only the successful upload, download and delete are recorded.
+	want := "create bank_statement,download bank_statement,delete bank_statement"
+	if got := strings.Join(rec.entries, ","); got != want {
+		t.Errorf("audit entries = %q, want %q", got, want)
 	}
 }

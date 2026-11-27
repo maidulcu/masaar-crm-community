@@ -151,7 +151,7 @@ func RegisterRoutes(app *fiber.App, h *Handlers, hub *ws.Hub, cfg *config.Config
 
 	// DocuSign Connect webhook — receives signature completion events
 	if h.DocusignWebhook != nil {
-		app.Post("/webhooks/docusign", h.DocusignWebhook.Handle)
+		app.Post("/webhooks/docusign", lim.webhook, h.DocusignWebhook.Handle)
 	}
 
 	// Public listing page — no auth required (for shareable links)
@@ -1205,6 +1205,10 @@ func RegisterRoutes(app *fiber.App, h *Handlers, hub *ws.Hub, cfg *config.Config
 	v1.Post("/documents/:id/request-signature",
 		middleware.RequireRole(domain.RoleAdmin, domain.RoleAgent),
 		h.Document.SendForSignature,
+	)
+	v1.Post("/documents/:id/signatures/:sig_id/cancel",
+		middleware.RequireRole(domain.RoleAdmin, domain.RoleAgent),
+		h.Document.CancelSignature,
 	)
 	v1.Patch("/documents/signatures/:id/mark-signed",
 		middleware.RequireRole(domain.RoleAdmin, domain.RoleAgent),

@@ -1,7 +1,10 @@
 package handler
 
 import (
+	"encoding/json"
+	"net/url"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -36,9 +39,62 @@ func canManageWebhooks(c *fiber.Ctx) bool {
 }
 
 type WebhookSubCreateRequest struct {
-	Name   string `json:"name"`
-	URL    string `json:"url"`
-	Events string `json:"events"` // comma-separated: "lead.created,lead.stage_changed"
+	Name   string        `json:"name"`
+	URL    string        `json:"url"`
+	Events webhookEvents `json:"events" swaggertype:"string"` // "lead.created,lead.stage_changed" or ["lead.created", …]
+}
+
+// webhookEvents reads the event list as a comma-separated string (the documented form) or as
+// a JSON array (what the web app and responses use); before, an array was a 400.
+type webhookEvents string
+
+func (e *webhookEvents) UnmarshalJSON(b []byte) error {
+	var list []string
+	if err := json.Unmarshal(b, &list); err == nil {
+		*e = webhookEvents(strings.Join(list, ","))
+		return nil
+	}
+	var s string
+	if err := json.Unmarshal(b, &s); err != nil {
+		return err
+	}
+	*e = webhookEvents(s)
+	return nil
+}
+
+// checkWebhookURL accepts an absolute https URL with a host and no credentials, up to 2048
+// characters. Where it may point (no internal addresses) is enforced when it is called.
+func checkWebhookURL(raw string) string {
+	if len(raw) > 2048 {
+		return "url is too long (max 2048 characters)"
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme != "https" || u.Hostname() == "" {
+		return "webhook url must be an absolute https:// URL"
+	}
+	if u.User != nil {
+		return "webhook url must not contain credentials"
+	}
+	return ""
+}
+
+// normalizeWebhookEvents checks a comma-separated event list against the known events; empty
+// means all events.
+func normalizeWebhookEvents(s string) (string, string) {
+	var out []string
+	for _, e := range strings.Split(s, ",") {
+		if e = strings.TrimSpace(e); e == "" {
+			continue
+		}
+		if !webhook.KnownEvent(e) {
+			return "", "unknown event: " + e
+		}
+		out = append(out, e)
+	}
+	if len(out) > 20 {
+		return "", "too many events"
+	}
+	return strings.Join(out, ","), ""
 }
 
 type WebhookSubResponse struct {
@@ -116,22 +172,31 @@ func (h *WebhookSubHandler) Create(c *fiber.Ctx) error {
 	if err := c.BodyParser(&req); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid request"})
 	}
+	req.Name, req.URL = strings.TrimSpace(req.Name), strings.TrimSpace(req.URL)
 	if req.Name == "" {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "name is required"})
+	}
+	if utf8.RuneCountInString(req.Name) > 100 {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "name is too long (max 100 characters)"})
 	}
 	if req.URL == "" {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "url is required"})
 	}
-	if !strings.HasPrefix(req.URL, "https://") {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "webhook url must use https"})
+	if msg := checkWebhookURL(req.URL); msg != "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": msg})
 	}
+	events, msg := normalizeWebhookEvents(string(req.Events))
+	if msg != "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": msg})
+	}
+	req.Events = webhookEvents(events)
 
 	secret, err := webhook.GenerateSecret()
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to generate secret"})
 	}
 
-	sub, err := h.webhooks.Create(c.Context(), compID, req.Name, req.URL, req.Events, secret)
+	sub, err := h.webhooks.Create(c.Context(), compID, req.Name, req.URL, string(req.Events), secret)
 	if err != nil {
 		return serverError(c, err)
 	}

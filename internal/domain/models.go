@@ -1815,6 +1815,8 @@ const (
 	SignatureNotRequired SignatureStatus = "not_required"
 	SignaturePending     SignatureStatus = "pending"
 	SignatureSigned      SignatureStatus = "signed"
+	// SignatureCancelled: the sender withdrew the signing link before it was signed.
+	SignatureCancelled SignatureStatus = "cancelled"
 )
 
 type MessageTemplate struct {
@@ -1877,6 +1879,10 @@ type DocumentSignature struct {
 	UserAgent          string          `json:"user_agent"`
 	EnvelopeID         string          `json:"envelope_id,omitempty"`
 	CreatedAt          time.Time       `json:"created_at"`
+	// ExpiresAt is when the signing link stops working (nil: never, for links made before
+	// expiry existed). CancelledAt is set when the sender withdrew it.
+	ExpiresAt   *time.Time `json:"expires_at,omitempty"`
+	CancelledAt *time.Time `json:"cancelled_at,omitempty"`
 }
 
 type DocumentAuditLog struct {

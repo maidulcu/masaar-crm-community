@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/maidulcu/masaar-crm/internal/repo"
@@ -22,6 +23,10 @@ func NewDocusignWebhookHandler(docs *repo.DocumentRepo, webhookSecret string) *D
 
 // Handle processes incoming DocuSign Connect webhook notifications.
 // POST /webhooks/docusign
+// maxDocusignSignatures is how many X-DocuSign-Signature-N headers are checked (DocuSign Connect
+// allows up to 100 keys; accounts use one or two).
+const maxDocusignSignatures = 10
+
 func (h *DocusignWebhookHandler) Handle(c *fiber.Ctx) error {
 	body := c.Body()
 
@@ -31,19 +36,21 @@ func (h *DocusignWebhookHandler) Handle(c *fiber.Ctx) error {
 		return c.SendStatus(fiber.StatusUnauthorized)
 	}
 
-	sig := c.Get("X-DocuSign-Signature-1")
-	if sig == "" {
-		return c.SendStatus(fiber.StatusUnauthorized)
-	}
-	sigBytes, err := base64.StdEncoding.DecodeString(sig)
-	if err != nil {
-		return c.SendStatus(fiber.StatusUnauthorized)
-	}
 	mac := hmac.New(sha256.New, []byte(h.webhookSecret))
 	mac.Write(body)
 	expected := mac.Sum(nil)
-	// Security: Compare raw HMAC digest bytes in constant time to prevent timing side-channel attacks.
-	if !hmac.Equal(sigBytes, expected) {
+	// With several Connect keys (e.g. while rotating), DocuSign sends one signature per key in
+	// X-DocuSign-Signature-1, -2, …: any of them made with our secret is enough.
+	signed := false
+	for i := 1; i <= maxDocusignSignatures; i++ {
+		sigBytes, err := base64.StdEncoding.DecodeString(c.Get(fmt.Sprintf("X-DocuSign-Signature-%d", i)))
+		// Security: Compare raw HMAC digest bytes in constant time to prevent timing side-channel attacks.
+		if err == nil && len(sigBytes) > 0 && hmac.Equal(sigBytes, expected) {
+			signed = true
+			break
+		}
+	}
+	if !signed {
 		return c.SendStatus(fiber.StatusUnauthorized)
 	}
 

@@ -605,7 +605,10 @@ export function Sidebar() {
       </div>
 
       {/* Nav */}
-      <nav className="flex-1 px-3 py-2 space-y-5">
+      <nav
+        aria-label={isAr ? 'التنقل الرئيسي' : 'Main navigation'}
+        className="flex-1 px-3 py-2 space-y-5"
+      >
         {sections.map((section) => (
           <div key={section.title.en}>
             <p className="px-3 mb-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-surface-400">
@@ -624,6 +627,7 @@ const active = item.href === '/analytics'
                   <Link
                     key={item.href}
                     href={item.href}
+                    aria-current={active ? 'page' : undefined}
                     className={clsx(
                       'group relative flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13.5px] font-medium transition-all duration-150 ease-soft',
                       active

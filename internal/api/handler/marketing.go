@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"encoding/json"
 	"fmt"
 	"html"
 	"strings"
@@ -92,7 +93,13 @@ func (h *MarketingHandler) PublicListing(c *fiber.Ctx) error {
 
 	// Company branding comes from the listing's own company.
 	settings, _ := h.companySettings.Get(tenant.With(c.Context(), listing.CompanyID))
-	resp := fiber.Map{"listing": listing}
+	public, err := withoutKeys(listing, "company_id", "created_by", "updated_by", "permit_override_by",
+		"permit_override_at", "permit_override_reason", "owner_name", "owner_email", "owner_phone",
+		"assigned_to", "portal_sync_status")
+	if err != nil {
+		return serverError(c, err)
+	}
+	resp := fiber.Map{"listing": public}
 	if settings != nil {
 		resp["company"] = fiber.Map{
 			"name":          settings.Name,
@@ -103,6 +110,23 @@ func (h *MarketingHandler) PublicListing(c *fiber.Ctx) error {
 		}
 	}
 	return c.JSON(resp)
+}
+
+// withoutKeys returns v's JSON object without the named keys: internal ids and fields that
+// must not leave the CRM, dropped rather than sent empty.
+func withoutKeys(v any, keys ...string) (map[string]any, error) {
+	raw, err := json.Marshal(v)
+	if err != nil {
+		return nil, err
+	}
+	var m map[string]any
+	if err := json.Unmarshal(raw, &m); err != nil {
+		return nil, err
+	}
+	for _, k := range keys {
+		delete(m, k)
+	}
+	return m, nil
 }
 
 // DownloadBrochure handles GET /api/v1/listings/:id/brochure
