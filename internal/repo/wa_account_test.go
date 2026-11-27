@@ -1,6 +1,7 @@
 package repo
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/google/uuid"
@@ -151,11 +152,11 @@ func TestLinkThreadsToAccount(t *testing.T) {
 		t.Fatalf("ensure: %v", err)
 	}
 
-	// Two threads with the legacy key and one already attached to another account.
-	contact := uuid.New()
-	must(t, e.pool, `INSERT INTO contacts (id, company_id, phone_wa, full_name) VALUES ($1, $2, $3, 'Customer')`,
-		contact, e.a.id, "+971500000002")
+	// Two threads with the legacy key. A contact has one thread per number, so use two contacts.
 	for i := 0; i < 2; i++ {
+		contact := uuid.New()
+		must(t, e.pool, `INSERT INTO contacts (id, company_id, phone_wa, full_name) VALUES ($1, $2, $3, 'Customer')`,
+			contact, e.a.id, fmt.Sprintf("+97150000001%d", i))
 		must(t, e.pool, `INSERT INTO whatsapp_threads (id, company_id, contact_id, wa_account_id)
 			VALUES ($1, $2, $3, $4)`, uuid.New(), e.a.id, contact, phoneNumberID)
 	}
